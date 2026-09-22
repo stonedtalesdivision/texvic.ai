@@ -24,20 +24,20 @@ export interface PublishReelResult {
   error?: string;
 }
 
-const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v22.0';
-const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+const GRAPH_API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v24.0';
+const GRAPH_BASE_URL = `https://graph.instagram.com/${GRAPH_API_VERSION}`;
+const INSTAGRAM_OAUTH_URL = 'https://www.instagram.com/oauth/authorize';
+const INSTAGRAM_TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
 
 /**
  * Constructs the real Meta OAuth dialog URL for connecting Instagram Business / Creator accounts.
  */
 export function getMetaOAuthUrl(clientId: string, redirectUri: string, state: string): string {
   const scopes = [
-    'instagram_basic',
-    'instagram_content_publish',
-    'instagram_manage_comments',
-    'instagram_manage_insights',
-    'pages_show_list',
-    'pages_read_engagement'
+    'instagram_business_basic',
+    'instagram_business_content_publish',
+    'instagram_business_manage_comments',
+    'instagram_business_manage_insights'
   ].join(',');
 
   const params = new URLSearchParams({
@@ -48,7 +48,9 @@ export function getMetaOAuthUrl(clientId: string, redirectUri: string, state: st
     state: state
   });
 
-  return `https://www.facebook.com/${GRAPH_API_VERSION}/dialog/oauth?${params.toString()}`;
+  params.set('enable_fb_login', '0');
+  params.set('force_authentication', '1');
+  return `${INSTAGRAM_OAUTH_URL}?${params.toString()}`;
 }
 
 /**
@@ -70,78 +72,50 @@ export async function exchangeCodeForLongLivedTokens(
   error?: string;
 }> {
   try {
-    // 1. Exchange authorization code for short-lived user token
-    const tokenUrl = new URL(`${GRAPH_BASE_URL}/oauth/access_token`);
-    tokenUrl.searchParams.set('client_id', clientId);
-    tokenUrl.searchParams.set('client_secret', clientSecret);
-    tokenUrl.searchParams.set('redirect_uri', redirectUri);
-    tokenUrl.searchParams.set('code', code);
+    const shortTokenRes = await fetch(INSTAGRAM_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        code
+      }).toString()
+    });
+    const shortTokenData = await shortTokenRes.json();
 
-    const tokenRes = await fetch(tokenUrl.toString());
-    const tokenData = await tokenRes.json();
-
-    if (!tokenRes.ok || !tokenData.access_token) {
-      return {
-        userAccessToken: '',
-        longLivedAccessToken: '',
-        error: tokenData.error?.message || 'Failed to exchange authorization code for token'
-      };
+    if (!shortTokenRes.ok || !shortTokenData.access_token) {
+      return { userAccessToken: '', longLivedAccessToken: '', error: shortTokenData.error_message || shortTokenData.error?.message || 'Instagram authorization code exchange failed.' };
     }
 
-    const shortLivedToken = tokenData.access_token;
-
-    // 2. Exchange short-lived token for long-lived token (60-day expiry)
-    const longLivedUrl = new URL(`${GRAPH_BASE_URL}/oauth/access_token`);
-    longLivedUrl.searchParams.set('grant_type', 'fb_exchange_token');
-    longLivedUrl.searchParams.set('client_id', clientId);
+    const longLivedUrl = new URL(`${GRAPH_BASE_URL}/access_token`);
+    longLivedUrl.searchParams.set('grant_type', 'ig_exchange_token');
     longLivedUrl.searchParams.set('client_secret', clientSecret);
-    longLivedUrl.searchParams.set('fb_exchange_token', shortLivedToken);
+    longLivedUrl.searchParams.set('access_token', shortTokenData.access_token);
 
     const longLivedRes = await fetch(longLivedUrl.toString());
     const longLivedData = await longLivedRes.json();
-    const finalToken = longLivedData.access_token || shortLivedToken;
+    if (!longLivedRes.ok || !longLivedData.access_token) {
+      return { userAccessToken: shortTokenData.access_token, longLivedAccessToken: '', error: longLivedData.error_message || longLivedData.error?.message || 'Instagram long-lived token exchange failed.' };
+    }
 
-    // 3. Query linked Facebook Pages and discover connected Instagram Business Account
-    const accountsUrl = `${GRAPH_BASE_URL}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${finalToken}`;
-    const accountsRes = await fetch(accountsUrl);
-    const accountsData = await accountsRes.json();
-
-    let igAccountId: string | undefined;
-    let igUsername: string | undefined;
-    let igName: string | undefined;
-    let igPic: string | undefined;
-    let pageAccessToken: string = finalToken;
-
-    if (accountsData.data && Array.isArray(accountsData.data)) {
-      for (const page of accountsData.data) {
-        if (page.instagram_business_account?.id) {
-          igAccountId = page.instagram_business_account.id;
-          igUsername = page.instagram_business_account.username;
-          igName = page.instagram_business_account.name;
-          igPic = page.instagram_business_account.profile_picture_url;
-          if (page.access_token) {
-            pageAccessToken = page.access_token;
-          }
-          break;
-        }
-      }
+    const profileRes = await getInstagramAccountProfile('', longLivedData.access_token);
+    if (!profileRes.success || !profileRes.data) {
+      return { userAccessToken: shortTokenData.access_token, longLivedAccessToken: longLivedData.access_token, error: profileRes.error || 'Connected Instagram account could not be verified.' };
     }
 
     return {
-      userAccessToken: shortLivedToken,
-      longLivedAccessToken: pageAccessToken,
-      instagramAccountId: igAccountId,
-      instagramUsername: igUsername,
-      instagramName: igName,
-      profilePictureUrl: igPic,
+      userAccessToken: shortTokenData.access_token,
+      longLivedAccessToken: longLivedData.access_token,
+      instagramAccountId: profileRes.data.id,
+      instagramUsername: profileRes.data.username.replace(/^@/, ''),
+      instagramName: profileRes.data.name,
+      profilePictureUrl: profileRes.data.profile_picture_url,
       expiresIn: Number(longLivedData.expires_in || 0) || undefined
     };
   } catch (err: any) {
-    return {
-      userAccessToken: '',
-      longLivedAccessToken: '',
-      error: err?.message || 'Network exception during token exchange'
-    };
+    return { userAccessToken: '', longLivedAccessToken: '', error: err?.message || 'Network exception during Instagram token exchange' };
   }
 }
 
@@ -149,11 +123,11 @@ export async function exchangeCodeForLongLivedTokens(
  * Fetches real account profile information from Instagram Graph API
  */
 export async function getInstagramAccountProfile(
-  igAccountId: string,
+  _igAccountId: string,
   accessToken: string
 ): Promise<{ success: boolean; data?: MetaAccountDetails; error?: string }> {
   try {
-    const url = `${GRAPH_BASE_URL}/${igAccountId}?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
+    const url = `${GRAPH_BASE_URL}/me?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
     const res = await fetch(url);
     const data = await res.json();
 
@@ -176,7 +150,7 @@ export async function getInstagramAccountProfile(
       }
     };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Network error fetching account profile' };
+    return { success: false, error: err?.message || 'Network error fetching Instagram profile' };
   }
 }
 
