@@ -116,7 +116,7 @@ app.get("/api/auth/instagram/url", (req, res) => {
   if (!clientId) {
     return res.status(400).json({
       success: false,
-      error: "META_APP_ID is not configured in environment variables. Please provide your Meta App ID in Settings or enter your access token directly."
+      error: "INSTAGRAM_APP_ID is not configured. Set your Instagram Business Login App ID in the server environment."
     });
   }
 
