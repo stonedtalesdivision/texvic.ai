@@ -1,6 +1,6 @@
 {
   "name": "Instagram AI Growth & Reel Agent",
-  "description": "Autonomous AI agent for Instagram growth: generate viral reels and posts, align trending audio, auto-respond to comments, track analytics, and auto-schedule publishing.",
+  "description": "SARLX.Ai autonomous Instagram growth and reel agent: generate viral reels and carousels, align trending audio, auto-respond to comments, track analytics, and auto-schedule publishing.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

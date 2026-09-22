@@ -36,8 +36,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     setTimeout(() => setAutoAdjusted(false), 3000);
   };
 
-  // Find max value in history for chart scaling
-  const maxHistoryVal = Math.max(...analytics.historicalImpressions.map(h => h[selectedMetric])) * 1.15;
+  // Find max value in history for chart scaling with zero protection
+  const maxVal = Math.max(...analytics.historicalImpressions.map(h => h[selectedMetric]), 0);
+  const maxHistoryVal = maxVal > 0 ? maxVal * 1.15 : 100;
+  const totalWeeklyVal = analytics.historicalImpressions.reduce((acc, cur) => acc + cur[selectedMetric], 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-8">
@@ -55,7 +57,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             Account Velocity: Scaling Impressions & Reel Watch Duration
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-            Autonomous agent optimization has boosted non-follower explore reach by <strong>+32.1%</strong> through beat-aligned 3s hooks and high-retention audio.
+            {analytics.metrics.impressions > 0 
+              ? `Autonomous agent optimization has boosted non-follower explore reach by +${analytics.metrics.impressionsChange}% through beat-aligned 3s hooks.`
+              : 'Autonomous agent optimization is active for SARLX.Ai. Generate your first high-retention reel or carousel to begin driving Explore feed impressions.'}
           </p>
         </div>
 
@@ -86,7 +90,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             </span>
             <span className="text-xs font-bold text-emerald-400 flex items-center">
               <ArrowUpRight className="w-3 h-3" />
-              +{analytics.metrics.impressionsChange}%
+              {analytics.metrics.impressionsChange > 0 ? `+${analytics.metrics.impressionsChange}%` : '0%'}
             </span>
           </div>
           <span className="text-[11px] text-slate-500 mt-1.5 block">
@@ -106,7 +110,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             </span>
             <span className="text-xs font-bold text-emerald-400 flex items-center">
               <ArrowUpRight className="w-3 h-3" />
-              +{analytics.metrics.reelPlaysChange}%
+              {analytics.metrics.reelPlaysChange > 0 ? `+${analytics.metrics.reelPlaysChange}%` : '0%'}
             </span>
           </div>
           <span className="text-[11px] text-slate-500 mt-1.5 block">
@@ -125,11 +129,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               {analytics.metrics.avgWatchTimeSeconds}s
             </span>
             <span className="text-xs font-bold text-emerald-400 flex items-center">
-              +51% vs niche
+              {analytics.metrics.avgWatchTimeSeconds > 0 ? '+51% vs niche' : '0% vs niche'}
             </span>
           </div>
           <span className="text-[11px] text-slate-500 mt-1.5 block">
-            Benchmark: {analytics.metrics.avgWatchTimeBenchmark}s in this niche
+            Benchmark: {analytics.metrics.avgWatchTimeBenchmark > 0 ? `${analytics.metrics.avgWatchTimeBenchmark}s in this niche` : 'Awaiting published reels'}
           </span>
         </div>
 
@@ -144,11 +148,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               {analytics.metrics.loopCompletionRate}%
             </span>
             <span className="text-xs font-bold text-amber-400">
-              High Viral Signal
+              {analytics.metrics.loopCompletionRate > 0 ? 'High Viral Signal' : '0% Baseline'}
             </span>
           </div>
           <span className="text-[11px] text-slate-500 mt-1.5 block">
-            Viewers re-watch 1.4x on average
+            {analytics.metrics.loopCompletionRate > 0 ? 'Viewers re-watch 1.4x on average' : 'Awaiting first reel performance'}
           </span>
         </div>
       </div>
@@ -203,14 +207,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   </div>
 
                   {/* Visual Bar */}
-                  <div className="w-full max-w-[40px] bg-slate-800 rounded-t-xl overflow-hidden relative">
+                  <div className="w-full max-w-[40px] bg-slate-800/60 rounded-t-xl overflow-hidden relative">
                     <div
                       className={`w-full rounded-t-xl transition-all duration-500 ${
                         selectedMetric === 'impressions'
                           ? 'bg-gradient-to-t from-sky-600 to-sky-400 group-hover:from-sky-500 group-hover:to-sky-300'
                           : 'bg-gradient-to-t from-pink-600 to-purple-400 group-hover:from-pink-500 group-hover:to-purple-300'
                       }`}
-                      style={{ height: `${heightPercent}%`, minHeight: '8px' }}
+                      style={{ height: `${heightPercent}%`, minHeight: heightPercent > 0 ? '8px' : '2px', opacity: heightPercent > 0 ? 1 : 0.25 }}
                     />
                   </div>
 
@@ -224,8 +228,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
 
           <div className="flex items-center justify-between text-xs text-slate-400 pt-2">
-            <span>Weekly Gain: <strong>+116.4K Peak Impressions</strong></span>
-            <span className="text-emerald-400 font-semibold">Algorithm Push Confirmed</span>
+            <span>
+              Weekly Total: <strong className="text-white">{totalWeeklyVal > 0 ? `+${totalWeeklyVal.toLocaleString()} ${selectedMetric === 'impressions' ? 'Impressions' : 'Plays'}` : `0 ${selectedMetric === 'impressions' ? 'Impressions' : 'Plays'}`}</strong>
+            </span>
+            <span className={totalWeeklyVal > 0 ? 'text-emerald-400 font-semibold' : 'text-slate-500 font-medium'}>
+              {totalWeeklyVal > 0 ? 'Algorithm Push Active' : 'Ready for Content Launch'}
+            </span>
           </div>
         </div>
 
@@ -279,7 +287,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
 
           <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-200">
-            💡 <strong>Insight:</strong> 85% of users survive past second 3 because our hooks use visual contradiction instead of speaking intros.
+            💡 <strong>Insight:</strong> {analytics.metrics.loopCompletionRate > 0
+              ? '85% of users survive past second 3 because our hooks use visual contradiction instead of speaking intros.'
+              : 'Hook retention will calculate live once reels are published. Target 3s visual pattern interrupts to retain >75% of viewers.'}
           </div>
         </div>
       </div>

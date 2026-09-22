@@ -4,12 +4,53 @@ import {
   Copy, Check, Send, Heart, MessageCircle, RefreshCw, CheckCircle2 
 } from 'lucide-react';
 import { PostItem, CarouselSlide } from '../types';
-import { INITIAL_POSTS } from '../data/mockData';
 
 interface CarouselPostCreatorProps {
   onSaveToGallery: (post: PostItem) => void;
   onSchedulePost: (post: PostItem) => void;
 }
+
+const defaultStarterCarousel: PostItem = {
+  id: 'starter-carousel',
+  type: 'carousel',
+  title: 'The 3 Pillars of Instagram Reach',
+  caption: 'Swipe through to learn the 3 pillars top creators use to hit 100K+ reach.\n\nSave this post to reference during your next content session! 📌',
+  hashtags: ['#instagramgrowth', '#contentstrategy', '#carouseldesign', '#creatoreconomy', '#viralreach'],
+  status: 'draft',
+  scheduledPlatforms: ['instagram'],
+  createdAt: new Date().toISOString(),
+  engagementScore: 92,
+  slides: [
+    {
+      slideNumber: 1,
+      headline: 'The 3 Pillars of Instagram Reach',
+      bodyText: 'How modern accounts scale impressions without paid ads or spamming posts.',
+      takeaway: 'Swipe to inspect →',
+      theme: 'dark'
+    },
+    {
+      slideNumber: 2,
+      headline: 'Pillar 1: Watch Time & Replays',
+      bodyText: 'The algorithm pushes content that holds attention. 3-second hooks determine 70% of distribution.',
+      takeaway: 'Front-load value in frame 1',
+      theme: 'indigo'
+    },
+    {
+      slideNumber: 3,
+      headline: 'Pillar 2: Keyword DM Automations',
+      bodyText: 'Prompt specific words like "TOOL" in the comments. Faster replies signal high community affinity.',
+      takeaway: 'Turn comments into conversations',
+      theme: 'slate'
+    },
+    {
+      slideNumber: 4,
+      headline: 'Save This Guide',
+      bodyText: 'Hit the bookmark icon so you have this roadmap ready when creating your next reel or post.',
+      takeaway: 'Bookmark for reference 🔖',
+      theme: 'emerald'
+    }
+  ]
+};
 
 export const CarouselPostCreator: React.FC<CarouselPostCreatorProps> = ({
   onSaveToGallery,
@@ -19,7 +60,7 @@ export const CarouselPostCreator: React.FC<CarouselPostCreatorProps> = ({
   const [niche, setNiche] = useState('Instagram Strategy & AI Growth');
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentPost, setCurrentPost] = useState<PostItem>(INITIAL_POSTS[0]);
+  const [currentPost, setCurrentPost] = useState<PostItem>(defaultStarterCarousel);
   const [copiedCaption, setCopiedCaption] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -298,7 +339,7 @@ export const CarouselPostCreator: React.FC<CarouselPostCreatorProps> = ({
 
               {/* Slide Top Bar */}
               <div className="relative z-10 flex items-center justify-between text-xs text-slate-400 font-medium">
-                <span className="font-bold text-pink-400">@alexcreates.ai</span>
+                <span className="font-bold text-pink-400">@SARLX.Ai</span>
                 <span className="text-[10px] uppercase tracking-wider font-mono bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-800">
                   Part 0{activeSlideIndex + 1}
                 </span>

@@ -9,6 +9,7 @@ interface NavbarProps {
   autonomousMode: boolean;
   setAutonomousMode: (val: boolean | ((prev: boolean) => boolean)) => void;
   pendingCommentsCount: number;
+  onOpenAccountConnector?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -17,45 +18,63 @@ export const Navbar: React.FC<NavbarProps> = ({
   analytics,
   autonomousMode,
   setAutonomousMode,
-  pendingCommentsCount
+  pendingCommentsCount,
+  onOpenAccountConnector
 }) => {
   return (
     <header className="sticky top-0 z-50 bg-[#0d121d]/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3.5">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         {/* Brand & Profile Identity */}
-        <div className="flex items-center gap-3.5">
+        <div 
+          onClick={onOpenAccountConnector}
+          className="flex items-center gap-3.5 cursor-pointer group"
+          title="Click to switch or configure Instagram profile"
+        >
           <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 p-[2px] shadow-lg shadow-pink-500/20">
-              <img
-                src={analytics.profile.avatar}
-                alt={analytics.profile.name}
-                className="w-full h-full object-cover rounded-[10px]"
-              />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 p-[2px] shadow-lg shadow-purple-500/25 group-hover:scale-105 transition-transform flex items-center justify-center">
+              <div className="w-full h-full rounded-[10px] bg-[#0b0f19] flex items-center justify-center overflow-hidden">
+                <span className="font-black text-sm tracking-tighter bg-gradient-to-tr from-cyan-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                  SX
+                </span>
+              </div>
             </div>
             <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0d121d] rounded-full" />
           </div>
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white tracking-tight flex items-center gap-1.5 text-base">
-                {analytics.profile.handle}
+              <span className="font-bold text-white tracking-tight flex items-center gap-1.5 text-base group-hover:text-pink-300 transition-colors">
+                {analytics.profile.name || 'SARLX.Ai'}
                 <CheckCircle2 className="w-4 h-4 text-sky-400 fill-sky-400/20" />
               </span>
-              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-pink-500/10 text-pink-400 border border-pink-500/20 flex items-center gap-1">
+              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 flex items-center gap-1">
                 <Flame className="w-3 h-3 text-pink-400" />
-                +28.4% Impressions
+                {analytics.metrics.impressionsChange > 0 ? `+${analytics.metrics.impressionsChange}%` : '0%'} Impressions
               </span>
             </div>
             <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
               <span>{analytics.profile.followers.toLocaleString()} Followers</span>
               <span className="text-slate-600">•</span>
-              <span className="text-emerald-400 font-medium">{analytics.metrics.impressions.toLocaleString()} Weekly Impressions</span>
+              <span className="text-emerald-400 font-medium">{analytics.metrics.impressions.toLocaleString()} Impressions</span>
+              <span className="text-slate-600">•</span>
+              <span className="text-[11px] text-pink-400/90 hover:underline">Edit Profile ✎</span>
             </p>
           </div>
         </div>
 
         {/* Autonomous Mode Toggle & Action */}
         <div className="flex items-center gap-3 self-end md:self-auto">
+          {onOpenAccountConnector && (
+            <button
+              type="button"
+              onClick={onOpenAccountConnector}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors"
+            >
+              <Instagram className="w-3.5 h-3.5 text-pink-400" />
+              Sync Account
+            </button>
+          )}
+
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800">
             <Bot className={`w-4 h-4 ${autonomousMode ? 'text-emerald-400 animate-pulse' : 'text-slate-500'}`} />
             <div className="text-left">

@@ -4,7 +4,7 @@ import {
   Layers, Sliders, Volume2, ArrowRight, Eye, Calendar, Bookmark, AlertCircle 
 } from 'lucide-react';
 import { ReelItem, TrendingAudio, ReelTemplate, ReelScene } from '../types';
-import { REEL_TEMPLATES, INITIAL_TRENDING_AUDIOS } from '../data/mockData';
+import { PRODUCTION_TEMPLATES, PRODUCTION_TRENDING_AUDIOS } from '../constants';
 import { ReelPlayer } from './ReelPlayer';
 import { playTrendingAudioTrack, stopAudioTrack } from '../utils/audioSynth';
 
@@ -14,8 +14,8 @@ interface ReelGeneratorProps {
 }
 
 export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, onScheduleReel }) => {
-  const [selectedTemplate, setSelectedTemplate] = useState<ReelTemplate>(REEL_TEMPLATES[0]);
-  const [selectedAudio, setSelectedAudio] = useState<TrendingAudio>(INITIAL_TRENDING_AUDIOS[0]);
+  const [selectedTemplate, setSelectedTemplate] = useState<ReelTemplate>(PRODUCTION_TEMPLATES[0]);
+  const [selectedAudio, setSelectedAudio] = useState<TrendingAudio>(PRODUCTION_TRENDING_AUDIOS[0]);
   const [niche, setNiche] = useState('AI & Content Scaling');
   const [topic, setTopic] = useState('How 1 retention tweak 10x our Instagram reel views');
   const [targetDuration, setTargetDuration] = useState<number>(8);
@@ -236,7 +236,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {REEL_TEMPLATES.map((tmpl) => {
+              {PRODUCTION_TEMPLATES.map((tmpl) => {
                 const isSelected = selectedTemplate.id === tmpl.id;
                 return (
                   <button
@@ -360,7 +360,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             </div>
 
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              {INITIAL_TRENDING_AUDIOS.map((audio) => {
+              {PRODUCTION_TRENDING_AUDIOS.map((audio) => {
                 const isSelected = selectedAudio.id === audio.id;
                 const isPlaying = playingAudioId === audio.id;
 

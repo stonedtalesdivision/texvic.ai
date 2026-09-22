@@ -1,0 +1,60 @@
+{
+  "autonomousMode": true,
+  "reels": [],
+  "posts": [],
+  "comments": [],
+  "analytics": {
+    "profile": {
+      "handle": "@SARLX.Ai",
+      "name": "SARLX.Ai",
+      "avatar": "",
+      "followers": 0,
+      "followersChange": 0,
+      "following": 0,
+      "postsCount": 0,
+      "category": "AI Growth Engine",
+      "bio": "⚡ Autonomous Instagram growth & reach agent for SARLX.Ai\n🎬 Real-time viral reels, carousels, and 24/7 engagement",
+      "isVerified": true
+    },
+    "metrics": {
+      "impressions": 0,
+      "impressionsChange": 0,
+      "reach": 0,
+      "reachChange": 0,
+      "profileViews": 0,
+      "profileViewsChange": 0,
+      "totalReelPlays": 0,
+      "reelPlaysChange": 0,
+      "avgWatchTimeSeconds": 0,
+      "avgWatchTimeBenchmark": 0,
+      "loopCompletionRate": 0,
+      "engagementRate": 0
+    },
+    "historicalImpressions": [
+      { "date": "Day 1", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
+      { "date": "Day 2", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
+      { "date": "Day 3", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
+      { "date": "Day 4", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
+      { "date": "Day 5", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
+      { "date": "Day 6", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
+      { "date": "Day 7", "impressions": 0, "reelViews": 0, "postImpressions": 0 }
+    ],
+    "retentionCurve": [
+      { "second": 0, "percentage": 0 },
+      { "second": 1, "percentage": 0 },
+      { "second": 2, "percentage": 0 },
+      { "second": 3, "percentage": 0 },
+      { "second": 5, "percentage": 0 },
+      { "second": 7, "percentage": 0 },
+      { "second": 10, "percentage": 0 },
+      { "second": 12, "percentage": 0 }
+    ],
+    "bestPostingSlots": [
+      { "day": "Monday", "time": "18:30", "boostPercentage": "+44% reach", "isScheduled": false },
+      { "day": "Wednesday", "time": "12:15", "boostPercentage": "+38% reach", "isScheduled": false },
+      { "day": "Thursday", "time": "19:00", "boostPercentage": "+52% reach", "isScheduled": false },
+      { "day": "Friday", "time": "17:45", "boostPercentage": "+47% reach", "isScheduled": false },
+      { "day": "Sunday", "time": "20:00", "boostPercentage": "+61% reach", "isScheduled": false }
+    ]
+  }
+}

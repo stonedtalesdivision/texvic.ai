@@ -322,14 +322,14 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         {/* Bottom Profile Info & Caption Overlay */}
         <div className="relative z-20 px-4 pb-4 text-white">
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-400 to-pink-500 p-[1.5px]">
-              <img 
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" 
-                alt="Profile" 
-                className="w-full h-full object-cover rounded-full"
-              />
+            <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 p-[1.5px] flex items-center justify-center shadow-md shadow-purple-500/20">
+              <div className="w-full h-full rounded-full bg-[#0b0f19] flex items-center justify-center">
+                <span className="text-[9px] font-black tracking-tighter bg-gradient-to-tr from-cyan-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                  SX
+                </span>
+              </div>
             </div>
-            <span className="text-xs font-bold tracking-tight">@alexcreates.ai</span>
+            <span className="text-xs font-bold tracking-tight">@SARLX.Ai</span>
             <button className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-white/50 bg-white/10 backdrop-blur-md hover:bg-white/20 transition-all">
               Follow
             </button>

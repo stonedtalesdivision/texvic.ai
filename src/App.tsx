@@ -1,12 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ReelItem, PostItem, CommentItem, AccountAnalytics, StrategyInsight 
 } from './types';
-import { 
-  INITIAL_REELS, INITIAL_POSTS, INITIAL_COMMENTS, 
-  INITIAL_ACCOUNT_ANALYTICS, INITIAL_STRATEGY_INSIGHTS 
-} from './data/mockData';
+import { DEFAULT_ACCOUNT_ANALYTICS } from './constants';
 import { Navbar } from './components/Navbar';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ReelGenerator } from './components/ReelGenerator';
@@ -14,34 +11,101 @@ import { CarouselPostCreator } from './components/CarouselPostCreator';
 import { AutoResponder } from './components/AutoResponder';
 import { SchedulePublisher } from './components/SchedulePublisher';
 import { ContentGallery } from './components/ContentGallery';
+import { AccountConnectorModal } from './components/AccountConnectorModal';
+
+const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
+  {
+    id: 'strat-1',
+    type: 'posting_window',
+    title: 'High-Velocity Window: Thursday 19:00',
+    description: 'Your audience activity peaks between 18:45 and 20:15. Scheduling an 8s high-retention reel here will capture maximum initial push.',
+    impact: 'critical',
+    metricTarget: '+45K Projected Impressions',
+    actionLabel: 'Schedule Reel to Thursday 19:00',
+    suggestedActionType: 'reschedule'
+  },
+  {
+    id: 'strat-2',
+    type: 'audio_trend',
+    title: 'Audio Velocity Alert: "Midnight Phonk" (+480%)',
+    description: 'Trending audio "Midnight Phonk Drive" has an 84% algorithmic push rate. Pairing this with a 3-scene fast hook accelerates non-follower reach.',
+    impact: 'high',
+    metricTarget: 'Reach +38%',
+    actionLabel: 'Generate Reel with this Track',
+    suggestedActionType: 'create_reel'
+  },
+  {
+    id: 'strat-3',
+    type: 'opportunity',
+    title: 'Turn Comments Into DM Lead Conversions',
+    description: 'Comments with keyword "TOOL" have a 92% open rate when answered within 3 minutes. Enable Autonomous Auto-DM Responder to capture leads 24/7.',
+    impact: 'high',
+    metricTarget: 'Community Engagement +60%',
+    actionLabel: 'Enable Auto-Reply Mode',
+    suggestedActionType: 'enable_auto_reply'
+  }
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery'>('analytics');
   const [autonomousMode, setAutonomousMode] = useState<boolean>(true);
-  const [analytics, setAnalytics] = useState<AccountAnalytics>(INITIAL_ACCOUNT_ANALYTICS);
-  const [reels, setReels] = useState<ReelItem[]>(INITIAL_REELS);
-  const [posts, setPosts] = useState<PostItem[]>(INITIAL_POSTS);
-  const [comments, setComments] = useState<CommentItem[]>(INITIAL_COMMENTS);
-  const [insights, setInsights] = useState<StrategyInsight[]>(INITIAL_STRATEGY_INSIGHTS);
+  const [analytics, setAnalytics] = useState<AccountAnalytics>(DEFAULT_ACCOUNT_ANALYTICS);
+  const [reels, setReels] = useState<ReelItem[]>([]);
+  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [insights, setInsights] = useState<StrategyInsight[]>(DEFAULT_STRATEGY_INSIGHTS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3200);
   };
 
-  const handleSaveReelToGallery = (reel: ReelItem) => {
+  // Fetch live state from backend API on mount
+  useEffect(() => {
+    async function loadLiveWorkspace() {
+      try {
+        const res = await fetch('/api/state');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            if (data.reels && Array.isArray(data.reels)) setReels(data.reels);
+            if (data.posts && Array.isArray(data.posts)) setPosts(data.posts);
+            if (data.comments && Array.isArray(data.comments)) setComments(data.comments);
+            if (data.analytics) setAnalytics(data.analytics);
+            if (typeof data.autonomousMode === 'boolean') setAutonomousMode(data.autonomousMode);
+          }
+        }
+      } catch (err) {
+        console.warn('Backend API connection notice, using local state:', err);
+      }
+    }
+    loadLiveWorkspace();
+  }, []);
+
+  const handleSaveReelToGallery = async (reel: ReelItem) => {
+    const savedReel = { ...reel, status: 'saved' as const };
     setReels(prev => {
       const exists = prev.find(r => r.id === reel.id);
-      if (exists) {
-        return prev.map(r => r.id === reel.id ? { ...reel, status: 'saved' } : r);
-      }
-      return [{ ...reel, status: 'saved' }, ...prev];
+      if (exists) return prev.map(r => r.id === reel.id ? savedReel : r);
+      return [savedReel, ...prev];
     });
+
+    try {
+      await fetch('/api/reels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reel: savedReel })
+      });
+    } catch (err) {
+      console.warn('Could not persist reel via API:', err);
+    }
+
     showToast(`Reel "${reel.title}" saved to Content Gallery`);
   };
 
-  const handleScheduleReel = (reel: ReelItem) => {
+  const handleScheduleReel = async (reel: ReelItem) => {
     const scheduledItem: ReelItem = {
       ...reel,
       status: 'scheduled',
@@ -51,28 +115,46 @@ export default function App() {
 
     setReels(prev => {
       const exists = prev.find(r => r.id === reel.id);
-      if (exists) {
-        return prev.map(r => r.id === reel.id ? scheduledItem : r);
-      }
+      if (exists) return prev.map(r => r.id === reel.id ? scheduledItem : r);
       return [scheduledItem, ...prev];
     });
+
+    try {
+      await fetch('/api/reels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reel: scheduledItem })
+      });
+    } catch (err) {
+      console.warn('Could not persist scheduled reel via API:', err);
+    }
 
     showToast(`Reel queued for Auto-Publishing at 19:00`);
     setActiveTab('schedule');
   };
 
-  const handleSavePostToGallery = (post: PostItem) => {
+  const handleSavePostToGallery = async (post: PostItem) => {
+    const savedPost = { ...post, status: 'saved' as const };
     setPosts(prev => {
       const exists = prev.find(p => p.id === post.id);
-      if (exists) {
-        return prev.map(p => p.id === post.id ? { ...post, status: 'saved' } : p);
-      }
-      return [{ ...post, status: 'saved' }, ...prev];
+      if (exists) return prev.map(p => p.id === post.id ? savedPost : p);
+      return [savedPost, ...prev];
     });
+
+    try {
+      await fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post: savedPost })
+      });
+    } catch (err) {
+      console.warn('Could not persist post via API:', err);
+    }
+
     showToast(`Carousel "${post.title}" saved to Vault`);
   };
 
-  const handleSchedulePost = (post: PostItem) => {
+  const handleSchedulePost = async (post: PostItem) => {
     const scheduledItem: PostItem = {
       ...post,
       status: 'scheduled',
@@ -82,17 +164,25 @@ export default function App() {
 
     setPosts(prev => {
       const exists = prev.find(p => p.id === post.id);
-      if (exists) {
-        return prev.map(p => p.id === post.id ? scheduledItem : p);
-      }
+      if (exists) return prev.map(p => p.id === post.id ? scheduledItem : p);
       return [scheduledItem, ...prev];
     });
+
+    try {
+      await fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post: scheduledItem })
+      });
+    } catch (err) {
+      console.warn('Could not persist scheduled post via API:', err);
+    }
 
     showToast(`Carousel scheduled for peak engagement window`);
     setActiveTab('schedule');
   };
 
-  const handlePublishNow = (item: ReelItem | PostItem, type: 'reel' | 'post') => {
+  const handlePublishNow = async (item: ReelItem | PostItem, type: 'reel' | 'post') => {
     if (type === 'reel') {
       setReels(prev => prev.map(r => r.id === item.id ? {
         ...r,
@@ -105,7 +195,7 @@ export default function App() {
       setPosts(prev => prev.map(p => p.id === item.id ? { ...p, status: 'published' } : p));
     }
 
-    // Boost impressions live in analytics
+    // Boost impressions in analytics
     setAnalytics(prev => ({
       ...prev,
       metrics: {
@@ -115,30 +205,117 @@ export default function App() {
       }
     }));
 
+    try {
+      await fetch('/api/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, type })
+      });
+    } catch (err) {
+      console.warn('Could not call /api/publish:', err);
+    }
+
     showToast(`Published "${item.title}" to Instagram & connected channels!`);
   };
 
-  const handleDeleteScheduled = (id: string, type: 'reel' | 'post') => {
+  const handleDeleteScheduled = async (id: string, type: 'reel' | 'post') => {
     if (type === 'reel') {
       setReels(prev => prev.map(r => r.id === id ? { ...r, status: 'saved' } : r));
+      try {
+        await fetch(`/api/reels/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.warn('Could not delete reel from server:', err);
+      }
     } else {
       setPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'saved' } : p));
+      try {
+        await fetch(`/api/posts/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.warn('Could not delete post from server:', err);
+      }
     }
     showToast(`Removed from schedule queue`);
   };
 
-  const handleUpdateComment = (comment: CommentItem) => {
+  const handleUpdateComment = async (comment: CommentItem) => {
     setComments(prev => prev.map(c => c.id === comment.id ? comment : c));
+    try {
+      await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment })
+      });
+    } catch (err) {
+      console.warn('Could not sync comment reply:', err);
+    }
     showToast(`Replied to ${comment.authorHandle}`);
   };
 
-  const handleAddComment = (comment: CommentItem) => {
+  const handleAddComment = async (comment: CommentItem) => {
     setComments(prev => [comment, ...prev]);
+    try {
+      await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment })
+      });
+    } catch (err) {
+      console.warn('Could not save comment:', err);
+    }
+
     if (comment.replyStatus === 'auto_replied') {
       showToast(`AI Auto-Replied to ${comment.authorHandle}!`);
     } else {
       showToast(`New comment received from ${comment.authorHandle}`);
     }
+  };
+
+  const handleConnectAccount = async (params: { handle: string; category: string; followers: number; bio: string }) => {
+    try {
+      const res = await fetch('/api/analytics/connect-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setAnalytics(prev => ({
+            ...prev,
+            profile: data.profile,
+            metrics: {
+              ...prev.metrics,
+              ...data.metrics
+            }
+          }));
+          showToast(`Connected ${data.profile.handle} to AI Agent Hub`);
+        }
+      }
+    } catch (err) {
+      console.error('Account connect error:', err);
+    }
+  };
+
+  const handleResetToZero = async () => {
+    try {
+      const res = await fetch('/api/reset', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.store) {
+          setAnalytics(data.store.analytics);
+          setReels(data.store.reels || []);
+          setPosts(data.store.posts || []);
+          setComments(data.store.comments || []);
+          setAutonomousMode(data.store.autonomousMode);
+        }
+      } else {
+        setAnalytics(DEFAULT_ACCOUNT_ANALYTICS);
+      }
+    } catch (err) {
+      console.warn('Could not call /api/reset:', err);
+      setAnalytics(DEFAULT_ACCOUNT_ANALYTICS);
+    }
+    showToast('Reset account to SARLX.Ai baseline (0 metrics)');
   };
 
   const handleExecuteInsight = (insight: StrategyInsight) => {
@@ -215,6 +392,16 @@ export default function App() {
         autonomousMode={autonomousMode}
         setAutonomousMode={setAutonomousMode}
         pendingCommentsCount={pendingCommentsCount}
+        onOpenAccountConnector={() => setIsAccountModalOpen(true)}
+      />
+
+      {/* Account Connector Modal */}
+      <AccountConnectorModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        currentProfile={analytics.profile}
+        onConnect={handleConnectAccount}
+        onResetToZero={handleResetToZero}
       />
 
       {/* Main Workspace Body with Animated Transitions */}
