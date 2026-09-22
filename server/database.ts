@@ -51,6 +51,7 @@ db.exec(`
     retention_estimate INTEGER DEFAULT 0,
     status TEXT NOT NULL,
     video_template_id TEXT,
+    video_url TEXT,
     ig_container_id TEXT,
     ig_media_id TEXT,
     permalink TEXT,
@@ -202,3 +203,12 @@ if (!existingAccount) {
 }
 
 export { db };
+
+// Forward-compatible migrations for existing installations.
+const reelColumns = db.prepare('PRAGMA table_info(reels)').all() as any[];
+if (!reelColumns.some((c: any) => c.name === 'video_url')) {
+  db.exec('ALTER TABLE reels ADD COLUMN video_url TEXT');
+}
+
+// App secrets are server configuration, never per-account data.
+// Keep the legacy column for backward-compatible databases, but the application no longer writes to it.
