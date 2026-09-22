@@ -849,7 +849,7 @@ Use 6-10 relevant hashtags.`
     });
   } catch (err) {
     console.error("[Gemini Content Engine] Generation failed:", err);
-    res.status(500).json({ success: false, error: err?.message || String(err) });
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
