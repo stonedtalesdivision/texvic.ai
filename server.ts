@@ -16,7 +16,6 @@ import {
   replyToInstagramComment 
 } from "./server/metaGraphApi.js";
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
-import { generateVeoReelVideo } from "./server/veoGenerator.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -535,18 +534,12 @@ app.post("/api/reels/publish-now", async (req, res) => {
     });
   }
 
-  let videoUrl = reel.video_url || "";
+  const videoUrl = reel.video_url || "";
   if (!videoUrl) {
-    const generated = await generateVeoReelVideo({
-      id: reel.id,
-      topic: reel.title || reel.caption || 'Instagram Reel',
-      niche: reel.niche,
-      caption: reel.caption,
-      scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [],
-      audioMood: reel.audio_json ? JSON.parse(reel.audio_json)?.mood : undefined
+    return res.status(400).json({
+      success: false,
+      error: "This Gemini-only build has no video renderer enabled. The content is ready, but publishing requires an MP4 video_url from a configured video provider."
     });
-    videoUrl = generated.videoUrl;
-    db.prepare("UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?").run(videoUrl, new Date().toISOString(), reel.id);
   }
   const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
     videoUrl,
@@ -812,60 +805,50 @@ app.post("/api/agent/generate-reel", async (req, res) => {
   if (!topic) return res.status(400).json({ success: false, error: "A Reel topic is required." });
 
   try {
-    const reelId = `reel-veo-${Date.now()}`;
+    const reelId = `reel-gemini-${Date.now()}`;
     const requestedDuration = Math.max(4, Math.min(8, Number(duration || 8)));
+
     const generated = await generateGeminiJson(
-      `Create a specific Instagram Reel concept for this topic: "${topic}" in niche "${niche || 'general'}".
+      `Create a production-ready Instagram Reel content package for the topic "${topic}" in the niche "${niche || 'general'}".
+This is a Gemini-only content engine: DO NOT claim to generate video, audio, images, or publish anything.
 Return JSON with title, caption, hashtags, hookScore, retentionEstimate and exactly 3 scenes.
-Each scene needs hookText, secondaryText, visualTheme and pacingEffect.
-Avoid generic motivational filler; make every visual directly illustrate the topic.
+Each scene needs order, durationSeconds, hookText, secondaryText, visualTheme and pacingEffect.
+Make the hook concrete and specific. Avoid fake statistics and generic motivational filler.
 Use 6-10 relevant hashtags.`
     );
 
-    const fallback = {
-      title: topic,
-      caption: `A focused visual breakdown of ${topic}. Watch the final reveal and save this for later.`,
-      hashtags: [`#${String(niche || 'content').replace(/[^a-zA-Z0-9]/g, '')}`, "#instagramreels", "#contentstrategy", "#ai", "#creator"],
-      hookScore: 92,
-      retentionEstimate: 84,
-      scenes: [
-        { hookText: topic, secondaryText: "The problem most creators miss.", visualTheme: "cinematic realism", pacingEffect: "fast hook" },
-        { hookText: "Here is what changes the outcome.", secondaryText: "Show the mechanism visually.", visualTheme: "high contrast product film", pacingEffect: "dynamic push-in" },
-        { hookText: "Use this on your next Reel.", secondaryText: "End on a memorable visual payoff.", visualTheme: "premium cinematic", pacingEffect: "smooth reveal" }
-      ]
-    };
+    if (!generated) {
+      return res.status(503).json({
+        success: false,
+        error: "Gemini content generation is temporarily unavailable because the configured Gemini quota/model is unavailable. No paid video provider was invoked."
+      });
+    }
 
-    const concept = generated || fallback;
     const reel = {
       id: reelId,
-      title: concept.title || topic,
+      title: generated.title || topic,
       niche: niche || "General",
       duration: requestedDuration,
       audio: { mood: audioMood || "energetic cinematic" },
-      scenes: Array.isArray(concept.scenes) ? concept.scenes : fallback.scenes,
-      caption: concept.caption || fallback.caption,
-      hashtags: Array.isArray(concept.hashtags) ? concept.hashtags : fallback.hashtags,
-      hookScore: Number(concept.hookScore || 92),
-      retentionEstimate: Number(concept.retentionEstimate || 84)
+      scenes: Array.isArray(generated.scenes) ? generated.scenes : [],
+      caption: generated.caption || "",
+      hashtags: Array.isArray(generated.hashtags) ? generated.hashtags : [],
+      hookScore: Number(generated.hookScore || 0),
+      retentionEstimate: Number(generated.retentionEstimate || 0),
+      videoUrl: null,
+      status: "draft",
+      createdAt: new Date().toISOString()
     };
-
-    const video = await generateVeoReelVideo({
-      id: reel.id,
-      topic,
-      niche: reel.niche,
-      caption: reel.caption,
-      scenes: reel.scenes,
-      audioMood: audioMood || "energetic cinematic"
-    });
 
     res.json({
       success: true,
-      engine: "Veo 3.1",
-      videoUrl: video.videoUrl,
-      reel: { ...reel, videoUrl: video.videoUrl, status: "saved", createdAt: new Date().toISOString() }
+      engine: "Gemini",
+      mediaStatus: "content_ready",
+      videoStatus: "waiting_for_video_provider",
+      reel
     });
-  } catch (err: any) {
-    console.error("[Veo Reel Engine] Generation failed:", err);
+  } catch (err) {
+    console.error("[Gemini Content Engine] Generation failed:", err);
     res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
@@ -1266,45 +1249,18 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     console.log(`[Autonomous 24x7 Engine] Step 3/4: Synthesizing scenes & beat-matched audio with strategy feedback...`);
     const reel = await generateAutonomousReelWithStrategy(topicInfo, niche, strategy);
 
-    // Stage 4: Render a real MP4 and publish it through Meta Graph API.
-    db.prepare(`UPDATE autonomous_config SET current_stage = 'publishing_instagram', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
-    console.log(`[Autonomous 24x7 Engine] Step 4/4: Rendering and publishing reel...`);
+    // Stage 4: Persist the Gemini-generated content package.
+    // No video model, paid media API, or Instagram publication is invoked in Gemini-only mode.
+    db.prepare(`UPDATE autonomous_config SET current_stage = 'content_ready', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    console.log(`[Autonomous 24x7 Engine] Step 4/4: Saving Gemini content package for the first Reel...`);
 
-    const generated = await generateVeoReelVideo({
-      id: reel.id,
-      topic: topicInfo.topic,
-      niche,
-      caption: reel.caption,
-      scenes: reel.scenes,
-      audioMood: reel.audio?.mood
-    });
-    const videoUrl = generated.videoUrl;
+    const publicationId: string | null = null;
+    const permalink: string | null = null;
+    const publishError: string | null = 'Content ready; waiting for a zero-cost video provider.';
+    const videoUrl: string | null = null;
+    const reelStatus = 'draft';
 
-    const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
-    const account = accountQuery.get('instagram_primary') as any;
-
-    let publicationId: string | null = null;
-    let permalink: string | null = null;
-    let publishError: string | null = null;
-
-    if (account?.is_connected && account?.access_token && account?.account_id) {
-      const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
-        videoUrl,
-        caption: `${reel.caption}\\n\\n${reel.hashtags.join(" ")}`
-      });
-      if (pubResult.success) {
-        publicationId = pubResult.mediaId || null;
-        permalink = pubResult.permalink || null;
-      } else {
-        publishError = pubResult.error || 'Instagram publication failed.';
-      }
-    } else {
-      publishError = 'Instagram account is not connected.';
-    }
-
-    const reelStatus = publicationId ? 'published' : 'draft';
-
-    // Insert the generated reel with the actual rendered asset URL.
+    // Insert the generated content package; the MP4 is intentionally deferred.
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
@@ -1360,13 +1316,13 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       new Date().toISOString()
     );
 
-    console.log(`[Autonomous 24x7 Engine] Cycle completed! Reel "${reel.title}" recorded with status ${reelStatus}.`);
+    console.log(`[Autonomous 24x7 Engine] Cycle completed! Gemini content "${reel.title}" saved as draft; video/publishing is deferred.`);
 
     // Recalculate feedback loop after publication
     computeStrategyFeedback();
 
     return {
-      success: Boolean(publicationId),
+      success: true,
       error: publishError || undefined,
       reel,
       log: {
@@ -1407,7 +1363,7 @@ function initAutonomousDaemon() {
       const now = Date.now();
       const nextRunTime = configRow.next_run ? new Date(configRow.next_run).getTime() : 0;
       if (now >= nextRunTime && !isCycleRunning) {
-        console.log("[Autonomous 24x7 Daemon] Scheduled time arrived! Starting automatic reel creation & publishing cycle...");
+        console.log("[Autonomous 24x7 Daemon] Scheduled time arrived! Starting automatic Reel content creation cycle...");
         await runAutonomous24x7Cycle();
       }
     } catch (err) {
