@@ -288,39 +288,32 @@ export default function App() {
   };
 
   const handlePublishNow = async (item: ReelItem | PostItem, type: 'reel' | 'post') => {
-    if (type === 'reel') {
-      setReels(prev => prev.map(r => r.id === item.id ? {
-        ...r,
-        status: 'published',
-        views: (r.views || 0) + 1240,
-        likes: (r.likes || 0) + 84,
-        shares: (r.shares || 0) + 16
-      } : r));
-    } else {
-      setPosts(prev => prev.map(p => p.id === item.id ? { ...p, status: 'published' } : p));
+    if (type !== 'reel') {
+      throw new Error('Carousel publishing is not enabled yet. Only Instagram Reels use the live publishing pipeline.');
     }
 
-    // Boost impressions in analytics
-    setAnalytics(prev => ({
-      ...prev,
-      metrics: {
-        ...prev.metrics,
-        impressions: prev.metrics.impressions + 1850,
-        totalReelPlays: type === 'reel' ? prev.metrics.totalReelPlays + 1240 : prev.metrics.totalReelPlays
-      }
-    }));
+    const res = await fetch('/api/reels/publish-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reelId: item.id })
+    });
 
-    try {
-      await fetch('/api/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, type })
-      });
-    } catch (err) {
-      console.warn('Could not call /api/publish:', err);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      const message = data.error || 'Instagram publishing failed.';
+      showToast(message);
+      throw new Error(message);
     }
 
-    showToast(`Published "${item.title}" to Instagram & connected channels!`);
+    setReels(prev => prev.map(r => r.id === item.id ? {
+      ...r,
+      status: 'published',
+      instagramPostId: data.mediaId,
+      permalink: data.permalink,
+      publishTimestamp: new Date().toISOString()
+    } : r));
+
+    showToast(`Published "${item.title}" to Instagram.`);
   };
 
   const handleDeleteScheduled = async (id: string, type: 'reel' | 'post') => {
