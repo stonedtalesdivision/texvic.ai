@@ -1039,44 +1039,8 @@ Respond in valid JSON format:
     }
   }
 
-  // Niche-targeted resilient pool of real-time viral trends & sources
-  const nicheTrends: Record<string, Array<{ topic: string; ideaHook: string; webSources: string[] }>> = {
-    "AI Tech & Breakthroughs": [
-      {
-        topic: "Autonomous AI Agents Running 24x7 Replacing Traditional SaaS Pipelines",
-        ideaHook: "Stop paying for 12 tools. Autonomous agents now run your entire workflow while you sleep.",
-        webSources: ["TechCrunch AI Trends", "GitHub Trending Agents", "Hacker News Discussions"]
-      },
-      {
-        topic: "DeepSeek & Open Reasoning Models Displacing Proprietary LLM Subscriptions",
-        ideaHook: "Why the biggest tech companies are quietly migrating away from closed models this week.",
-        webSources: ["ArXiv AI Papers", "VentureBeat AI Digest", "Developer Community Index"]
-      },
-      {
-        topic: "Local On-Device Neural Models Running Without Cloud API Fees",
-        ideaHook: "You don't need cloud servers anymore. This on-device setup runs full reasoning models locally.",
-        webSources: ["Hugging Face Hub", "Edge AI Benchmark", "Wired Tech"]
-      }
-    ],
-    "Productivity & High-Performance Mindset": [
-      {
-        topic: "The 90-Minute Dopamine Reset: Why Deep Work Beats 12-Hour Grinds",
-        ideaHook: "Working 12 hours a day is a sign of broken leverage, not high productivity.",
-        webSources: ["Neuroscience Daily", "Harvard Business Review", "Peak Performance Lab"]
-      }
-    ],
-    "Creator Economy & SaaS Growth": [
-      {
-        topic: "High-Frequency Automated Comment Funnels Driving 40% Conversion in DMs",
-        ideaHook: "If your bio link isn't converting, switch to keyword-triggered DM automation immediately.",
-        webSources: ["Direct Response Social Report", "Social Media Today", "Creator Commerce Trends"]
-      }
-    ]
-  };
+  throw new Error("Gemini research is unavailable. Gemini-only mode will not use a non-Gemini fallback.");
 
-  const matchedKey = Object.keys(nicheTrends).find(k => niche.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(niche.toLowerCase()));
-  const pool = (matchedKey && nicheTrends[matchedKey]) || nicheTrends["AI Tech & Breakthroughs"];
-  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 async function generateAutonomousReelWithStrategy(
@@ -1156,44 +1120,8 @@ Respond in JSON:
       console.info("[Autonomous 24x7 Engine] Using high-retention algorithmic script engine.");
     }
   }
-
   if (!reelData) {
-    reelData = {
-      title: `${topicInfo.topic.slice(0, 36)}...`,
-      hookScore: 96,
-      retentionEstimate: 87,
-      caption: `Stop scrolling if you care about your reach in 2026.\n\n${topicInfo.ideaHook}\n\nHere is what you need to know:\n1. The old algorithm rewarded volume; the new algorithm rewards loop dwell-time.\n2. Audio beat alignment at ${audio.dropTimestamp}s triggers the second watch.\n3. Turn commenters into leads automatically with DM triggers.\n\nDrop "AGENT" in the comments below and our SARLX.Ai bot will send the complete workflow straight to your DMs! ⚡\n\nResearched via: ${topicInfo.webSources.join(", ")}`,
-      hashtags: ["#SARLXAi", "#InstagramGrowth", "#AutonomousAgent", "#ReelsViral", "#AIAutomation"],
-      scenes: [
-        {
-          order: 1,
-          durationSeconds: s1Duration,
-          hookText: topicInfo.ideaHook.slice(0, 48) + (topicInfo.ideaHook.length > 48 ? '...' : ''),
-          secondaryText: "Most creators have no idea this changed.",
-          visualTheme: "neon-cyber",
-          accentColor: "#ec4899",
-          pacingEffect: "flash-cut"
-        },
-        {
-          order: 2,
-          durationSeconds: s2Duration,
-          hookText: topicInfo.topic.length > 44 ? topicInfo.topic.slice(0, 42) + '...' : topicInfo.topic,
-          secondaryText: `Beat drop matched at ${audio.dropTimestamp}s for 2x retention.`,
-          visualTheme: "electric-violet",
-          accentColor: "#8b5cf6",
-          pacingEffect: "zoom-in"
-        },
-        {
-          order: 3,
-          durationSeconds: s3Duration,
-          hookText: "Comment 'AGENT' for the full blueprint.",
-          secondaryText: "Sent instantly to your Instagram DMs.",
-          visualTheme: "sunset-glow",
-          accentColor: "#f59e0b",
-          pacingEffect: "pulse"
-        }
-      ]
-    };
+    throw new Error("Gemini content generation is unavailable. Gemini-only mode will not use an algorithmic fallback.");
   }
 
   return {
@@ -1208,7 +1136,7 @@ Respond in JSON:
     hookScore: reelData.hookScore || 95,
     retentionEstimate: reelData.retentionEstimate || 88,
     createdAt: new Date().toISOString(),
-    status: 'published',
+    status: 'draft',
     scheduledPlatforms: ['instagram'],
     videoTemplateId: 'template-fast-hook',
     views: 0,
@@ -1353,6 +1281,15 @@ function initAutonomousDaemon() {
   if (autonomousDaemonTimer) {
     clearInterval(autonomousDaemonTimer);
   }
+
+  const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
+  const reelCount = Number((db.prepare('SELECT COUNT(*) as count FROM reels').get() as any)?.count || 0);
+  if (configRow?.enabled && reelCount === 0) {
+    db.prepare(`UPDATE autonomous_config SET next_run = ?, current_stage = 'bootstrapping', updated_at = ? WHERE id = 'default_config'`)
+      .run(new Date().toISOString(), new Date().toISOString());
+    console.log("[Autonomous 24x7 Daemon] No reels found. Scheduling the first Gemini-only content cycle immediately.");
+  }
+
   console.log("[Autonomous 24x7 Daemon] Initialized SQLite background worker (checking every 30s)...");
   autonomousDaemonTimer = setInterval(async () => {
     try {
