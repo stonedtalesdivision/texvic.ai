@@ -89,7 +89,7 @@ export async function exchangeCodeForLongLivedTokens(
       return { userAccessToken: '', longLivedAccessToken: '', error: shortTokenData.error_message || shortTokenData.error?.message || 'Instagram authorization code exchange failed.' };
     }
 
-    const longLivedUrl = new URL(`${GRAPH_BASE_URL}/access_token`);
+    const longLivedUrl = new URL('https://graph.instagram.com/access_token');
     longLivedUrl.searchParams.set('grant_type', 'ig_exchange_token');
     longLivedUrl.searchParams.set('client_secret', clientSecret);
     longLivedUrl.searchParams.set('access_token', shortTokenData.access_token);
