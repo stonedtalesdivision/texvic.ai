@@ -394,6 +394,11 @@ export default function App() {
     }
   };
 
+  const handleOAuthConnected = async (profile: AccountAnalytics['profile']) => {
+    setAnalytics(prev => ({ ...prev, profile }));
+    showToast(`Connected ${profile.handle} to SARLX.Ai.`);
+  };
+
   const handleResetToZero = async () => {
     try {
       const res = await fetch('/api/reset', { method: 'POST' });
@@ -501,6 +506,7 @@ export default function App() {
         currentProfile={analytics.profile}
         onConnect={handleConnectAccount}
         onResetToZero={handleResetToZero}
+        onOAuthConnected={handleOAuthConnected}
       />
 
       {/* Reel Player Modal for Inspecting Autonomously Published Video */}
