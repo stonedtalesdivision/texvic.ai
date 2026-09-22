@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
+import { encryptSecret } from './tokenVault.js';
 
 const DB_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DB_DIR)) {
@@ -195,7 +196,7 @@ if (!existingAccount) {
     0,
     0,
     0,
-    process.env.META_ACCESS_TOKEN || '',
+    process.env.META_ACCESS_TOKEN ? encryptSecret(process.env.META_ACCESS_TOKEN) : '',
     null,
     process.env.META_ACCESS_TOKEN && process.env.INSTAGRAM_ACCOUNT_ID ? 1 : 0,
     new Date().toISOString()
