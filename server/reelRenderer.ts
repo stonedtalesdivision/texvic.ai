@@ -96,7 +96,7 @@ export async function renderReelToMp4(reel: {
       outputPath
     ]);
 
-    const appUrl = (process.env.APP_URL || '').replace(/\\/$/, '');
+    const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
     if (!appUrl) throw new Error('APP_URL is required so Meta can fetch the rendered video.');
     return {
       videoUrl: `${appUrl}/media/reels/${encodeURIComponent(reel.id)}.mp4`,
