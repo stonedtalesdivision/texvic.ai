@@ -24,7 +24,7 @@ export interface PublishReelResult {
   error?: string;
 }
 
-const GRAPH_API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v24.0';
+const GRAPH_API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v26.0';
 const GRAPH_BASE_URL = `https://graph.instagram.com/${GRAPH_API_VERSION}`;
 const INSTAGRAM_OAUTH_URL = 'https://www.instagram.com/oauth/authorize';
 const INSTAGRAM_TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
