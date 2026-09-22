@@ -723,7 +723,7 @@ function getDatabaseState() {
         enabled: Boolean(account.is_connected),
         method: "graph_api",
         instagramAccountId: account.account_id || "",
-        metaAccessToken: account.access_token || "",
+        metaAccessToken: "",
         lastPublishedPostId: reels.find(r => r.status === 'published')?.instagramPostId || null
       },
       logs
