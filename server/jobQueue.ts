@@ -1,4 +1,5 @@
 import { db } from './database.js';
+import { decryptSecret } from './tokenVault.js';
 import { 
   fetchLiveInstagramInsights, 
   publishReelToInstagram, 
@@ -154,7 +155,7 @@ export function startJobWorker() {
 
               if (reel && account?.access_token && account?.account_id) {
                 const videoUrl = payload.videoUrl || `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.video_template_id || 'cyber'}.mp4`;
-                const pubResult = await publishReelToInstagram(account.account_id, account.access_token, {
+                const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
                   caption: reel.caption
                 });
