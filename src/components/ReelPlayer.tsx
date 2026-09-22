@@ -27,6 +27,8 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   const duration = reel.duration || 8;
   const scenes = reel.scenes && reel.scenes.length > 0 ? reel.scenes : [];
   const timerRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasGeneratedVideo = Boolean(reel.videoUrl);
 
   // Sync beats with audio synthesizer
   useEffect(() => {
@@ -44,8 +46,12 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   // Playback timer loop
   useEffect(() => {
     if (isPlaying) {
-      if (!isMuted && reel.audio) {
+      if (!hasGeneratedVideo && !isMuted && reel.audio) {
         playTrendingAudioTrack(reel.audio.synthPreset, reel.audio.bpm, reel.duration);
+      }
+
+      if (hasGeneratedVideo && videoRef.current) {
+        videoRef.current.play().catch(() => {});
       }
 
       const intervalMs = 50;
@@ -61,6 +67,9 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       }, intervalMs);
     } else {
       stopAudioTrack();
+      if (hasGeneratedVideo && videoRef.current) {
+        videoRef.current.pause();
+      }
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -72,7 +81,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         clearInterval(timerRef.current);
       }
     };
-  }, [isPlaying, isMuted, duration, reel.audio, reel.duration]);
+  }, [isPlaying, isMuted, duration, reel.audio, reel.duration, hasGeneratedVideo]);
 
   // Update current scene based on currentTime
   useEffect(() => {
@@ -98,8 +107,11 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       const next = !prev;
       if (next) {
         stopAudioTrack();
-      } else if (isPlaying && reel.audio) {
+      } else if (isPlaying && reel.audio && !hasGeneratedVideo) {
         playTrendingAudioTrack(reel.audio.synthPreset, reel.audio.bpm, reel.duration);
+      } else if (isPlaying && hasGeneratedVideo && videoRef.current) {
+        videoRef.current.muted = false;
+        videoRef.current.play().catch(() => {});
       }
       return next;
     });
@@ -145,6 +157,23 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         <div 
           className={`absolute inset-0 bg-gradient-to-b ${getBackgroundStyle(activeScene?.visualTheme)} transition-all duration-700 overflow-hidden rounded-[38px]`}
         >
+          {hasGeneratedVideo && (
+            <video
+              ref={videoRef}
+              src={reel.videoUrl}
+              className="absolute inset-0 w-full h-full object-cover"
+              playsInline
+              loop
+              muted={isMuted}
+              onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+              onLoadedMetadata={(event) => {
+                if (event.currentTarget.duration && !reel.duration) {
+                  setCurrentTime(0);
+                }
+              }}
+            />
+          )}
+          {!hasGeneratedVideo && <>
           {/* Animated decorative geometric & lighting elements */}
           <div 
             className={`absolute top-1/4 -left-12 w-64 h-64 rounded-full blur-3xl opacity-40 transition-transform duration-300 pointer-events-none ${
@@ -156,10 +185,15 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
             className="absolute bottom-1/3 -right-12 w-64 h-64 rounded-full blur-3xl opacity-30 bg-indigo-600 pointer-events-none"
           />
 
+          </>}
+
+          {!hasGeneratedVideo && <>
           {/* Grid ambient texture */}
           <div 
             className="absolute inset-0 opacity-[0.07] bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none"
           />
+
+          </>}
 
           {/* Reel Interactive Canvas Center - High Watch-Time Typography */}
           <div 
@@ -189,6 +223,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
               </span>
             </div>
 
+            {!hasGeneratedVideo && <>
             {/* Main Kinetic Headline Text */}
             <div 
               key={activeScene?.id || currentSceneIndex}
@@ -206,6 +241,8 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
                 </p>
               )}
             </div>
+
+            </>}
 
             {/* Subtle Play Prompt when paused */}
             {!isPlaying && (
