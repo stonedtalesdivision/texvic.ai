@@ -45,6 +45,10 @@ export interface ReelItem {
   commentsCount?: number;
   shares?: number;
   videoTemplateId: string;
+  videoUrl?: string;
+  instagramPostId?: string;
+  permalink?: string;
+  publishTimestamp?: string;
 }
 
 export interface CarouselSlide {
