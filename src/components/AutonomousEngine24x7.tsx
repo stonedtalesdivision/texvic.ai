@@ -43,7 +43,6 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
   const [cycleStepLabel, setCycleStepLabel] = useState<string>('');
   const [timeLeft, setTimeLeft] = useState<string>('');
   const [showApiSettings, setShowApiSettings] = useState(false);
-  const [metaToken, setMetaToken] = useState(config?.instagramPublishing?.metaAccessToken || '');
   const [accountId, setAccountId] = useState(config?.instagramPublishing?.instagramAccountId || '');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -120,9 +119,8 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
       await onUpdateConfig({
         instagramPublishing: {
           enabled: true,
-          method: metaToken ? 'graph_api' : 'direct_pipeline',
-          instagramAccountId: accountId,
-          metaAccessToken: metaToken
+          method: 'graph_api',
+          instagramAccountId: accountId
         }
       });
       setSuccessToast('Instagram publishing configuration saved!');
@@ -366,7 +364,7 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
               className="text-[11px] text-pink-400 hover:underline flex items-center gap-1"
             >
               <Key className="w-3 h-3" />
-              {showApiSettings ? 'Close API' : 'Meta API Keys'}
+              {showApiSettings ? 'Close API' : 'Instagram Connection'}
             </button>
           </div>
 
@@ -397,18 +395,7 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
                 />
               </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-slate-300 block mb-1">
-                  Meta Graph API User Token
-                </label>
-                <input
-                  type="password"
-                  value={metaToken}
-                  onChange={(e) => setMetaToken(e.target.value)}
-                  placeholder="EAAB..."
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"
-                />
-              </div>
+              <p className="text-[11px] text-slate-400">Credentials are stored server-side after OAuth. Access tokens are never shown in the browser.</p>
 
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
