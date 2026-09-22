@@ -2,9 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import ffmpegPath from 'ffmpeg-static';
-
 const execFileAsync = promisify(execFile);
+const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 const MEDIA_DIR = path.join(process.cwd(), 'data', 'media', 'reels');
 
 function safeText(value: string): string {
@@ -30,8 +29,6 @@ export async function renderReelToMp4(reel: {
     accentColor?: string;
   }>;
 }): Promise<{ videoUrl: string; filePath: string }> {
-  if (!ffmpegPath) throw new Error('FFmpeg binary is unavailable on this platform.');
-
   const scenes = Array.isArray(reel.scenes) && reel.scenes.length
     ? reel.scenes
     : [{ durationSeconds: reel.duration || 8, hookText: 'SARLX.Ai', secondaryText: 'AI-powered social growth', accentColor: '#7c3aed' }];
