@@ -8,6 +8,7 @@ interface AccountConnectorModalProps {
   currentProfile: AccountAnalytics['profile'];
   onConnect: (params: { handle: string; category: string; followers: number; bio: string }) => Promise<void>;
   onResetToZero?: () => Promise<void>;
+  onOAuthConnected?: (profile: AccountAnalytics['profile']) => Promise<void>;
 }
 
 export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
@@ -15,7 +16,8 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   onClose,
   currentProfile,
   onConnect,
-  onResetToZero
+  onResetToZero,
+  onOAuthConnected
 }) => {
   const [handle, setHandle] = useState(currentProfile.handle);
   const [category, setCategory] = useState(currentProfile.category);
@@ -24,6 +26,8 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -55,6 +59,60 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
       console.error('Failed to sync Instagram account:', err);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOAuthConnect = async () => {
+    setOauthLoading(true);
+    setOauthError(null);
+    try {
+      const res = await fetch('/api/auth/instagram/url');
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.url) throw new Error(data.error || 'Could not start Instagram OAuth.');
+
+      const popup = window.open(data.url, 'sarlx-instagram-oauth', 'width=620,height=760,noopener,noreferrer');
+      if (!popup) throw new Error('Popup was blocked. Allow popups for this site and try again.');
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener('message', onMessage);
+          reject(new Error('Instagram connection timed out.'));
+        }, 180000);
+
+        const onMessage = async (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return;
+          if (event.data?.type === 'OAUTH_AUTH_FAILED') {
+            window.clearTimeout(timeout);
+            window.removeEventListener('message', onMessage);
+            reject(new Error(event.data.error || 'Instagram authorization failed.'));
+          }
+          if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+            window.clearTimeout(timeout);
+            window.removeEventListener('message', onMessage);
+            try {
+              const statusRes = await fetch('/api/account/status');
+              const status = await statusRes.json();
+              if (!statusRes.ok || !status.isConnected) throw new Error('Instagram connected but account status could not be loaded.');
+              await onOAuthConnected?.(status.account);
+              resolve();
+            } catch (error) {
+              reject(error);
+            }
+          }
+        };
+
+        window.addEventListener('message', onMessage);
+      });
+
+      setSuccess(true);
+      setTimeout(() => {
+        setSuccess(false);
+        onClose();
+      }, 1200);
+    } catch (error: any) {
+      setOauthError(error?.message || 'Instagram connection failed.');
+    } finally {
+      setOauthLoading(false);
     }
   };
 
@@ -115,6 +173,26 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
             </p>
           </div>
         ) : (
+          <>
+                    <button
+            type="button"
+            onClick={handleOAuthConnect}
+            disabled={oauthLoading}
+            className="w-full mb-4 px-4 py-3 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-60 text-white flex items-center justify-center gap-2 shadow-lg shadow-pink-500/20"
+          >
+            <Instagram className="w-4 h-4" />
+            {oauthLoading ? 'Connecting to Instagram...' : 'Connect Instagram with Meta'}
+          </button>
+
+          {oauthError && (
+            <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px]">
+              {oauthError}
+            </div>
+          )}
+
+          <div className="mb-3 text-[10px] uppercase tracking-wider font-bold text-slate-500">
+            Development profile override
+          </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-slate-300 block mb-1">
@@ -222,6 +300,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
               </div>
             </div>
           </form>
+          </>} 
         )}
       </div>
     </div>
