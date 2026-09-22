@@ -24,13 +24,13 @@ export interface PublishReelResult {
   error?: string;
 }
 
-const GRAPH_API_VERSION = 'v19.0';
+const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v22.0';
 const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
  * Constructs the real Meta OAuth dialog URL for connecting Instagram Business / Creator accounts.
  */
-export function getMetaOAuthUrl(clientId: string, redirectUri: string, state: string = 'sarlx_oauth_state'): string {
+export function getMetaOAuthUrl(clientId: string, redirectUri: string, state: string): string {
   const scopes = [
     'instagram_basic',
     'instagram_content_publish',
@@ -66,6 +66,7 @@ export async function exchangeCodeForLongLivedTokens(
   instagramUsername?: string;
   instagramName?: string;
   profilePictureUrl?: string;
+  expiresIn?: number;
   error?: string;
 }> {
   try {
@@ -132,7 +133,8 @@ export async function exchangeCodeForLongLivedTokens(
       instagramAccountId: igAccountId,
       instagramUsername: igUsername,
       instagramName: igName,
-      profilePictureUrl: igPic
+      profilePictureUrl: igPic,
+      expiresIn: Number(longLivedData.expires_in || 0) || undefined
     };
   } catch (err: any) {
     return {
@@ -250,6 +252,14 @@ export async function publishReelToInstagram(
           error: `Instagram media container processing failed: ${statusData.status_code}`
         };
       }
+    }
+
+    if (!isReady) {
+      return {
+        success: false,
+        containerId,
+        error: 'Instagram media container did not finish processing before the publish timeout.'
+      };
     }
 
     // Step 3: Publish the container
