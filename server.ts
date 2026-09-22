@@ -540,7 +540,8 @@ app.post("/api/reels/publish-now", async (req, res) => {
     const rendered = await renderReelToMp4({
       id: reel.id,
       duration: reel.duration,
-      scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : []
+      scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [],
+      audio: reel.audio_json ? JSON.parse(reel.audio_json) : undefined
     });
     videoUrl = rendered.videoUrl;
     db.prepare("UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?").run(videoUrl, new Date().toISOString(), reel.id);
