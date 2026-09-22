@@ -16,6 +16,7 @@ import {
   replyToInstagramComment 
 } from "./server/metaGraphApi.js";
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
+import { renderReelToMp4 } from "./server/reelRenderer.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -32,6 +33,7 @@ const oauthStates = new Map<string, number>();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 app.use(express.json());
+app.use("/media", express.static(path.join(process.cwd(), "data", "media")));
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({
@@ -533,9 +535,15 @@ app.post("/api/reels/publish-now", async (req, res) => {
     });
   }
 
-  const videoUrl = reel.video_url || "";
+  let videoUrl = reel.video_url || "";
   if (!videoUrl) {
-    return res.status(400).json({ success: false, error: "This reel has no rendered video asset. Render/export the reel and attach a public MP4 URL before publishing." });
+    const rendered = await renderReelToMp4({
+      id: reel.id,
+      duration: reel.duration,
+      scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : []
+    });
+    videoUrl = rendered.videoUrl;
+    db.prepare("UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?").run(videoUrl, new Date().toISOString(), reel.id);
   }
   const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
     videoUrl,
