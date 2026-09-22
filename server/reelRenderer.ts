@@ -87,7 +87,7 @@ export async function renderReelToMp4(reel: {
     }
 
     const concatFile = path.join(workDir, 'concat.txt');
-    await fs.writeFile(concatFile, segmentPaths.map(p => `file '${p.replace(/'/g, "'\\\\''")}'`).join('\\n'), 'utf8');
+    await fs.writeFile(concatFile, segmentPaths.map(p => `file '${p.replace(/'/g, "'\\\\''")}'`).join('\n'), 'utf8');
 
     const outputPath = path.join(MEDIA_DIR, `${reel.id}.mp4`);
     await execFileAsync(ffmpegPath, [
