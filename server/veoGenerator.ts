@@ -51,7 +51,7 @@ export async function generateVeoReelVideo(input: VeoReelInput): Promise<{ video
     prompt: buildPrompt(input),
     config: {
       aspectRatio: '9:16',
-      durationSeconds: '8',
+      durationSeconds: 8,
       resolution: process.env.VEO_RESOLUTION || '720p',
     },
   });
