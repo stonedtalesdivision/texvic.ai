@@ -13,7 +13,7 @@ function safeText(value: string): string {
 
 function ffmpegColor(hex?: string): string {
   const value = String(hex || '#7c3aed').replace('#', '');
-  return /^[0-9a-fA-F]{6}$/.test(value) ? \`0x\${value}\` : '0x7c3aed';
+  return /^[0-9a-fA-F]{6}$/.test(value) ? `0x${value}` : '0x7c3aed';
 }
 
 function escapeFilterPath(filePath: string): string {
@@ -48,13 +48,13 @@ export async function renderReelToMp4(reel: {
       const duration = Math.max(1, Math.min(15, Number(scene.durationSeconds || 2)));
       const text = [safeText(scene.hookText || ''), safeText(scene.secondaryText || '')]
         .filter(Boolean)
-        .join('\\n');
-      const textFile = path.join(workDir, \`scene-\${i}.txt\`);
-      const segment = path.join(workDir, \`segment-\${i}.mp4\`);
+        .join('\n');
+      const textFile = path.join(workDir, `scene-${i}.txt`);
+      const segment = path.join(workDir, `segment-${i}.mp4`);
       await fs.writeFile(textFile, text || 'SARLX.Ai', 'utf8');
 
       const drawText = [
-        \`drawtext=textfile='\${escapeFilterPath(textFile)}'\`,
+        `drawtext=textfile='${escapeFilterPath(textFile)}'`,
         'fontcolor=white',
         'fontsize=72',
         'line_spacing=18',
@@ -68,7 +68,7 @@ export async function renderReelToMp4(reel: {
       await execFileAsync(ffmpegPath, [
         '-y',
         '-f', 'lavfi',
-        '-i', \`color=c=\${ffmpegColor(scene.accentColor)}:s=1080x1920:r=30:d=\${duration}\`,
+        '-i', `color=c=${ffmpegColor(scene.accentColor)}:s=1080x1920:r=30:d=${duration}`,
         '-f', 'lavfi',
         '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
         '-vf', drawText,
@@ -87,9 +87,9 @@ export async function renderReelToMp4(reel: {
     }
 
     const concatFile = path.join(workDir, 'concat.txt');
-    await fs.writeFile(concatFile, segmentPaths.map(p => \`file '\${p.replace(/'/g, "'\\\\''")}'\`).join('\\n'), 'utf8');
+    await fs.writeFile(concatFile, segmentPaths.map(p => `file '${p.replace(/'/g, "'\\\\''")}'`).join('\\n'), 'utf8');
 
-    const outputPath = path.join(MEDIA_DIR, \`\${reel.id}.mp4\`);
+    const outputPath = path.join(MEDIA_DIR, `${reel.id}.mp4`);
     await execFileAsync(ffmpegPath, [
       '-y',
       '-f', 'concat',
@@ -102,7 +102,7 @@ export async function renderReelToMp4(reel: {
     const appUrl = (process.env.APP_URL || '').replace(/\\/$/, '');
     if (!appUrl) throw new Error('APP_URL is required so Meta can fetch the rendered video.');
     return {
-      videoUrl: \`\${appUrl}/media/reels/\${encodeURIComponent(reel.id)}.mp4\`,
+      videoUrl: `${appUrl}/media/reels/${encodeURIComponent(reel.id)}.mp4`,
       filePath: outputPath
     };
   } finally {
