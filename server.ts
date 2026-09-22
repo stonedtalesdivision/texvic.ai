@@ -225,7 +225,7 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
 
 // POST /api/auth/instagram/direct-token - Connect directly using Meta Graph API Token & Account ID
 app.post("/api/auth/instagram/direct-token", async (req, res) => {
-  const { metaAccessToken, instagramAccountId, metaAppId, metaAppSecret } = req.body;
+  const { metaAccessToken, instagramAccountId } = req.body;
 
   if (!metaAccessToken || !instagramAccountId) {
     return res.status(400).json({
