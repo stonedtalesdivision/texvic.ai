@@ -135,7 +135,7 @@ export function startJobWorker() {
         ORDER BY run_at ASC 
         LIMIT 3
       `);
-      const jobs = selectJobs.all(nowIso) as BackgroundJob[];
+      const jobs = selectJobs.all(nowIso) as unknown as BackgroundJob[];
 
       for (const job of jobs) {
         // Mark as processing
