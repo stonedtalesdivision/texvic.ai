@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import crypto from "node:crypto";
 import fs from "fs";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
@@ -14,6 +15,7 @@ import {
   fetchLiveInstagramComments, 
   replyToInstagramComment 
 } from "./server/metaGraphApi.js";
+import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -24,7 +26,10 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
+
+const oauthStates = new Map<string, number>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 app.use(express.json());
 
@@ -114,13 +119,24 @@ app.get("/api/auth/instagram/url", (req, res) => {
   }
 
   const redirectUri = getRedirectUri(req);
-  const authUrl = getMetaOAuthUrl(clientId, redirectUri);
+  const state = crypto.randomUUID();
+  oauthStates.set(state, Date.now() + OAUTH_STATE_TTL_MS);
+  const authUrl = getMetaOAuthUrl(clientId, redirectUri, state);
   res.json({ success: true, url: authUrl, redirectUri });
 });
 
 // GET /auth/instagram/callback - Popup OAuth callback handler with postMessage
 app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, res) => {
-  const { code, error, error_description } = req.query;
+  const { code, error, error_description, state } = req.query;
+
+  if (!error) {
+    const stateValue = String(state || "");
+    const expiresAt = oauthStates.get(stateValue);
+    oauthStates.delete(stateValue);
+    if (!expiresAt || expiresAt < Date.now()) {
+      return res.status(400).send("Invalid or expired OAuth state. Please restart the Instagram connection flow.");
+    }
+  }
 
   if (error || !code) {
     return res.send(`
@@ -176,7 +192,7 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
     tokenResult.instagramUsername ? `@${tokenResult.instagramUsername}` : '@instagram_creator',
     tokenResult.instagramName || 'Instagram Creator',
     tokenResult.profilePictureUrl || '',
-    tokenResult.longLivedAccessToken,
+    encryptSecret(tokenResult.longLivedAccessToken),
     new Date().toISOString()
   );
 
@@ -235,7 +251,7 @@ app.post("/api/auth/instagram/direct-token", async (req, res) => {
     UPDATE account_connections 
     SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
         followers_count = ?, follows_count = ?, media_count = ?, access_token = ?, 
-        meta_app_id = ?, meta_app_secret = ?, is_connected = 1, updated_at = ?
+        meta_app_id = NULL, meta_app_secret = NULL, is_connected = 1, updated_at = ?
     WHERE id = 'instagram_primary'
   `);
 
@@ -248,9 +264,7 @@ app.post("/api/auth/instagram/direct-token", async (req, res) => {
     p.followers_count,
     p.follows_count,
     p.media_count,
-    metaAccessToken,
-    metaAppId || null,
-    metaAppSecret || null,
+    encryptSecret(metaAccessToken),
     new Date().toISOString()
   );
 
@@ -313,7 +327,7 @@ app.get("/api/account/status", async (req, res) => {
 
   // If connected and has token, optionally refresh profile from Meta Graph API
   if (account.access_token && account.account_id) {
-    const liveProfile = await getInstagramAccountProfile(account.account_id, account.access_token);
+    const liveProfile = await getInstagramAccountProfile(account.account_id, decryptSecret(account.access_token));
     if (liveProfile.success && liveProfile.data) {
       const p = liveProfile.data;
       db.prepare(`
@@ -420,7 +434,7 @@ app.post("/api/webhooks/instagram", async (req, res) => {
             const account = accountQuery.get('instagram_primary') as any;
             if (account?.access_token) {
               const replyMsg = `⚡ Done! Check your Instagram DMs for the full autonomous growth workflow blueprint!`;
-              await replyToInstagramComment(commentId, replyMsg, account.access_token);
+              await replyToInstagramComment(commentId, replyMsg, decryptSecret(account.access_token));
 
               db.prepare(`
                 UPDATE comments_inbox 
@@ -452,7 +466,7 @@ app.post("/api/instagram/sync-comments", async (req, res) => {
 
   let syncedCount = 0;
   for (const r of publishedReels) {
-    const commentsRes = await fetchLiveInstagramComments(r.ig_media_id, account.access_token);
+    const commentsRes = await fetchLiveInstagramComments(r.ig_media_id, decryptSecret(account.access_token));
     if (commentsRes.success && commentsRes.comments) {
       const insert = db.prepare(`
         INSERT OR IGNORE INTO comments_inbox (
@@ -480,7 +494,7 @@ app.post("/api/instagram/reply-comment", async (req, res) => {
     return res.status(400).json({ success: false, error: "Instagram account not connected." });
   }
 
-  const replyRes = await replyToInstagramComment(commentId, replyText, account.access_token);
+  const replyRes = await replyToInstagramComment(commentId, replyText, decryptSecret(account.access_token));
   if (!replyRes.success) {
     return res.status(500).json({ success: false, error: replyRes.error });
   }
@@ -519,8 +533,11 @@ app.post("/api/reels/publish-now", async (req, res) => {
     });
   }
 
-  const videoUrl = `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.video_template_id || 'cyber'}.mp4`;
-  const pubResult = await publishReelToInstagram(account.account_id, account.access_token, {
+  const videoUrl = reel.video_url || "";
+  if (!videoUrl) {
+    return res.status(400).json({ success: false, error: "This reel has no rendered video asset. Render/export the reel and attach a public MP4 URL before publishing." });
+  }
+  const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
     videoUrl,
     caption: `${reel.caption}\n\n${(JSON.parse(reel.hashtags_json || '[]')).join(' ')}`
   });
@@ -570,7 +587,7 @@ app.post("/api/instagram/sync-insights", async (req, res) => {
     });
   }
 
-  const insightsRes = await fetchLiveInstagramInsights(account.account_id, account.access_token);
+  const insightsRes = await fetchLiveInstagramInsights(account.account_id, decryptSecret(account.access_token));
 
   if (!insightsRes.success) {
     return res.status(500).json({ success: false, error: insightsRes.error });
