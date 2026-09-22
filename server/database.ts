@@ -211,5 +211,11 @@ if (!reelColumns.some((c: any) => c.name === 'video_url')) {
   db.exec('ALTER TABLE reels ADD COLUMN video_url TEXT');
 }
 
+const existingTokenRow = db.prepare("SELECT id, access_token FROM account_connections WHERE id = 'instagram_primary'").get() as any;
+if (existingTokenRow?.access_token && !String(existingTokenRow.access_token).startsWith('enc:v1:')) {
+  db.prepare("UPDATE account_connections SET access_token = ? WHERE id = 'instagram_primary'")
+    .run(encryptSecret(String(existingTokenRow.access_token)));
+}
+
 // App secrets are server configuration, never per-account data.
 // Keep the legacy column for backward-compatible databases, but the application no longer writes to it.
