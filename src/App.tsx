@@ -167,26 +167,22 @@ export default function App() {
   };
 
   const handleTriggerAutonomousCycle = async () => {
-    try {
-      const res = await fetch('/api/autonomous/trigger-cycle', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          if (data.reel) {
-            setReels(prev => [data.reel, ...prev.filter(r => r.id !== data.reel.id)]);
-          }
-          if (data.analytics) {
-            setAnalytics(data.analytics);
-          }
-          if (data.config) {
-            setAutonomousConfig(data.config);
-          }
-          return data;
-        }
-      }
-    } catch (err) {
-      console.error('Trigger autonomous cycle error:', err);
+    const res = await fetch('/api/autonomous/trigger-cycle', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Autonomous cycle did not publish a reel.');
     }
+
+    if (data.reel) {
+      setReels(prev => [data.reel, ...prev.filter(r => r.id !== data.reel.id)]);
+    }
+    if (data.analytics) {
+      setAnalytics(data.analytics);
+    }
+    if (data.config) {
+      setAutonomousConfig(data.config);
+    }
+    return data;
   };
 
   const handleSaveReelToGallery = async (reel: ReelItem) => {
