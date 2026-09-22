@@ -155,3 +155,35 @@ export interface ReelTemplate {
   hookStyle: string;
   watchTimeBenefit: string;
 }
+
+export interface AutonomousExecutionLog {
+  id: string;
+  timestamp: string;
+  topicResearched: string;
+  webSources: string[];
+  ideaHook: string;
+  reelTitle: string;
+  reelId: string;
+  instagramPostId: string;
+  captionPreview: string;
+  status: 'published' | 'processing' | 'failed';
+  reachGained: number;
+  viewsGained: number;
+}
+
+export interface Autonomous24x7Config {
+  enabled: boolean;
+  intervalMinutes: number;
+  lastRun: string | null;
+  nextRun: string | null;
+  targetNiche: string;
+  currentStage: 'idle' | 'researching_web' | 'ideating_hook' | 'generating_template' | 'publishing_instagram' | 'completed';
+  instagramPublishing: {
+    enabled: boolean;
+    method: 'direct_pipeline' | 'graph_api';
+    instagramAccountId: string;
+    metaAccessToken: string;
+    lastPublishedPostId: string | null;
+  };
+  logs: AutonomousExecutionLog[];
+}

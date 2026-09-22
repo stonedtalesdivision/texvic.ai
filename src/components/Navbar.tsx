@@ -1,15 +1,16 @@
 import React from 'react';
-import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, Radio } from 'lucide-react';
 import { AccountAnalytics } from '../types';
 
 interface NavbarProps {
-  activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery';
-  setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery') => void;
+  activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous';
+  setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous') => void;
   analytics: AccountAnalytics;
   autonomousMode: boolean;
   setAutonomousMode: (val: boolean | ((prev: boolean) => boolean)) => void;
   pendingCommentsCount: number;
   onOpenAccountConnector?: () => void;
+  autonomous24x7Enabled?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,7 +20,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   autonomousMode,
   setAutonomousMode,
   pendingCommentsCount,
-  onOpenAccountConnector
+  onOpenAccountConnector,
+  autonomous24x7Enabled = true
 }) => {
   return (
     <header className="sticky top-0 z-50 bg-[#0d121d]/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3.5">
@@ -104,6 +106,27 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Navigation Tabs */}
       <div className="max-w-7xl mx-auto mt-3 pt-2 border-t border-slate-800/50 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <button
+          type="button"
+          onClick={() => setActiveTab('autonomous')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+            activeTab === 'autonomous'
+              ? 'bg-gradient-to-r from-emerald-500/25 via-teal-500/20 to-sky-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm'
+              : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400/30" />
+          <span>24/7 Autonomous Pipeline</span>
+          {autonomous24x7Enabled ? (
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-slate-600" />
+          )}
+        </button>
+
         <button
           type="button"
           onClick={() => setActiveTab('analytics')}

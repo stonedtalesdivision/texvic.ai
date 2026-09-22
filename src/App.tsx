@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { X } from 'lucide-react';
 import { 
-  ReelItem, PostItem, CommentItem, AccountAnalytics, StrategyInsight 
+  ReelItem, PostItem, CommentItem, AccountAnalytics, StrategyInsight, Autonomous24x7Config 
 } from './types';
 import { DEFAULT_ACCOUNT_ANALYTICS } from './constants';
 import { Navbar } from './components/Navbar';
@@ -12,6 +13,8 @@ import { AutoResponder } from './components/AutoResponder';
 import { SchedulePublisher } from './components/SchedulePublisher';
 import { ContentGallery } from './components/ContentGallery';
 import { AccountConnectorModal } from './components/AccountConnectorModal';
+import { AutonomousEngine24x7 } from './components/AutonomousEngine24x7';
+import { ReelPlayer } from './components/ReelPlayer';
 
 const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
   {
@@ -47,7 +50,7 @@ const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous'>('autonomous');
   const [autonomousMode, setAutonomousMode] = useState<boolean>(true);
   const [analytics, setAnalytics] = useState<AccountAnalytics>(DEFAULT_ACCOUNT_ANALYTICS);
   const [reels, setReels] = useState<ReelItem[]>([]);
@@ -56,6 +59,24 @@ export default function App() {
   const [insights, setInsights] = useState<StrategyInsight[]>(DEFAULT_STRATEGY_INSIGHTS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [previewReel, setPreviewReel] = useState<ReelItem | null>(null);
+
+  const [autonomousConfig, setAutonomousConfig] = useState<Autonomous24x7Config>({
+    enabled: true,
+    intervalMinutes: 180,
+    lastRun: null,
+    nextRun: new Date(Date.now() + 180 * 60000).toISOString(),
+    targetNiche: "AI Tech & Breakthroughs",
+    currentStage: "idle",
+    instagramPublishing: {
+      enabled: true,
+      method: "direct_pipeline",
+      instagramAccountId: "",
+      metaAccessToken: "",
+      lastPublishedPostId: null
+    },
+    logs: []
+  });
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -75,6 +96,7 @@ export default function App() {
             if (data.comments && Array.isArray(data.comments)) setComments(data.comments);
             if (data.analytics) setAnalytics(data.analytics);
             if (typeof data.autonomousMode === 'boolean') setAutonomousMode(data.autonomousMode);
+            if (data.autonomous24x7) setAutonomousConfig(data.autonomous24x7);
           }
         }
       } catch (err) {
@@ -82,7 +104,90 @@ export default function App() {
       }
     }
     loadLiveWorkspace();
+
+    // Poll autonomous status every 15s to keep countdown and telemetry in sync
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/autonomous/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.config) {
+            setAutonomousConfig(data.config);
+          }
+        }
+      } catch {
+        // quiet background tick
+      }
+    }, 15000);
+
+    return () => clearInterval(pollInterval);
   }, []);
+
+  const handleToggleAutonomous = async (enabled: boolean) => {
+    setAutonomousConfig(prev => ({ ...prev, enabled }));
+    try {
+      const res = await fetch('/api/autonomous/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.config) {
+          setAutonomousConfig(data.config);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not toggle autonomous engine:', err);
+    }
+    showToast(enabled ? '24/7 Autonomous Pipeline Activated' : '24/7 Autonomous Pipeline Paused');
+  };
+
+  const handleUpdateAutonomousConfig = async (params: { intervalMinutes?: number; targetNiche?: string; instagramPublishing?: any }) => {
+    setAutonomousConfig(prev => ({
+      ...prev,
+      ...params,
+      instagramPublishing: params.instagramPublishing ? { ...prev.instagramPublishing, ...params.instagramPublishing } : prev.instagramPublishing
+    }));
+    try {
+      const res = await fetch('/api/autonomous/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.config) {
+          setAutonomousConfig(data.config);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not update autonomous config:', err);
+    }
+  };
+
+  const handleTriggerAutonomousCycle = async () => {
+    try {
+      const res = await fetch('/api/autonomous/trigger-cycle', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          if (data.reel) {
+            setReels(prev => [data.reel, ...prev.filter(r => r.id !== data.reel.id)]);
+          }
+          if (data.analytics) {
+            setAnalytics(data.analytics);
+          }
+          if (data.config) {
+            setAutonomousConfig(data.config);
+          }
+          return data;
+        }
+      }
+    } catch (err) {
+      console.error('Trigger autonomous cycle error:', err);
+    }
+  };
 
   const handleSaveReelToGallery = async (reel: ReelItem) => {
     const savedReel = { ...reel, status: 'saved' as const };
@@ -393,6 +498,7 @@ export default function App() {
         setAutonomousMode={setAutonomousMode}
         pendingCommentsCount={pendingCommentsCount}
         onOpenAccountConnector={() => setIsAccountModalOpen(true)}
+        autonomous24x7Enabled={autonomousConfig.enabled}
       />
 
       {/* Account Connector Modal */}
@@ -404,9 +510,65 @@ export default function App() {
         onResetToZero={handleResetToZero}
       />
 
+      {/* Reel Player Modal for Inspecting Autonomously Published Video */}
+      <AnimatePresence>
+        {previewReel && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setPreviewReel(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-sm w-full bg-slate-950 border border-slate-800 rounded-3xl p-4 shadow-2xl space-y-3"
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  Direct Instagram Reel Preview
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewReel(null)}
+                  className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <ReelPlayer reel={previewReel} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main Workspace Body with Animated Transitions */}
       <main className="flex-1 pb-16">
         <AnimatePresence mode="wait">
+          {activeTab === 'autonomous' && (
+            <motion.div
+              key="autonomous"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <AutonomousEngine24x7
+                config={autonomousConfig}
+                onToggle={handleToggleAutonomous}
+                onUpdateConfig={handleUpdateAutonomousConfig}
+                onTriggerCycle={handleTriggerAutonomousCycle}
+                onPreviewReel={(reel) => setPreviewReel(reel)}
+                reels={reels}
+              />
+            </motion.div>
+          )}
+
           {activeTab === 'analytics' && (
             <motion.div
               key="analytics"

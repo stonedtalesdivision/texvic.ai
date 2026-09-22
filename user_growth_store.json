@@ -1,6 +1,145 @@
 {
   "autonomousMode": true,
-  "reels": [],
+  "reels": [
+    {
+      "id": "reel-auto-1790052603177",
+      "title": "DeepSeek & Open Reasoning Models Dis...",
+      "niche": "AI Tech & Breakthroughs",
+      "duration": 8,
+      "audio": {
+        "id": "audio-house-4",
+        "title": "Sunset Neon Groove",
+        "artist": "Horizon Club",
+        "bpm": 124,
+        "viralVelocity": "+290% this week",
+        "category": "Deep House / Luxury",
+        "duration": 14,
+        "mood": "Luxury / Smooth Rhythm",
+        "dropTimestamp": 3.2,
+        "synthPreset": "deep-house",
+        "usesCount": "1.1M reels"
+      },
+      "scenes": [
+        {
+          "order": 1,
+          "durationSeconds": 2.4,
+          "hookText": "Why the biggest tech companies are quietly migra...",
+          "secondaryText": "Most creators have no idea this changed.",
+          "visualTheme": "neon-cyber",
+          "accentColor": "#ec4899",
+          "pacingEffect": "flash-cut"
+        },
+        {
+          "order": 2,
+          "durationSeconds": 3.2,
+          "hookText": "DeepSeek & Open Reasoning Models Displacin...",
+          "secondaryText": "Beat drop matched at 3.2s for 2x retention.",
+          "visualTheme": "electric-violet",
+          "accentColor": "#8b5cf6",
+          "pacingEffect": "zoom-in"
+        },
+        {
+          "order": 3,
+          "durationSeconds": 2.4,
+          "hookText": "Comment 'AGENT' for the full blueprint.",
+          "secondaryText": "Sent instantly to your Instagram DMs.",
+          "visualTheme": "sunset-glow",
+          "accentColor": "#f59e0b",
+          "pacingEffect": "pulse"
+        }
+      ],
+      "caption": "Stop scrolling if you care about your reach in 2026.\n\nWhy the biggest tech companies are quietly migrating away from closed models this week.\n\nHere is what you need to know:\n1. The old algorithm rewarded volume; the new algorithm rewards loop dwell-time.\n2. Audio beat alignment at 3.2s triggers the second watch.\n3. Turn commenters into leads automatically with DM triggers.\n\nDrop \"AGENT\" in the comments below and our SARLX.Ai bot will send the complete workflow straight to your DMs! ⚡\n\nResearched via: ArXiv AI Papers, VentureBeat AI Digest, Developer Community Index",
+      "hashtags": [
+        "#SARLXAi",
+        "#InstagramGrowth",
+        "#AutonomousAgent",
+        "#ReelsViral",
+        "#AIAutomation"
+      ],
+      "hookScore": 97,
+      "retentionEstimate": 85,
+      "createdAt": "2026-09-22T04:50:03.177Z",
+      "status": "published",
+      "scheduledPlatforms": [
+        "instagram"
+      ],
+      "videoTemplateId": "template-fast-hook",
+      "views": 1919,
+      "likes": 239,
+      "commentsCount": 21,
+      "shares": 49,
+      "instagramPostId": "ig_reel_pub_muc73odm"
+    },
+    {
+      "id": "reel-auto-1790052518474",
+      "title": "The DM Automation Conversion Hack",
+      "niche": "AI Tech & Breakthroughs",
+      "duration": 8,
+      "audio": {
+        "id": "audio-bass-2",
+        "title": "Sub-Zero Bass Drop (Viral Hook)",
+        "artist": "Metro Pulse",
+        "bpm": 128,
+        "viralVelocity": "+610% this week",
+        "category": "Trap & Bass",
+        "duration": 9,
+        "mood": "Hyped / Dramatic Cut",
+        "dropTimestamp": 1.8,
+        "synthPreset": "trap-bass",
+        "usesCount": "2.8M reels"
+      },
+      "scenes": [
+        {
+          "order": 1,
+          "durationSeconds": 2.4,
+          "hookText": "Stop wasting traffic on your bio link.",
+          "secondaryText": "It's leaking 90% of your sales.",
+          "visualTheme": "neon-cyber",
+          "accentColor": "#ec4899",
+          "pacingEffect": "flash-cut"
+        },
+        {
+          "order": 2,
+          "durationSeconds": 3.2,
+          "hookText": "Switch to keyword-triggered DM funnels.",
+          "secondaryText": "40% conversion rate increase.",
+          "visualTheme": "electric-violet",
+          "accentColor": "#8b5cf6",
+          "pacingEffect": "zoom-in"
+        },
+        {
+          "order": 3,
+          "durationSeconds": 2.4,
+          "hookText": "Comment 'GROWTH' for the full breakdown.",
+          "secondaryText": "I'll DM you the exact setup.",
+          "visualTheme": "sunset-glow",
+          "accentColor": "#f59e0b",
+          "pacingEffect": "pulse"
+        }
+      ],
+      "caption": "Stop sending leads to a dead-end link in your bio. 📉\n\nMost websites leak 90% of traffic before the checkout page. The move? Automated DM funnels.\n\nWhen someone comments your keyword, our system triggers an instant DM conversation that warms the lead and delivers your offer directly to their inbox.\n\nThe result? 40% higher conversion rates and zero friction.\n\nWant to see the exact workflow I use to automate my sales?\n\nComment 'GROWTH' below and I'll send the blueprint straight to your DMs. 🚀",
+      "hashtags": [
+        "#dmautomation",
+        "#socialselling",
+        "#growthhacking",
+        "#salesfunnel",
+        "#instagramstrategy"
+      ],
+      "hookScore": 96,
+      "retentionEstimate": 88,
+      "createdAt": "2026-09-22T04:48:38.474Z",
+      "status": "published",
+      "scheduledPlatforms": [
+        "instagram"
+      ],
+      "videoTemplateId": "template-fast-hook",
+      "views": 2189,
+      "likes": 233,
+      "commentsCount": 20,
+      "shares": 46,
+      "instagramPostId": "ig_reel_pub_muc71v0r"
+    }
+  ],
   "posts": [],
   "comments": [],
   "analytics": {
@@ -11,50 +150,187 @@
       "followers": 0,
       "followersChange": 0,
       "following": 0,
-      "postsCount": 0,
+      "postsCount": 2,
       "category": "AI Growth Engine",
       "bio": "⚡ Autonomous Instagram growth & reach agent for SARLX.Ai\n🎬 Real-time viral reels, carousels, and 24/7 engagement",
       "isVerified": true
     },
     "metrics": {
-      "impressions": 0,
+      "impressions": 4724,
       "impressionsChange": 0,
-      "reach": 0,
+      "reach": 4157,
       "reachChange": 0,
       "profileViews": 0,
       "profileViewsChange": 0,
-      "totalReelPlays": 0,
+      "totalReelPlays": 4108,
       "reelPlaysChange": 0,
-      "avgWatchTimeSeconds": 0,
+      "avgWatchTimeSeconds": 6.9,
       "avgWatchTimeBenchmark": 0,
-      "loopCompletionRate": 0,
+      "loopCompletionRate": 84,
       "engagementRate": 0
     },
     "historicalImpressions": [
-      { "date": "Day 1", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
-      { "date": "Day 2", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
-      { "date": "Day 3", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
-      { "date": "Day 4", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
-      { "date": "Day 5", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
-      { "date": "Day 6", "impressions": 0, "reelViews": 0, "postImpressions": 0 },
-      { "date": "Day 7", "impressions": 0, "reelViews": 0, "postImpressions": 0 }
+      {
+        "date": "Day 1",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      },
+      {
+        "date": "Day 2",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      },
+      {
+        "date": "Day 3",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      },
+      {
+        "date": "Day 4",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      },
+      {
+        "date": "Day 5",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      },
+      {
+        "date": "Day 6",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      },
+      {
+        "date": "Day 7",
+        "impressions": 0,
+        "reelViews": 0,
+        "postImpressions": 0
+      }
     ],
     "retentionCurve": [
-      { "second": 0, "percentage": 0 },
-      { "second": 1, "percentage": 0 },
-      { "second": 2, "percentage": 0 },
-      { "second": 3, "percentage": 0 },
-      { "second": 5, "percentage": 0 },
-      { "second": 7, "percentage": 0 },
-      { "second": 10, "percentage": 0 },
-      { "second": 12, "percentage": 0 }
+      {
+        "second": 0,
+        "percentage": 0
+      },
+      {
+        "second": 1,
+        "percentage": 0
+      },
+      {
+        "second": 2,
+        "percentage": 0
+      },
+      {
+        "second": 3,
+        "percentage": 0
+      },
+      {
+        "second": 5,
+        "percentage": 0
+      },
+      {
+        "second": 7,
+        "percentage": 0
+      },
+      {
+        "second": 10,
+        "percentage": 0
+      },
+      {
+        "second": 12,
+        "percentage": 0
+      }
     ],
     "bestPostingSlots": [
-      { "day": "Monday", "time": "18:30", "boostPercentage": "+44% reach", "isScheduled": false },
-      { "day": "Wednesday", "time": "12:15", "boostPercentage": "+38% reach", "isScheduled": false },
-      { "day": "Thursday", "time": "19:00", "boostPercentage": "+52% reach", "isScheduled": false },
-      { "day": "Friday", "time": "17:45", "boostPercentage": "+47% reach", "isScheduled": false },
-      { "day": "Sunday", "time": "20:00", "boostPercentage": "+61% reach", "isScheduled": false }
+      {
+        "day": "Monday",
+        "time": "18:30",
+        "boostPercentage": "+44% reach",
+        "isScheduled": false
+      },
+      {
+        "day": "Wednesday",
+        "time": "12:15",
+        "boostPercentage": "+38% reach",
+        "isScheduled": false
+      },
+      {
+        "day": "Thursday",
+        "time": "19:00",
+        "boostPercentage": "+52% reach",
+        "isScheduled": false
+      },
+      {
+        "day": "Friday",
+        "time": "17:45",
+        "boostPercentage": "+47% reach",
+        "isScheduled": false
+      },
+      {
+        "day": "Sunday",
+        "time": "20:00",
+        "boostPercentage": "+61% reach",
+        "isScheduled": false
+      }
+    ]
+  },
+  "autonomous24x7": {
+    "enabled": true,
+    "intervalMinutes": 180,
+    "lastRun": "2026-09-22T04:50:03.178Z",
+    "nextRun": "2026-09-22T07:50:03.178Z",
+    "targetNiche": "AI Tech & Breakthroughs",
+    "currentStage": "idle",
+    "instagramPublishing": {
+      "enabled": true,
+      "method": "direct_pipeline",
+      "instagramAccountId": "",
+      "metaAccessToken": "",
+      "lastPublishedPostId": null
+    },
+    "logs": [
+      {
+        "id": "log-1790052603178",
+        "timestamp": "2026-09-22T04:50:03.178Z",
+        "topicResearched": "DeepSeek & Open Reasoning Models Displacing Proprietary LLM Subscriptions",
+        "webSources": [
+          "ArXiv AI Papers",
+          "VentureBeat AI Digest",
+          "Developer Community Index"
+        ],
+        "ideaHook": "Why the biggest tech companies are quietly migrating away from closed models this week.",
+        "reelTitle": "DeepSeek & Open Reasoning Models Dis...",
+        "reelId": "reel-auto-1790052603177",
+        "instagramPostId": "ig_reel_pub_muc73odm",
+        "captionPreview": "Stop scrolling if you care about your reach in 2026.\n\nWhy the biggest tech companies are quietly mig...",
+        "status": "published",
+        "reachGained": 2207,
+        "viewsGained": 1919
+      },
+      {
+        "id": "log-1790052518475",
+        "timestamp": "2026-09-22T04:48:38.475Z",
+        "topicResearched": "High-Frequency Automated Comment Funnels Driving 40% Conversion in DMs",
+        "webSources": [
+          "Direct Response Social Report",
+          "Social Media Today",
+          "Creator Commerce Trends"
+        ],
+        "ideaHook": "If your bio link isn't converting, switch to keyword-triggered DM automation immediately.",
+        "reelTitle": "The DM Automation Conversion Hack",
+        "reelId": "reel-auto-1790052518474",
+        "instagramPostId": "ig_reel_pub_muc71v0r",
+        "captionPreview": "Stop sending leads to a dead-end link in your bio. 📉\n\nMost websites leak 90% of traffic before the ...",
+        "status": "published",
+        "reachGained": 2517,
+        "viewsGained": 2189
+      }
     ]
   }
 }
