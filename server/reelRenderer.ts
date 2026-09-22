@@ -28,10 +28,20 @@ export async function renderReelToMp4(reel: {
     secondaryText?: string;
     accentColor?: string;
   }>;
+  audio?: {
+    bpm?: number;
+    dropTimestamp?: number;
+    mood?: string;
+  };
 }): Promise<{ videoUrl: string; filePath: string }> {
   const scenes = Array.isArray(reel.scenes) && reel.scenes.length
     ? reel.scenes
-    : [{ durationSeconds: reel.duration || 8, hookText: 'SARLX.Ai', secondaryText: 'AI-powered social growth', accentColor: '#7c3aed' }];
+    : [{ durationSeconds: reel.duration || 8, hookText: 'TEXVIC', secondaryText: 'AI-powered content', accentColor: '#7c3aed' }];
+  const bpm = Math.max(70, Math.min(180, Number(reel.audio?.bpm || 120)));
+  const mood = String(reel.audio?.mood || 'high energy').toLowerCase();
+  const baseFreq = mood.includes('lofi') || mood.includes('chill') ? 196 : mood.includes('ambient') ? 174 : mood.includes('deep') ? 110 : 220;
+  const melodyFreq = mood.includes('trap') ? 330 : mood.includes('lofi') ? 293.66 : 440;
+  const beatRate = bpm / 60;
 
   const workDir = path.join(MEDIA_DIR, reel.id);
   await fs.rm(workDir, { recursive: true, force: true });
@@ -67,7 +77,7 @@ export async function renderReelToMp4(reel: {
         '-f', 'lavfi',
         '-i', `color=c=${ffmpegColor(scene.accentColor)}:s=1080x1920:r=30:d=${duration}`,
         '-f', 'lavfi',
-        '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+        '-i', `aevalsrc=0.10*sin(2*PI*${baseFreq}*t)+0.055*sin(2*PI*${melodyFreq}*t)+0.14*if(lt(mod(t*${beatRate},1),0.055),sin(2*PI*65*t),0):s=48000:d=${duration}`,
         '-vf', drawText,
         '-t', String(duration),
         '-r', '30',
