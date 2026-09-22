@@ -661,6 +661,7 @@ function getDatabaseState() {
     retentionEstimate: r.retention_estimate,
     status: r.status,
     videoTemplateId: r.video_template_id,
+    videoUrl: r.video_url || undefined,
     instagramPostId: r.ig_media_id || r.ig_container_id || undefined,
     permalink: r.permalink,
     publishTimestamp: r.publish_timestamp,
@@ -806,7 +807,7 @@ app.post("/api/reels", (req, res) => {
       UPDATE reels 
       SET title = ?, niche = ?, duration = ?, audio_json = ?, scenes_json = ?, caption = ?, 
           hashtags_json = ?, hook_score = ?, retention_estimate = ?, status = ?, 
-          video_template_id = ?, updated_at = ?
+          video_template_id = ?, video_url = ?, updated_at = ?
       WHERE id = ?
     `).run(
       reel.title,
@@ -820,6 +821,7 @@ app.post("/api/reels", (req, res) => {
       reel.retentionEstimate || 80,
       reel.status || 'draft',
       reel.videoTemplateId || 'template-fast-hook',
+      reel.videoUrl || null,
       new Date().toISOString(),
       reel.id
     );
@@ -827,8 +829,8 @@ app.post("/api/reels", (req, res) => {
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
-        hook_score, retention_estimate, status, video_template_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        hook_score, retention_estimate, status, video_template_id, video_url, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       reel.id,
       reel.title,
@@ -842,6 +844,7 @@ app.post("/api/reels", (req, res) => {
       reel.retentionEstimate || 80,
       reel.status || 'draft',
       reel.videoTemplateId || 'template-fast-hook',
+      reel.videoUrl || null,
       new Date().toISOString(),
       new Date().toISOString()
     );
