@@ -158,7 +158,7 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
     `);
   }
 
-  const clientId = process.env.META_APP_ID || '';
+  const clientId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || '';
   const clientSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '';
   const redirectUri = getRedirectUri(req);
 
