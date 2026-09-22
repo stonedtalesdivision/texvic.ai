@@ -157,9 +157,6 @@ export function startJobWorker() {
                 const videoUrl = payload.videoUrl || reel.video_url || '';
                 if (!videoUrl) {
                   throw new Error('Gemini-only mode: Reel content is ready but no video_url is available. Video generation is intentionally deferred to a zero-cost provider.');
-                });
-                  videoUrl = generated.videoUrl;
-                  db.prepare('UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?').run(videoUrl, new Date().toISOString(), reel.id);
                 }
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
