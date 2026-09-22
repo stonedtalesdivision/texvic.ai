@@ -89,7 +89,7 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
 
     const stepTimer3 = setTimeout(() => {
       setCycleStep(4);
-      setCycleStepLabel('Directly publishing reel to Instagram feed (#ig_reel_pub)...');
+      setCycleStepLabel('Rendering reel and submitting to Instagram...');
     }, 5800);
 
     try {
@@ -98,8 +98,12 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
       setCycleStepLabel('Published successfully to Instagram!');
       setSuccessToast(`Autonomous cycle finished! New reel published directly to Instagram.`);
       setTimeout(() => setSuccessToast(null), 4000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Autonomous cycle error:', err);
+      setCycleStep(0);
+      setCycleStepLabel(err?.message || 'Autonomous publication failed.');
+      setSuccessToast(err?.message || 'Autonomous publication failed.');
+      setTimeout(() => setSuccessToast(null), 5000);
     } finally {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
