@@ -154,7 +154,8 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (reel && account?.access_token && account?.account_id) {
-                const videoUrl = payload.videoUrl || `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.video_template_id || 'cyber'}.mp4`;
+                const videoUrl = payload.videoUrl || reel.video_url || '';
+                if (!videoUrl) throw new Error('No rendered video asset is attached to this reel.');
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
                   caption: reel.caption
