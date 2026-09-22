@@ -1199,38 +1199,51 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     console.log(`[Autonomous 24x7 Engine] Step 3/4: Synthesizing scenes & beat-matched audio with strategy feedback...`);
     const reel = await generateAutonomousReelWithStrategy(topicInfo, niche, strategy);
 
-    // Stage 4: Directly posting to Instagram via Meta Graph API
+    // Stage 4: Render a real MP4 and publish it through Meta Graph API.
     db.prepare(`UPDATE autonomous_config SET current_stage = 'publishing_instagram', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
-    console.log(`[Autonomous 24x7 Engine] Step 4/4: Directly publishing to Instagram...`);
+    console.log(`[Autonomous 24x7 Engine] Step 4/4: Rendering and publishing reel...`);
+
+    const rendered = await renderReelToMp4({
+      id: reel.id,
+      duration: reel.duration,
+      scenes: reel.scenes
+    });
+    const videoUrl = rendered.videoUrl;
 
     const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
     const account = accountQuery.get('instagram_primary') as any;
 
     let publicationId: string | null = null;
     let permalink: string | null = null;
+    let publishError: string | null = null;
 
     if (account?.is_connected && account?.access_token && account?.account_id) {
-      const videoUrl = `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.videoTemplateId || 'fast-hook'}.mp4`;
-      const pubResult = await publishReelToInstagram(account.account_id, account.access_token, {
+      const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
         videoUrl,
-        caption: `${reel.caption}\n\n${reel.hashtags.join(" ")}`
+        caption: `${reel.caption}\\n\\n${reel.hashtags.join(" ")}`
       });
       if (pubResult.success) {
         publicationId = pubResult.mediaId || null;
         permalink = pubResult.permalink || null;
+      } else {
+        publishError = pubResult.error || 'Instagram publication failed.';
       }
+    } else {
+      publishError = 'Instagram account is not connected.';
     }
 
     reel.instagramPostId = publicationId || undefined;
     reel.permalink = permalink || undefined;
 
-    // Insert into SQLite reels table
+    const reelStatus = publicationId ? 'published' : 'draft';
+
+    // Insert the generated reel with the actual rendered asset URL.
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
-        hook_score, retention_estimate, status, video_template_id, ig_media_id, permalink, 
+        hook_score, retention_estimate, status, video_template_id, video_url, ig_media_id, permalink,
         publish_timestamp, views, likes, comments_count, shares, reach, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?)
     `).run(
       reel.id,
       reel.title,
@@ -1242,11 +1255,12 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       JSON.stringify(reel.hashtags),
       reel.hookScore,
       reel.retentionEstimate,
-      'published',
+      reelStatus,
       reel.videoTemplateId,
+      videoUrl,
       publicationId,
       permalink,
-      new Date().toISOString(),
+      publicationId ? new Date().toISOString() : null,
       new Date().toISOString(),
       new Date().toISOString()
     );
@@ -1279,7 +1293,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       new Date().toISOString()
     );
 
-    console.log(`[Autonomous 24x7 Engine] Cycle completed! Reel "${reel.title}" recorded to database and published.`);
+    console.log(`[Autonomous 24x7 Engine] Cycle completed! Reel "${reel.title}" recorded with status ${reelStatus}.`);
 
     // Recalculate feedback loop after publication
     computeStrategyFeedback();
@@ -1296,7 +1310,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
         reelTitle: reel.title,
         reelId: reel.id,
         instagramPostId: publicationId || 'pending_meta_auth',
-        status: 'published'
+        status: reelStatus
       }
     };
   } catch (err: any) {
