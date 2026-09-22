@@ -1,5 +1,6 @@
 import { db } from './database.js';
 import { decryptSecret } from './tokenVault.js';
+import { renderReelToMp4 } from './reelRenderer.js';
 import { 
   fetchLiveInstagramInsights, 
   publishReelToInstagram, 
@@ -154,8 +155,12 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (reel && account?.access_token && account?.account_id) {
-                const videoUrl = payload.videoUrl || reel.video_url || '';
-                if (!videoUrl) throw new Error('No rendered video asset is attached to this reel.');
+                let videoUrl = payload.videoUrl || reel.video_url || '';
+                if (!videoUrl) {
+                  const rendered = await renderReelToMp4({ id: reel.id, duration: reel.duration, scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [] });
+                  videoUrl = rendered.videoUrl;
+                  db.prepare('UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?').run(videoUrl, new Date().toISOString(), reel.id);
+                }
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
                   caption: reel.caption
