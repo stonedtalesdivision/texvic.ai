@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import crypto from "node:crypto";
 import fs from "fs";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
@@ -14,6 +15,7 @@ import {
   fetchLiveInstagramComments, 
   replyToInstagramComment 
 } from "./server/metaGraphApi.js";
+import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -24,9 +26,13 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
+
+const oauthStates = new Map<string, number>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 app.use(express.json());
+app.use("/media", express.static(path.join(process.cwd(), "data", "media")));
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({
@@ -105,22 +111,33 @@ function getRedirectUri(req: express.Request): string {
 
 // GET /api/auth/instagram/url - Constructs Meta OAuth Authorization URL
 app.get("/api/auth/instagram/url", (req, res) => {
-  const clientId = process.env.META_APP_ID;
+  const clientId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
   if (!clientId) {
     return res.status(400).json({
       success: false,
-      error: "META_APP_ID is not configured in environment variables. Please provide your Meta App ID in Settings or enter your access token directly."
+      error: "INSTAGRAM_APP_ID is not configured. Set your Instagram Business Login App ID in the server environment."
     });
   }
 
   const redirectUri = getRedirectUri(req);
-  const authUrl = getMetaOAuthUrl(clientId, redirectUri);
+  const state = crypto.randomUUID();
+  oauthStates.set(state, Date.now() + OAUTH_STATE_TTL_MS);
+  const authUrl = getMetaOAuthUrl(clientId, redirectUri, state);
   res.json({ success: true, url: authUrl, redirectUri });
 });
 
 // GET /auth/instagram/callback - Popup OAuth callback handler with postMessage
 app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, res) => {
-  const { code, error, error_description } = req.query;
+  const { code, error, error_description, state } = req.query;
+
+  if (!error) {
+    const stateValue = String(state || "");
+    const expiresAt = oauthStates.get(stateValue);
+    oauthStates.delete(stateValue);
+    if (!expiresAt || expiresAt < Date.now()) {
+      return res.status(400).send("Invalid or expired OAuth state. Please restart the Instagram connection flow.");
+    }
+  }
 
   if (error || !code) {
     return res.send(`
@@ -140,8 +157,8 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
     `);
   }
 
-  const clientId = process.env.META_APP_ID || '';
-  const clientSecret = process.env.META_APP_SECRET || '';
+  const clientId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || '';
+  const clientSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '';
   const redirectUri = getRedirectUri(req);
 
   const tokenResult = await exchangeCodeForLongLivedTokens(String(code), clientId, clientSecret, redirectUri);
@@ -176,7 +193,7 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
     tokenResult.instagramUsername ? `@${tokenResult.instagramUsername}` : '@instagram_creator',
     tokenResult.instagramName || 'Instagram Creator',
     tokenResult.profilePictureUrl || '',
-    tokenResult.longLivedAccessToken,
+    encryptSecret(tokenResult.longLivedAccessToken),
     new Date().toISOString()
   );
 
@@ -209,7 +226,7 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
 
 // POST /api/auth/instagram/direct-token - Connect directly using Meta Graph API Token & Account ID
 app.post("/api/auth/instagram/direct-token", async (req, res) => {
-  const { metaAccessToken, instagramAccountId, metaAppId, metaAppSecret } = req.body;
+  const { metaAccessToken, instagramAccountId } = req.body;
 
   if (!metaAccessToken || !instagramAccountId) {
     return res.status(400).json({
@@ -235,7 +252,7 @@ app.post("/api/auth/instagram/direct-token", async (req, res) => {
     UPDATE account_connections 
     SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
         followers_count = ?, follows_count = ?, media_count = ?, access_token = ?, 
-        meta_app_id = ?, meta_app_secret = ?, is_connected = 1, updated_at = ?
+        meta_app_id = NULL, meta_app_secret = NULL, is_connected = 1, updated_at = ?
     WHERE id = 'instagram_primary'
   `);
 
@@ -248,9 +265,7 @@ app.post("/api/auth/instagram/direct-token", async (req, res) => {
     p.followers_count,
     p.follows_count,
     p.media_count,
-    metaAccessToken,
-    metaAppId || null,
-    metaAppSecret || null,
+    encryptSecret(metaAccessToken),
     new Date().toISOString()
   );
 
@@ -313,7 +328,7 @@ app.get("/api/account/status", async (req, res) => {
 
   // If connected and has token, optionally refresh profile from Meta Graph API
   if (account.access_token && account.account_id) {
-    const liveProfile = await getInstagramAccountProfile(account.account_id, account.access_token);
+    const liveProfile = await getInstagramAccountProfile(account.account_id, decryptSecret(account.access_token));
     if (liveProfile.success && liveProfile.data) {
       const p = liveProfile.data;
       db.prepare(`
@@ -420,7 +435,7 @@ app.post("/api/webhooks/instagram", async (req, res) => {
             const account = accountQuery.get('instagram_primary') as any;
             if (account?.access_token) {
               const replyMsg = `⚡ Done! Check your Instagram DMs for the full autonomous growth workflow blueprint!`;
-              await replyToInstagramComment(commentId, replyMsg, account.access_token);
+              await replyToInstagramComment(commentId, replyMsg, decryptSecret(account.access_token));
 
               db.prepare(`
                 UPDATE comments_inbox 
@@ -452,7 +467,7 @@ app.post("/api/instagram/sync-comments", async (req, res) => {
 
   let syncedCount = 0;
   for (const r of publishedReels) {
-    const commentsRes = await fetchLiveInstagramComments(r.ig_media_id, account.access_token);
+    const commentsRes = await fetchLiveInstagramComments(r.ig_media_id, decryptSecret(account.access_token));
     if (commentsRes.success && commentsRes.comments) {
       const insert = db.prepare(`
         INSERT OR IGNORE INTO comments_inbox (
@@ -480,7 +495,7 @@ app.post("/api/instagram/reply-comment", async (req, res) => {
     return res.status(400).json({ success: false, error: "Instagram account not connected." });
   }
 
-  const replyRes = await replyToInstagramComment(commentId, replyText, account.access_token);
+  const replyRes = await replyToInstagramComment(commentId, replyText, decryptSecret(account.access_token));
   if (!replyRes.success) {
     return res.status(500).json({ success: false, error: replyRes.error });
   }
@@ -519,8 +534,14 @@ app.post("/api/reels/publish-now", async (req, res) => {
     });
   }
 
-  const videoUrl = `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.video_template_id || 'cyber'}.mp4`;
-  const pubResult = await publishReelToInstagram(account.account_id, account.access_token, {
+  const videoUrl = reel.video_url || "";
+  if (!videoUrl) {
+    return res.status(400).json({
+      success: false,
+      error: "This Gemini-only build has no video renderer enabled. The content is ready, but publishing requires an MP4 video_url from a configured video provider."
+    });
+  }
+  const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
     videoUrl,
     caption: `${reel.caption}\n\n${(JSON.parse(reel.hashtags_json || '[]')).join(' ')}`
   });
@@ -570,7 +591,7 @@ app.post("/api/instagram/sync-insights", async (req, res) => {
     });
   }
 
-  const insightsRes = await fetchLiveInstagramInsights(account.account_id, account.access_token);
+  const insightsRes = await fetchLiveInstagramInsights(account.account_id, decryptSecret(account.access_token));
 
   if (!insightsRes.success) {
     return res.status(500).json({ success: false, error: insightsRes.error });
@@ -644,6 +665,7 @@ function getDatabaseState() {
     retentionEstimate: r.retention_estimate,
     status: r.status,
     videoTemplateId: r.video_template_id,
+    videoUrl: r.video_url || undefined,
     instagramPostId: r.ig_media_id || r.ig_container_id || undefined,
     permalink: r.permalink,
     publishTimestamp: r.publish_timestamp,
@@ -706,7 +728,7 @@ function getDatabaseState() {
         enabled: Boolean(account.is_connected),
         method: "graph_api",
         instagramAccountId: account.account_id || "",
-        metaAccessToken: account.access_token || "",
+        metaAccessToken: "",
         lastPublishedPostId: reels.find(r => r.status === 'published')?.instagramPostId || null
       },
       logs
@@ -777,6 +799,60 @@ app.get("/api/reels", (req, res) => {
 });
 
 // POST /api/reels - Save or update reel in SQLite
+// POST /api/agent/generate-reel - Generate an actual Veo 3.1 video for a Reel concept
+app.post("/api/agent/generate-reel", async (req, res) => {
+  const { niche, topic, duration, audioMood } = req.body || {};
+  if (!topic) return res.status(400).json({ success: false, error: "A Reel topic is required." });
+
+  try {
+    const reelId = `reel-gemini-${Date.now()}`;
+    const requestedDuration = Math.max(4, Math.min(8, Number(duration || 8)));
+
+    const generated = await generateGeminiJson(
+      `Create a production-ready Instagram Reel content package for the topic "${topic}" in the niche "${niche || 'general'}".
+This is a Gemini-only content engine: DO NOT claim to generate video, audio, images, or publish anything.
+Return JSON with title, caption, hashtags, hookScore, retentionEstimate and exactly 3 scenes.
+Each scene needs order, durationSeconds, hookText, secondaryText, visualTheme and pacingEffect.
+Make the hook concrete and specific. Avoid fake statistics and generic motivational filler.
+Use 6-10 relevant hashtags.`
+    );
+
+    if (!generated) {
+      return res.status(503).json({
+        success: false,
+        error: "Gemini content generation is temporarily unavailable because the configured Gemini quota/model is unavailable. No paid video provider was invoked."
+      });
+    }
+
+    const reel = {
+      id: reelId,
+      title: generated.title || topic,
+      niche: niche || "General",
+      duration: requestedDuration,
+      audio: { mood: audioMood || "energetic cinematic" },
+      scenes: Array.isArray(generated.scenes) ? generated.scenes : [],
+      caption: generated.caption || "",
+      hashtags: Array.isArray(generated.hashtags) ? generated.hashtags : [],
+      hookScore: Number(generated.hookScore || 0),
+      retentionEstimate: Number(generated.retentionEstimate || 0),
+      videoUrl: null,
+      status: "draft",
+      createdAt: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      engine: "Gemini",
+      mediaStatus: "content_ready",
+      videoStatus: "waiting_for_video_provider",
+      reel
+    });
+  } catch (err) {
+    console.error("[Gemini Content Engine] Generation failed:", err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
 app.post("/api/reels", (req, res) => {
   const { reel } = req.body;
   if (!reel || !reel.id) {
@@ -789,7 +865,7 @@ app.post("/api/reels", (req, res) => {
       UPDATE reels 
       SET title = ?, niche = ?, duration = ?, audio_json = ?, scenes_json = ?, caption = ?, 
           hashtags_json = ?, hook_score = ?, retention_estimate = ?, status = ?, 
-          video_template_id = ?, updated_at = ?
+          video_template_id = ?, video_url = ?, updated_at = ?
       WHERE id = ?
     `).run(
       reel.title,
@@ -803,6 +879,7 @@ app.post("/api/reels", (req, res) => {
       reel.retentionEstimate || 80,
       reel.status || 'draft',
       reel.videoTemplateId || 'template-fast-hook',
+      reel.videoUrl || null,
       new Date().toISOString(),
       reel.id
     );
@@ -810,8 +887,8 @@ app.post("/api/reels", (req, res) => {
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
-        hook_score, retention_estimate, status, video_template_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        hook_score, retention_estimate, status, video_template_id, video_url, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       reel.id,
       reel.title,
@@ -825,6 +902,7 @@ app.post("/api/reels", (req, res) => {
       reel.retentionEstimate || 80,
       reel.status || 'draft',
       reel.videoTemplateId || 'template-fast-hook',
+      reel.videoUrl || null,
       new Date().toISOString(),
       new Date().toISOString()
     );
@@ -961,44 +1039,8 @@ Respond in valid JSON format:
     }
   }
 
-  // Niche-targeted resilient pool of real-time viral trends & sources
-  const nicheTrends: Record<string, Array<{ topic: string; ideaHook: string; webSources: string[] }>> = {
-    "AI Tech & Breakthroughs": [
-      {
-        topic: "Autonomous AI Agents Running 24x7 Replacing Traditional SaaS Pipelines",
-        ideaHook: "Stop paying for 12 tools. Autonomous agents now run your entire workflow while you sleep.",
-        webSources: ["TechCrunch AI Trends", "GitHub Trending Agents", "Hacker News Discussions"]
-      },
-      {
-        topic: "DeepSeek & Open Reasoning Models Displacing Proprietary LLM Subscriptions",
-        ideaHook: "Why the biggest tech companies are quietly migrating away from closed models this week.",
-        webSources: ["ArXiv AI Papers", "VentureBeat AI Digest", "Developer Community Index"]
-      },
-      {
-        topic: "Local On-Device Neural Models Running Without Cloud API Fees",
-        ideaHook: "You don't need cloud servers anymore. This on-device setup runs full reasoning models locally.",
-        webSources: ["Hugging Face Hub", "Edge AI Benchmark", "Wired Tech"]
-      }
-    ],
-    "Productivity & High-Performance Mindset": [
-      {
-        topic: "The 90-Minute Dopamine Reset: Why Deep Work Beats 12-Hour Grinds",
-        ideaHook: "Working 12 hours a day is a sign of broken leverage, not high productivity.",
-        webSources: ["Neuroscience Daily", "Harvard Business Review", "Peak Performance Lab"]
-      }
-    ],
-    "Creator Economy & SaaS Growth": [
-      {
-        topic: "High-Frequency Automated Comment Funnels Driving 40% Conversion in DMs",
-        ideaHook: "If your bio link isn't converting, switch to keyword-triggered DM automation immediately.",
-        webSources: ["Direct Response Social Report", "Social Media Today", "Creator Commerce Trends"]
-      }
-    ]
-  };
+  throw new Error("Gemini research is unavailable. Gemini-only mode will not use a non-Gemini fallback.");
 
-  const matchedKey = Object.keys(nicheTrends).find(k => niche.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(niche.toLowerCase()));
-  const pool = (matchedKey && nicheTrends[matchedKey]) || nicheTrends["AI Tech & Breakthroughs"];
-  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 async function generateAutonomousReelWithStrategy(
@@ -1078,44 +1120,8 @@ Respond in JSON:
       console.info("[Autonomous 24x7 Engine] Using high-retention algorithmic script engine.");
     }
   }
-
   if (!reelData) {
-    reelData = {
-      title: `${topicInfo.topic.slice(0, 36)}...`,
-      hookScore: 96,
-      retentionEstimate: 87,
-      caption: `Stop scrolling if you care about your reach in 2026.\n\n${topicInfo.ideaHook}\n\nHere is what you need to know:\n1. The old algorithm rewarded volume; the new algorithm rewards loop dwell-time.\n2. Audio beat alignment at ${audio.dropTimestamp}s triggers the second watch.\n3. Turn commenters into leads automatically with DM triggers.\n\nDrop "AGENT" in the comments below and our SARLX.Ai bot will send the complete workflow straight to your DMs! ⚡\n\nResearched via: ${topicInfo.webSources.join(", ")}`,
-      hashtags: ["#SARLXAi", "#InstagramGrowth", "#AutonomousAgent", "#ReelsViral", "#AIAutomation"],
-      scenes: [
-        {
-          order: 1,
-          durationSeconds: s1Duration,
-          hookText: topicInfo.ideaHook.slice(0, 48) + (topicInfo.ideaHook.length > 48 ? '...' : ''),
-          secondaryText: "Most creators have no idea this changed.",
-          visualTheme: "neon-cyber",
-          accentColor: "#ec4899",
-          pacingEffect: "flash-cut"
-        },
-        {
-          order: 2,
-          durationSeconds: s2Duration,
-          hookText: topicInfo.topic.length > 44 ? topicInfo.topic.slice(0, 42) + '...' : topicInfo.topic,
-          secondaryText: `Beat drop matched at ${audio.dropTimestamp}s for 2x retention.`,
-          visualTheme: "electric-violet",
-          accentColor: "#8b5cf6",
-          pacingEffect: "zoom-in"
-        },
-        {
-          order: 3,
-          durationSeconds: s3Duration,
-          hookText: "Comment 'AGENT' for the full blueprint.",
-          secondaryText: "Sent instantly to your Instagram DMs.",
-          visualTheme: "sunset-glow",
-          accentColor: "#f59e0b",
-          pacingEffect: "pulse"
-        }
-      ]
-    };
+    throw new Error("Gemini content generation is unavailable. Gemini-only mode will not use an algorithmic fallback.");
   }
 
   return {
@@ -1130,7 +1136,7 @@ Respond in JSON:
     hookScore: reelData.hookScore || 95,
     retentionEstimate: reelData.retentionEstimate || 88,
     createdAt: new Date().toISOString(),
-    status: 'published',
+    status: 'draft',
     scheduledPlatforms: ['instagram'],
     videoTemplateId: 'template-fast-hook',
     views: 0,
@@ -1171,38 +1177,24 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     console.log(`[Autonomous 24x7 Engine] Step 3/4: Synthesizing scenes & beat-matched audio with strategy feedback...`);
     const reel = await generateAutonomousReelWithStrategy(topicInfo, niche, strategy);
 
-    // Stage 4: Directly posting to Instagram via Meta Graph API
-    db.prepare(`UPDATE autonomous_config SET current_stage = 'publishing_instagram', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
-    console.log(`[Autonomous 24x7 Engine] Step 4/4: Directly publishing to Instagram...`);
+    // Stage 4: Persist the Gemini-generated content package.
+    // No video model, paid media API, or Instagram publication is invoked in Gemini-only mode.
+    db.prepare(`UPDATE autonomous_config SET current_stage = 'content_ready', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    console.log(`[Autonomous 24x7 Engine] Step 4/4: Saving Gemini content package for the first Reel...`);
 
-    const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
-    const account = accountQuery.get('instagram_primary') as any;
+    const publicationId: string | null = null;
+    const permalink: string | null = null;
+    const publishError: string | null = 'Content ready; waiting for a zero-cost video provider.';
+    const videoUrl: string | null = null;
+    const reelStatus = 'draft';
 
-    let publicationId: string | null = null;
-    let permalink: string | null = null;
-
-    if (account?.is_connected && account?.access_token && account?.account_id) {
-      const videoUrl = `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.videoTemplateId || 'fast-hook'}.mp4`;
-      const pubResult = await publishReelToInstagram(account.account_id, account.access_token, {
-        videoUrl,
-        caption: `${reel.caption}\n\n${reel.hashtags.join(" ")}`
-      });
-      if (pubResult.success) {
-        publicationId = pubResult.mediaId || null;
-        permalink = pubResult.permalink || null;
-      }
-    }
-
-    reel.instagramPostId = publicationId || undefined;
-    reel.permalink = permalink || undefined;
-
-    // Insert into SQLite reels table
+    // Insert the generated content package; the MP4 is intentionally deferred.
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
-        hook_score, retention_estimate, status, video_template_id, ig_media_id, permalink, 
+        hook_score, retention_estimate, status, video_template_id, video_url, ig_media_id, permalink,
         publish_timestamp, views, likes, comments_count, shares, reach, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?)
     `).run(
       reel.id,
       reel.title,
@@ -1214,11 +1206,12 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       JSON.stringify(reel.hashtags),
       reel.hookScore,
       reel.retentionEstimate,
-      'published',
+      reelStatus,
       reel.videoTemplateId,
+      videoUrl,
       publicationId,
       permalink,
-      new Date().toISOString(),
+      publicationId ? new Date().toISOString() : null,
       new Date().toISOString(),
       new Date().toISOString()
     );
@@ -1228,7 +1221,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     db.prepare(`
       INSERT INTO autonomous_logs (
         id, timestamp, topic_researched, web_sources_json, idea_hook, reel_id, ig_media_id, status, reach_gained, views_gained
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'published', 0, 0)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
     `).run(
       logId,
       new Date().toISOString(),
@@ -1236,7 +1229,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       JSON.stringify(topicInfo.webSources),
       topicInfo.ideaHook,
       reel.id,
-      publicationId
+      reelStatus
     );
 
     // Update config
@@ -1251,13 +1244,14 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       new Date().toISOString()
     );
 
-    console.log(`[Autonomous 24x7 Engine] Cycle completed! Reel "${reel.title}" recorded to database and published.`);
+    console.log(`[Autonomous 24x7 Engine] Cycle completed! Gemini content "${reel.title}" saved as draft; video/publishing is deferred.`);
 
     // Recalculate feedback loop after publication
     computeStrategyFeedback();
 
     return {
       success: true,
+      error: publishError || undefined,
       reel,
       log: {
         id: logId,
@@ -1268,7 +1262,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
         reelTitle: reel.title,
         reelId: reel.id,
         instagramPostId: publicationId || 'pending_meta_auth',
-        status: 'published'
+        status: reelStatus
       }
     };
   } catch (err: any) {
@@ -1287,6 +1281,15 @@ function initAutonomousDaemon() {
   if (autonomousDaemonTimer) {
     clearInterval(autonomousDaemonTimer);
   }
+
+  const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
+  const reelCount = Number((db.prepare('SELECT COUNT(*) as count FROM reels').get() as any)?.count || 0);
+  if (configRow?.enabled && reelCount === 0) {
+    db.prepare(`UPDATE autonomous_config SET next_run = ?, current_stage = 'bootstrapping', updated_at = ? WHERE id = 'default_config'`)
+      .run(new Date().toISOString(), new Date().toISOString());
+    console.log("[Autonomous 24x7 Daemon] No reels found. Scheduling the first Gemini-only content cycle immediately.");
+  }
+
   console.log("[Autonomous 24x7 Daemon] Initialized SQLite background worker (checking every 30s)...");
   autonomousDaemonTimer = setInterval(async () => {
     try {
@@ -1297,7 +1300,7 @@ function initAutonomousDaemon() {
       const now = Date.now();
       const nextRunTime = configRow.next_run ? new Date(configRow.next_run).getTime() : 0;
       if (now >= nextRunTime && !isCycleRunning) {
-        console.log("[Autonomous 24x7 Daemon] Scheduled time arrived! Starting automatic reel creation & publishing cycle...");
+        console.log("[Autonomous 24x7 Daemon] Scheduled time arrived! Starting automatic Reel content creation cycle...");
         await runAutonomous24x7Cycle();
       }
     } catch (err) {

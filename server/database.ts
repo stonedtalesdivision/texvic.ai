@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
+import { encryptSecret } from './tokenVault.js';
 
 const DB_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DB_DIR)) {
@@ -51,6 +52,7 @@ db.exec(`
     retention_estimate INTEGER DEFAULT 0,
     status TEXT NOT NULL,
     video_template_id TEXT,
+    video_url TEXT,
     ig_container_id TEXT,
     ig_media_id TEXT,
     permalink TEXT,
@@ -194,7 +196,7 @@ if (!existingAccount) {
     0,
     0,
     0,
-    process.env.META_ACCESS_TOKEN || '',
+    process.env.META_ACCESS_TOKEN ? encryptSecret(process.env.META_ACCESS_TOKEN) : '',
     null,
     process.env.META_ACCESS_TOKEN && process.env.INSTAGRAM_ACCOUNT_ID ? 1 : 0,
     new Date().toISOString()
@@ -202,3 +204,18 @@ if (!existingAccount) {
 }
 
 export { db };
+
+// Forward-compatible migrations for existing installations.
+const reelColumns = db.prepare('PRAGMA table_info(reels)').all() as any[];
+if (!reelColumns.some((c: any) => c.name === 'video_url')) {
+  db.exec('ALTER TABLE reels ADD COLUMN video_url TEXT');
+}
+
+const existingTokenRow = db.prepare("SELECT id, access_token FROM account_connections WHERE id = 'instagram_primary'").get() as any;
+if (existingTokenRow?.access_token && !String(existingTokenRow.access_token).startsWith('enc:v1:')) {
+  db.prepare("UPDATE account_connections SET access_token = ? WHERE id = 'instagram_primary'")
+    .run(encryptSecret(String(existingTokenRow.access_token)));
+}
+
+// App secrets are server configuration, never per-account data.
+// Keep the legacy column for backward-compatible databases, but the application no longer writes to it.

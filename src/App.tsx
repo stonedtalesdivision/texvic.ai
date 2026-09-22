@@ -167,26 +167,22 @@ export default function App() {
   };
 
   const handleTriggerAutonomousCycle = async () => {
-    try {
-      const res = await fetch('/api/autonomous/trigger-cycle', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          if (data.reel) {
-            setReels(prev => [data.reel, ...prev.filter(r => r.id !== data.reel.id)]);
-          }
-          if (data.analytics) {
-            setAnalytics(data.analytics);
-          }
-          if (data.config) {
-            setAutonomousConfig(data.config);
-          }
-          return data;
-        }
-      }
-    } catch (err) {
-      console.error('Trigger autonomous cycle error:', err);
+    const res = await fetch('/api/autonomous/trigger-cycle', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Autonomous cycle did not publish a reel.');
     }
+
+    if (data.reel) {
+      setReels(prev => [data.reel, ...prev.filter(r => r.id !== data.reel.id)]);
+    }
+    if (data.analytics) {
+      setAnalytics(data.analytics);
+    }
+    if (data.config) {
+      setAutonomousConfig(data.config);
+    }
+    return data;
   };
 
   const handleSaveReelToGallery = async (reel: ReelItem) => {
@@ -288,39 +284,32 @@ export default function App() {
   };
 
   const handlePublishNow = async (item: ReelItem | PostItem, type: 'reel' | 'post') => {
-    if (type === 'reel') {
-      setReels(prev => prev.map(r => r.id === item.id ? {
-        ...r,
-        status: 'published',
-        views: (r.views || 0) + 1240,
-        likes: (r.likes || 0) + 84,
-        shares: (r.shares || 0) + 16
-      } : r));
-    } else {
-      setPosts(prev => prev.map(p => p.id === item.id ? { ...p, status: 'published' } : p));
+    if (type !== 'reel') {
+      throw new Error('Carousel publishing is not enabled yet. Only Instagram Reels use the live publishing pipeline.');
     }
 
-    // Boost impressions in analytics
-    setAnalytics(prev => ({
-      ...prev,
-      metrics: {
-        ...prev.metrics,
-        impressions: prev.metrics.impressions + 1850,
-        totalReelPlays: type === 'reel' ? prev.metrics.totalReelPlays + 1240 : prev.metrics.totalReelPlays
-      }
-    }));
+    const res = await fetch('/api/reels/publish-now', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reelId: item.id })
+    });
 
-    try {
-      await fetch('/api/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, type })
-      });
-    } catch (err) {
-      console.warn('Could not call /api/publish:', err);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      const message = data.error || 'Instagram publishing failed.';
+      showToast(message);
+      throw new Error(message);
     }
 
-    showToast(`Published "${item.title}" to Instagram & connected channels!`);
+    setReels(prev => prev.map(r => r.id === item.id ? {
+      ...r,
+      status: 'published',
+      instagramPostId: data.mediaId,
+      permalink: data.permalink,
+      publishTimestamp: new Date().toISOString()
+    } : r));
+
+    showToast(`Published "${item.title}" to Instagram.`);
   };
 
   const handleDeleteScheduled = async (id: string, type: 'reel' | 'post') => {
@@ -399,6 +388,11 @@ export default function App() {
     } catch (err) {
       console.error('Account connect error:', err);
     }
+  };
+
+  const handleOAuthConnected = async (profile: AccountAnalytics['profile']) => {
+    setAnalytics(prev => ({ ...prev, profile }));
+    showToast(`Connected ${profile.handle} to SARLX.Ai.`);
   };
 
   const handleResetToZero = async () => {
@@ -508,6 +502,7 @@ export default function App() {
         currentProfile={analytics.profile}
         onConnect={handleConnectAccount}
         onResetToZero={handleResetToZero}
+        onOAuthConnected={handleOAuthConnected}
       />
 
       {/* Reel Player Modal for Inspecting Autonomously Published Video */}

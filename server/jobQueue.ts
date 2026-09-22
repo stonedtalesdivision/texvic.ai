@@ -1,4 +1,5 @@
 import { db } from './database.js';
+import { decryptSecret } from './tokenVault.js';
 import { 
   fetchLiveInstagramInsights, 
   publishReelToInstagram, 
@@ -133,7 +134,7 @@ export function startJobWorker() {
         ORDER BY run_at ASC 
         LIMIT 3
       `);
-      const jobs = selectJobs.all(nowIso) as BackgroundJob[];
+      const jobs = selectJobs.all(nowIso) as unknown as BackgroundJob[];
 
       for (const job of jobs) {
         // Mark as processing
@@ -153,10 +154,16 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (reel && account?.access_token && account?.account_id) {
-                const videoUrl = payload.videoUrl || `https://storage.googleapis.com/sarlx-public-media/video-template-${reel.video_template_id || 'cyber'}.mp4`;
-                const pubResult = await publishReelToInstagram(account.account_id, account.access_token, {
+                const videoUrl = payload.videoUrl || reel.video_url || '';
+                if (!videoUrl) {
+                  throw new Error('Gemini-only mode: Reel content is ready but no video_url is available. Video generation is intentionally deferred to a zero-cost provider.');
+                });
+                  videoUrl = generated.videoUrl;
+                  db.prepare('UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?').run(videoUrl, new Date().toISOString(), reel.id);
+                }
+                const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
-                  caption: reel.caption
+                  caption: `${reel.caption}${reel.hashtags_json ? `\\n\\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`
                 });
 
                 if (pubResult.success) {
