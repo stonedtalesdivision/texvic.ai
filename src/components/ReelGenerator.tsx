@@ -352,10 +352,10 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <Music className="w-4 h-4 text-purple-400" />
-                3. Align Trending Audio (Algorithm Multiplier)
+                3. Add AI Audio Bed
               </label>
               <span className="text-[11px] text-slate-400">
-                Audios have active rhythmic synth previews
+                Original instrumental audio matched to the selected BPM and mood
               </span>
             </div>
 
@@ -436,7 +436,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             ) : (
               <>
                 <Sparkles className="w-5 h-5" />
-                Generate AI Reel & Align Trending Beats
+                Generate AI Reel with Audio
               </>
             )}
           </button>
@@ -469,7 +469,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
               </div>
               <h3 className="text-base font-bold text-white mb-2">No Reel Generated Yet</h3>
               <p className="text-xs text-slate-400 max-w-xs leading-relaxed mb-6">
-                Select your template and topic above, then click <strong>"Generate AI Reel"</strong> to preview your 9:16 video with synced audio beats.
+                Select your template and topic above, then click <strong>"Generate AI Reel"</strong> to preview your 9:16 video with an original AI-generated audio bed.
               </p>
               <button
                 type="button"
@@ -477,7 +477,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-pink-300 border border-pink-500/30 flex items-center gap-2 transition-all"
               >
                 <Sparkles className="w-4 h-4 text-pink-400" />
-                Generate Demo Viral Reel
+                Generate Demo Reel
               </button>
             </div>
           )}
