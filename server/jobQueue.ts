@@ -157,13 +157,18 @@ export function startJobWorker() {
               if (reel && account?.access_token && account?.account_id) {
                 let videoUrl = payload.videoUrl || reel.video_url || '';
                 if (!videoUrl) {
-                  const rendered = await renderReelToMp4({ id: reel.id, duration: reel.duration, scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [] });
+                  const rendered = await renderReelToMp4({
+                     id: reel.id,
+                     duration: reel.duration,
+                     scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [],
+                     audio: reel.audio_json ? JSON.parse(reel.audio_json) : undefined
+                   });
                   videoUrl = rendered.videoUrl;
                   db.prepare('UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?').run(videoUrl, new Date().toISOString(), reel.id);
                 }
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
-                  caption: reel.caption
+                  caption: `${reel.caption}${reel.hashtags_json ? `\\n\\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`
                 });
 
                 if (pubResult.success) {
