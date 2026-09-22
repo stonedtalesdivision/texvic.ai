@@ -77,7 +77,7 @@ export async function renderReelToMp4(reel: {
         '-f', 'lavfi',
         '-i', `color=c=${ffmpegColor(scene.accentColor)}:s=1080x1920:r=30:d=${duration}`,
         '-f', 'lavfi',
-        '-i', `aevalsrc=0.10*sin(2*PI*${baseFreq}*t)+0.055*sin(2*PI*${melodyFreq}*t)+0.14*if(lt(mod(t*${beatRate},1),0.055),sin(2*PI*65*t),0):s=48000:d=${duration}`,
+        '-i', `aevalsrc=0.10*sin(2*PI*${baseFreq}*t)+0.055*sin(2*PI*${melodyFreq}*t)*(0.45+0.55*sin(2*PI*${beatRate}*t))+0.08*sin(2*PI*65*t)*(0.35+0.65*sin(2*PI*${beatRate}*t)):s=48000:d=${duration}`,
         '-vf', drawText,
         '-t', String(duration),
         '-r', '30',
