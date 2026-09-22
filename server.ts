@@ -16,7 +16,7 @@ import {
   replyToInstagramComment 
 } from "./server/metaGraphApi.js";
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
-import { renderReelToMp4 } from "./server/reelRenderer.js";
+import { generateVeoReelVideo } from "./server/veoGenerator.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -537,13 +537,15 @@ app.post("/api/reels/publish-now", async (req, res) => {
 
   let videoUrl = reel.video_url || "";
   if (!videoUrl) {
-    const rendered = await renderReelToMp4({
+    const generated = await generateVeoReelVideo({
       id: reel.id,
-      duration: reel.duration,
+      topic: reel.title || reel.caption || 'Instagram Reel',
+      niche: reel.niche,
+      caption: reel.caption,
       scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [],
-      audio: reel.audio_json ? JSON.parse(reel.audio_json) : undefined
+      audioMood: reel.audio_json ? JSON.parse(reel.audio_json)?.mood : undefined
     });
-    videoUrl = rendered.videoUrl;
+    videoUrl = generated.videoUrl;
     db.prepare("UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?").run(videoUrl, new Date().toISOString(), reel.id);
   }
   const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
@@ -804,6 +806,70 @@ app.get("/api/reels", (req, res) => {
 });
 
 // POST /api/reels - Save or update reel in SQLite
+// POST /api/agent/generate-reel - Generate an actual Veo 3.1 video for a Reel concept
+app.post("/api/agent/generate-reel", async (req, res) => {
+  const { niche, topic, duration, audioMood } = req.body || {};
+  if (!topic) return res.status(400).json({ success: false, error: "A Reel topic is required." });
+
+  try {
+    const reelId = `reel-veo-${Date.now()}`;
+    const requestedDuration = Math.max(4, Math.min(8, Number(duration || 8)));
+    const generated = await generateGeminiJson(
+      `Create a specific Instagram Reel concept for this topic: "${topic}" in niche "${niche || 'general'}".
+Return JSON with title, caption, hashtags, hookScore, retentionEstimate and exactly 3 scenes.
+Each scene needs hookText, secondaryText, visualTheme and pacingEffect.
+Avoid generic motivational filler; make every visual directly illustrate the topic.
+Use 6-10 relevant hashtags.`
+    );
+
+    const fallback = {
+      title: topic,
+      caption: `A focused visual breakdown of ${topic}. Watch the final reveal and save this for later.`,
+      hashtags: [`#${String(niche || 'content').replace(/[^a-zA-Z0-9]/g, '')}`, "#instagramreels", "#contentstrategy", "#ai", "#creator"],
+      hookScore: 92,
+      retentionEstimate: 84,
+      scenes: [
+        { hookText: topic, secondaryText: "The problem most creators miss.", visualTheme: "cinematic realism", pacingEffect: "fast hook" },
+        { hookText: "Here is what changes the outcome.", secondaryText: "Show the mechanism visually.", visualTheme: "high contrast product film", pacingEffect: "dynamic push-in" },
+        { hookText: "Use this on your next Reel.", secondaryText: "End on a memorable visual payoff.", visualTheme: "premium cinematic", pacingEffect: "smooth reveal" }
+      ]
+    };
+
+    const concept = generated || fallback;
+    const reel = {
+      id: reelId,
+      title: concept.title || topic,
+      niche: niche || "General",
+      duration: requestedDuration,
+      audio: { mood: audioMood || "energetic cinematic" },
+      scenes: Array.isArray(concept.scenes) ? concept.scenes : fallback.scenes,
+      caption: concept.caption || fallback.caption,
+      hashtags: Array.isArray(concept.hashtags) ? concept.hashtags : fallback.hashtags,
+      hookScore: Number(concept.hookScore || 92),
+      retentionEstimate: Number(concept.retentionEstimate || 84)
+    };
+
+    const video = await generateVeoReelVideo({
+      id: reel.id,
+      topic,
+      niche: reel.niche,
+      caption: reel.caption,
+      scenes: reel.scenes,
+      audioMood: audioMood || "energetic cinematic"
+    });
+
+    res.json({
+      success: true,
+      engine: "Veo 3.1",
+      videoUrl: video.videoUrl,
+      reel: { ...reel, videoUrl: video.videoUrl, status: "saved", createdAt: new Date().toISOString() }
+    });
+  } catch (err: any) {
+    console.error("[Veo Reel Engine] Generation failed:", err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
 app.post("/api/reels", (req, res) => {
   const { reel } = req.body;
   if (!reel || !reel.id) {
@@ -1204,12 +1270,15 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     db.prepare(`UPDATE autonomous_config SET current_stage = 'publishing_instagram', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
     console.log(`[Autonomous 24x7 Engine] Step 4/4: Rendering and publishing reel...`);
 
-    const rendered = await renderReelToMp4({
+    const generated = await generateVeoReelVideo({
       id: reel.id,
-      duration: reel.duration,
-      scenes: reel.scenes
+      topic: topicInfo.topic,
+      niche,
+      caption: reel.caption,
+      scenes: reel.scenes,
+      audioMood: reel.audio?.mood
     });
-    const videoUrl = rendered.videoUrl;
+    const videoUrl = generated.videoUrl;
 
     const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
     const account = accountQuery.get('instagram_primary') as any;
