@@ -300,8 +300,9 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
               </div>
             </div>
           </form>
-          </>} 
-        )}
+          </>
+          )}
+
       </div>
     </div>
   );
