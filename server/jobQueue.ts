@@ -1,6 +1,6 @@
 import { db } from './database.js';
 import { decryptSecret } from './tokenVault.js';
-import { renderReelToMp4 } from './reelRenderer.js';
+import { generateVeoReelVideo } from './veoGenerator.js';
 import { 
   fetchLiveInstagramInsights, 
   publishReelToInstagram, 
@@ -157,13 +157,15 @@ export function startJobWorker() {
               if (reel && account?.access_token && account?.account_id) {
                 let videoUrl = payload.videoUrl || reel.video_url || '';
                 if (!videoUrl) {
-                  const rendered = await renderReelToMp4({
-                     id: reel.id,
-                     duration: reel.duration,
-                     scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [],
-                     audio: reel.audio_json ? JSON.parse(reel.audio_json) : undefined
-                   });
-                  videoUrl = rendered.videoUrl;
+                  const generated = await generateVeoReelVideo({
+                    id: reel.id,
+                    topic: reel.title || reel.caption || 'Instagram Reel',
+                    niche: reel.niche,
+                    caption: reel.caption,
+                    scenes: reel.scenes_json ? JSON.parse(reel.scenes_json) : [],
+                    audioMood: reel.audio_json ? JSON.parse(reel.audio_json)?.mood : undefined
+                  });
+                  videoUrl = generated.videoUrl;
                   db.prepare('UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?').run(videoUrl, new Date().toISOString(), reel.id);
                 }
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
