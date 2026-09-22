@@ -318,7 +318,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
                     Target Duration
                   </label>
                   <span className="text-xs font-mono font-bold text-pink-400">
-                    {targetDuration}s (Veo: 4-8s)
+                    {targetDuration}s (Content plan: 4-8s)
                   </span>
                 </div>
                 <input
@@ -436,7 +436,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             ) : (
               <>
                 <Sparkles className="w-5 h-5" />
-                Generate AI Reel with Audio
+                Generate AI Reel Content
               </>
             )}
           </button>
@@ -469,7 +469,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
               </div>
               <h3 className="text-base font-bold text-white mb-2">No Reel Generated Yet</h3>
               <p className="text-xs text-slate-400 max-w-xs leading-relaxed mb-6">
-                Select your template and topic above, then click <strong>"Generate AI Reel"</strong> to preview your 9:16 video with an original AI-generated audio bed.
+                Select your template and topic above, then click <strong>"Generate AI Reel"</strong> to preview the Gemini-generated Reel concept, scenes, caption, and hashtags.
               </p>
               <button
                 type="button"
@@ -477,7 +477,7 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-pink-300 border border-pink-500/30 flex items-center gap-2 transition-all"
               >
                 <Sparkles className="w-4 h-4 text-pink-400" />
-                Generate Demo Reel
+                Generate Demo Reel Content
               </button>
             </div>
           )}
