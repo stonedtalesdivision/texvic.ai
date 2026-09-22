@@ -318,13 +318,13 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
                     Target Duration
                   </label>
                   <span className="text-xs font-mono font-bold text-pink-400">
-                    {targetDuration}s (Optimal: 7-9s)
+                    {targetDuration}s (Veo: 4-8s)
                   </span>
                 </div>
                 <input
                   type="range"
                   min={6}
-                  max={15}
+                  max={8}
                   step={1}
                   value={targetDuration}
                   onChange={(e) => setTargetDuration(Number(e.target.value))}
