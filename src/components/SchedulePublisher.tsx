@@ -8,7 +8,7 @@ import { ReelItem, PostItem, Platform } from '../types';
 interface SchedulePublisherProps {
   scheduledReels: ReelItem[];
   scheduledPosts: PostItem[];
-  onPublishNow: (item: ReelItem | PostItem, type: 'reel' | 'post') => void;
+  onPublishNow: (item: ReelItem | PostItem, type: 'reel' | 'post') => Promise<void>;
   onDeleteScheduled: (id: string, type: 'reel' | 'post') => void;
   onNavigateToCreate: () => void;
 }
@@ -34,14 +34,17 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
     return item.scheduledPlatforms?.includes(activePlatformFilter as Platform);
   });
 
-  const handleInstantPublish = (item: any) => {
+  const handleInstantPublish = async (item: any) => {
     setPublishingId(item.id);
-    setTimeout(() => {
-      onPublishNow(item, item.itemType);
-      setPublishingId(null);
+    try {
+      await onPublishNow(item, item.itemType);
       setPublishedSuccessId(item.id);
       setTimeout(() => setPublishedSuccessId(null), 3000);
-    }, 1200);
+    } catch (error) {
+      console.error('Publish failed:', error);
+    } finally {
+      setPublishingId(null);
+    }
   };
 
   const getPlatformIcon = (platform: Platform) => {
@@ -72,7 +75,7 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
             Automate Publishing on Peak Engagement Windows
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-            Queued content is synced to publish automatically across Instagram Reels, Threads, Facebook, and TikTok when your audience velocity peaks.
+            Instagram publishing is connected to the real Meta Graph API. Content is only marked live after Meta confirms publication.
           </p>
         </div>
 
@@ -206,7 +209,7 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
                     ) : (
                       <>
                         <Send className="w-3.5 h-3.5" />
-                        Publish Now (Simulate)
+                        Publish to Instagram
                       </>
                     )}
                   </button>
