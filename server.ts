@@ -1232,9 +1232,6 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       publishError = 'Instagram account is not connected.';
     }
 
-    reel.instagramPostId = publicationId || undefined;
-    reel.permalink = permalink || undefined;
-
     const reelStatus = publicationId ? 'published' : 'draft';
 
     // Insert the generated reel with the actual rendered asset URL.
