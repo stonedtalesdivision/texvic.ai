@@ -89,14 +89,14 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
 
     const stepTimer3 = setTimeout(() => {
       setCycleStep(4);
-      setCycleStepLabel('Rendering reel and submitting to Instagram...');
+      setCycleStepLabel('Preparing Gemini content package...');
     }, 5800);
 
     try {
       const res = await onTriggerCycle();
       setCycleStep(5);
-      setCycleStepLabel('Published successfully to Instagram!');
-      setSuccessToast(`Autonomous cycle finished! New reel published directly to Instagram.`);
+      setCycleStepLabel('Gemini content package created successfully.');
+      setSuccessToast(`Autonomous cycle finished! New Reel content is ready.`);
       setTimeout(() => setSuccessToast(null), 4000);
     } catch (err: any) {
       console.error('Autonomous cycle error:', err);
