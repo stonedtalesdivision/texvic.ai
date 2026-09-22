@@ -112,7 +112,7 @@ function getRedirectUri(req: express.Request): string {
 
 // GET /api/auth/instagram/url - Constructs Meta OAuth Authorization URL
 app.get("/api/auth/instagram/url", (req, res) => {
-  const clientId = process.env.META_APP_ID;
+  const clientId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
   if (!clientId) {
     return res.status(400).json({
       success: false,
@@ -159,7 +159,7 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
   }
 
   const clientId = process.env.META_APP_ID || '';
-  const clientSecret = process.env.META_APP_SECRET || '';
+  const clientSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '';
   const redirectUri = getRedirectUri(req);
 
   const tokenResult = await exchangeCodeForLongLivedTokens(String(code), clientId, clientSecret, redirectUri);
