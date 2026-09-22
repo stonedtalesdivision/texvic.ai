@@ -1270,7 +1270,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     db.prepare(`
       INSERT INTO autonomous_logs (
         id, timestamp, topic_researched, web_sources_json, idea_hook, reel_id, ig_media_id, status, reach_gained, views_gained
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'published', 0, 0)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
     `).run(
       logId,
       new Date().toISOString(),
@@ -1278,7 +1278,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       JSON.stringify(topicInfo.webSources),
       topicInfo.ideaHook,
       reel.id,
-      publicationId
+      reelStatus
     );
 
     // Update config
@@ -1299,7 +1299,8 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     computeStrategyFeedback();
 
     return {
-      success: true,
+      success: Boolean(publicationId),
+      error: publishError || undefined,
       reel,
       log: {
         id: logId,
