@@ -16,6 +16,7 @@ import {
   replyToInstagramComment 
 } from "./server/metaGraphApi.js";
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
+import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -32,6 +33,15 @@ const oauthStates = new Map<string, number>();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 app.use(express.json());
+
+// Owner-only access gate. Public exceptions are limited to the owner login,
+// Meta OAuth callback, and Meta webhook verification/ingestion.
+app.use((req, res, next) => {
+  if (ownerAuthRoutes(req, res)) return;
+  ownerAuthMiddleware(req, res, next);
+});
+
+// Generated media is private too; it is only reachable with an owner session.
 app.use("/media", express.static(path.join(process.cwd(), "data", "media")));
 
 // Initialize Gemini Client
@@ -1459,6 +1469,8 @@ async function setupServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  startAuthMaintenance();
 
   // Start background job queue worker
   startJobWorker();
