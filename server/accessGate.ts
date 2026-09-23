@@ -17,6 +17,7 @@ const PUBLIC_PATHS = new Set([
   "/owner-login",
   "/api/auth/owner/login",
   "/api/auth/owner/logout",
+  "/api/auth/owner/status",
   "/auth/instagram/callback",
   "/auth/instagram/callback/",
   "/api/webhooks/instagram",
