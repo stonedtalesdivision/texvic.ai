@@ -33,6 +33,7 @@ const oauthStates = new Map<string, number>();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Owner-only access gate. Public exceptions are limited to the owner login,
 // Meta OAuth callback, and Meta webhook verification/ingestion.
