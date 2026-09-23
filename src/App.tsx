@@ -416,6 +416,14 @@ export default function App() {
     setAnalytics(DEFAULT_ACCOUNT_ANALYTICS);
   }, []);
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/owner/logout', { method: 'POST' });
+    } finally {
+      window.location.href = '/owner-login';
+    }
+  }, []);
+
   const handleResetToZero = async () => {
     try {
       const res = await fetch('/api/reset', { method: 'POST' });
@@ -515,6 +523,7 @@ export default function App() {
         pendingCommentsCount={pendingCommentsCount}
         onOpenAccountConnector={() => setIsAccountModalOpen(true)}
         autonomous24x7Enabled={autonomousConfig.enabled}
+        onLogout={handleLogout}
       />
 
       {/* Account Connector Modal */}
