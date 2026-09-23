@@ -1027,7 +1027,7 @@ Return ONLY valid JSON:
 
       const text = response.text?.trim() || "";
       if (text) {
-        const cleaned = text.replace(/^\`\`\`(?:json)?\\s*/i, '').replace(/\\s*\`\`\`$/, '').trim();
+        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
         const parsed = JSON.parse(cleaned);
         if (parsed.topic && parsed.ideaHook) {
           return {
@@ -1068,7 +1068,7 @@ You do not have web browsing in this request. Do not invent specific URLs or cla
 
       const text = response.text?.trim() || "";
       if (text) {
-        const cleaned = text.replace(/^\`\`\`(?:json)?\\s*/i, '').replace(/\\s*\`\`\`$/, '').trim();
+        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
         const parsed = JSON.parse(cleaned);
         if (parsed.topic && parsed.ideaHook) {
           return {
@@ -1078,6 +1078,7 @@ You do not have web browsing in this request. Do not invent specific URLs or cla
               ? parsed.webSources
               : ["Gemini trend synthesis", "Current AI ecosystem"]
           };
+          quotaCooldownUntil = 0;
         }
       }
     } catch (err: any) {
