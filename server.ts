@@ -302,77 +302,108 @@ app.post("/api/auth/instagram/disconnect", (req, res) => {
   res.json({ success: true, message: "Account disconnected successfully." });
 });
 
-// GET /api/account/status - Get current account connection details from SQLite
+// GET /api/account/status - Verify the stored Instagram connection against Meta
 app.get("/api/account/status", async (req, res) => {
-  const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
-  const account = accountQuery.get('instagram_primary') as any;
+  const account = db.prepare('SELECT * FROM account_connections WHERE id = ?').get('instagram_primary') as any;
 
-  if (!account || !account.is_connected) {
+  const disconnectedAccount = (status: 'disconnected' | 'verification_failed' = 'disconnected', error?: string) => ({
+    success: true,
+    isConnected: false,
+    connectionStatus: status,
+    error,
+    account: {
+      handle: '@SARLX.Ai',
+      name: 'SARLX.Ai',
+      avatar: '',
+      followers: 0,
+      followersChange: 0,
+      following: 0,
+      postsCount: 0,
+      category: 'AI Growth Engine',
+      bio: '⚡ Autonomous Instagram growth & reach agent for SARLX.Ai\n🎬 Real-time viral reels, carousels, and 24/7 engagement',
+      isVerified: false
+    }
+  });
+
+  if (!account?.is_connected || !account.access_token || !account.account_id) {
+    return res.json(disconnectedAccount());
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = decryptSecret(account.access_token);
+  } catch {
+    db.prepare(`
+      UPDATE account_connections
+      SET is_connected = 0, access_token = '', updated_at = ?
+      WHERE id = 'instagram_primary'
+    `).run(new Date().toISOString());
+    return res.json(disconnectedAccount('verification_failed', 'Stored Instagram credentials could not be decrypted. Please reconnect Instagram.'));
+  }
+
+  // A database flag alone is not enough. Verify the token and account live with Meta.
+  const liveProfile = await getInstagramAccountProfile(account.account_id, accessToken);
+
+  if (liveProfile.success && liveProfile.data) {
+    const p = liveProfile.data;
+    db.prepare(`
+      UPDATE account_connections
+      SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
+          followers_count = ?, follows_count = ?, media_count = ?, is_connected = 1, updated_at = ?
+      WHERE id = 'instagram_primary'
+    `).run(
+      p.id,
+      p.username,
+      p.name,
+      p.profile_picture_url || '',
+      p.biography || '',
+      p.followers_count,
+      p.follows_count,
+      p.media_count,
+      new Date().toISOString()
+    );
+
     return res.json({
       success: true,
-      isConnected: false,
+      isConnected: true,
+      connectionStatus: 'connected',
+      verifiedAt: new Date().toISOString(),
       account: {
-        handle: '@SARLX.Ai',
-        name: 'SARLX.Ai',
-        avatar: '',
-        followers: 0,
+        handle: p.username,
+        name: p.name,
+        avatar: p.profile_picture_url || '',
+        followers: p.followers_count,
         followersChange: 0,
-        following: 0,
-        postsCount: 0,
-        category: 'AI Growth Engine',
-        bio: '⚡ Autonomous Instagram growth & reach agent for SARLX.Ai\n🎬 Real-time viral reels, carousels, and 24/7 engagement',
-        isVerified: true
+        following: p.follows_count,
+        postsCount: p.media_count,
+        category: 'Creator / Business',
+        bio: p.biography || '',
+        isVerified: p.followers_count > 10000
       }
     });
   }
 
-  // If connected and has token, optionally refresh profile from Meta Graph API
-  if (account.access_token && account.account_id) {
-    const liveProfile = await getInstagramAccountProfile(account.account_id, decryptSecret(account.access_token));
-    if (liveProfile.success && liveProfile.data) {
-      const p = liveProfile.data;
-      db.prepare(`
-        UPDATE account_connections 
-        SET username = ?, name = ?, profile_picture_url = ?, biography = ?,
-            followers_count = ?, follows_count = ?, media_count = ?, updated_at = ?
-        WHERE id = 'instagram_primary'
-      `).run(p.username, p.name, p.profile_picture_url || '', p.biography || '', p.followers_count, p.follows_count, p.media_count, new Date().toISOString());
+  const authFailure = liveProfile.httpStatus === 401 ||
+    liveProfile.httpStatus === 403 ||
+    String(liveProfile.errorCode || '') === '190';
 
-      return res.json({
-        success: true,
-        isConnected: true,
-        account: {
-          handle: p.username,
-          name: p.name,
-          avatar: p.profile_picture_url || '',
-          followers: p.followers_count,
-          followersChange: 0,
-          following: p.follows_count,
-          postsCount: p.media_count,
-          category: 'Creator / Business',
-          bio: p.biography || '',
-          isVerified: p.followers_count > 10000
-        }
-      });
-    }
+  if (authFailure) {
+    db.prepare(`
+      UPDATE account_connections
+      SET is_connected = 0, access_token = '', updated_at = ?
+      WHERE id = 'instagram_primary'
+    `).run(new Date().toISOString());
+
+    return res.json(disconnectedAccount(
+      'disconnected',
+      liveProfile.error || 'Instagram authorization is no longer valid. Please reconnect Instagram.'
+    ));
   }
 
-  res.json({
-    success: true,
-    isConnected: Boolean(account.is_connected),
-    account: {
-      handle: account.username || '@SARLX.Ai',
-      name: account.name || 'SARLX.Ai',
-      avatar: account.profile_picture_url || '',
-      followers: account.followers_count || 0,
-      followersChange: 0,
-      following: account.follows_count || 0,
-      postsCount: account.media_count || 0,
-      category: 'Creator / Business',
-      bio: account.biography || '',
-      isVerified: (account.followers_count || 0) > 10000
-    }
-  });
+  return res.json(disconnectedAccount(
+    'verification_failed',
+    liveProfile.error || 'Instagram could not be verified right now. Try Sync Status again.'
+  ));
 });
 
 // ==========================================
