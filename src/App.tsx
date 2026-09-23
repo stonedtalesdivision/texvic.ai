@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { 
@@ -389,53 +389,24 @@ export default function App() {
     }
   };
 
-  const handleConnectAccount = async (params: { handle: string; category: string; followers: number; bio: string }) => {
-    try {
-      const res = await fetch('/api/analytics/connect-account', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setAnalytics(prev => ({
-            ...prev,
-            profile: data.profile,
-            metrics: {
-              ...prev.metrics,
-              ...data.metrics
-            }
-          }));
-          showToast(`Connected ${data.profile.handle} to AI Agent Hub`);
-        }
-      }
-    } catch (err) {
-      console.error('Account connect error:', err);
-    }
-  };
-
   const handleOAuthConnected = async (profile: AccountAnalytics['profile']) => {
     setAnalytics(prev => ({ ...prev, profile }));
     setInstagramConnected(true);
     showToast(`Connected ${profile.handle} to SARLX.Ai.`);
   };
 
-  const handleRefreshInstagramStatus = async () => {
+  const handleRefreshInstagramStatus = useCallback(async () => {
     const res = await fetch('/api/account/status');
     const data = await res.json().catch(() => ({}));
     const connected = Boolean(res.ok && data.success && data.isConnected);
     setInstagramConnected(connected);
     if (connected && data.account) {
       setAnalytics(prev => ({ ...prev, profile: data.account }));
-      showToast(`Instagram connected as ${data.account.handle}.`);
-    } else {
-      showToast(data.error || 'Instagram is not connected.');
     }
     return data;
-  };
+  }, []);
 
-  const handleDisconnectInstagram = async () => {
+  const handleDisconnectInstagram = useCallback(async () => {
     const res = await fetch('/api/auth/instagram/disconnect', { method: 'POST' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {
@@ -443,8 +414,7 @@ export default function App() {
     }
     setInstagramConnected(false);
     setAnalytics(DEFAULT_ACCOUNT_ANALYTICS);
-    showToast('Instagram disconnected.');
-  };
+  }, []);
 
   const handleResetToZero = async () => {
     try {
