@@ -40,7 +40,7 @@ function safeEqual(a: Buffer, b: Buffer): boolean {
 
 function verifyPassword(password: string, encodedHash: string): boolean {
   const parts = encodedHash.split("$");
-  if (parts.length !== 5 || parts[0] !== "scrypt") return false;
+  if (parts.length !== 6 || parts[0] !== "scrypt") return false;
 
   const [, nText, rText, pText, saltHex, hashHex] = parts;
   const N = Number(nText);
