@@ -125,14 +125,19 @@ export async function exchangeCodeForLongLivedTokens(
 export async function getInstagramAccountProfile(
   _igAccountId: string,
   accessToken: string
-): Promise<{ success: boolean; data?: MetaAccountDetails; error?: string }> {
+): Promise<{ success: boolean; data?: MetaAccountDetails; error?: string; errorCode?: number | string; httpStatus?: number }> {
   try {
     const url = `${GRAPH_BASE_URL}/me?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
     const res = await fetch(url);
     const data = await res.json();
 
     if (!res.ok || data.error) {
-      return { success: false, error: data.error?.message || 'Failed to query Instagram Graph API' };
+      return {
+        success: false,
+        error: data.error?.message || 'Failed to query Instagram Graph API',
+        errorCode: data.error?.code,
+        httpStatus: res.status
+      };
     }
 
     return {
