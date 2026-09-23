@@ -6,6 +6,7 @@ interface NavbarProps {
   activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous';
   setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous') => void;
   analytics: AccountAnalytics;
+  instagramConnected: boolean;
   autonomousMode: boolean;
   setAutonomousMode: (val: boolean | ((prev: boolean) => boolean)) => void;
   pendingCommentsCount: number;
@@ -17,6 +18,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
   analytics,
+  instagramConnected,
   autonomousMode,
   setAutonomousMode,
   pendingCommentsCount,
@@ -40,14 +42,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               </div>
             </div>
-            <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0d121d] rounded-full" />
+            <span
+              className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-[#0d121d] rounded-full ${instagramConnected ? 'bg-emerald-500' : 'bg-slate-600'}`}
+            />
           </div>
 
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-white tracking-tight flex items-center gap-1.5 text-base group-hover:text-pink-300 transition-colors">
                 {analytics.profile.name || 'SARLX.Ai'}
-                <CheckCircle2 className="w-4 h-4 text-sky-400 fill-sky-400/20" />
+                {instagramConnected && <CheckCircle2 className="w-4 h-4 text-sky-400 fill-sky-400/20" />}
               </span>
               <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 flex items-center gap-1">
                 <Flame className="w-3 h-3 text-pink-400" />
@@ -59,7 +63,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="text-slate-600">•</span>
               <span className="text-emerald-400 font-medium">{analytics.metrics.impressions.toLocaleString()} Impressions</span>
               <span className="text-slate-600">•</span>
-              <span className="text-[11px] text-pink-400/90 hover:underline">Edit Profile ✎</span>
+              <span className={`text-[11px] font-semibold ${instagramConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {instagramConnected ? 'Instagram Connected' : 'Instagram Not Connected'}
+              </span>
             </p>
           </div>
         </div>
@@ -73,7 +79,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors"
             >
               <Instagram className="w-3.5 h-3.5 text-pink-400" />
-              Sync Account
+              {instagramConnected ? 'Instagram Connected' : 'Connect Instagram'}
             </button>
           )}
 
