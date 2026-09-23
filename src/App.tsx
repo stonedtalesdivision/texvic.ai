@@ -60,6 +60,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
   const [previewReel, setPreviewReel] = useState<ReelItem | null>(null);
+  const [instagramConnected, setInstagramConnected] = useState(false);
 
   const [autonomousConfig, setAutonomousConfig] = useState<Autonomous24x7Config>({
     enabled: true,
@@ -87,6 +88,15 @@ export default function App() {
   useEffect(() => {
     async function loadLiveWorkspace() {
       try {
+        const statusRes = await fetch('/api/account/status');
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          setInstagramConnected(Boolean(status.success && status.isConnected));
+          if (status.success && status.account && status.isConnected) {
+            setAnalytics(prev => ({ ...prev, profile: status.account }));
+          }
+        }
+
         const res = await fetch('/api/state');
         if (res.ok) {
           const data = await res.json();
@@ -94,7 +104,9 @@ export default function App() {
             if (data.reels && Array.isArray(data.reels)) setReels(data.reels);
             if (data.posts && Array.isArray(data.posts)) setPosts(data.posts);
             if (data.comments && Array.isArray(data.comments)) setComments(data.comments);
-            if (data.analytics) setAnalytics(data.analytics);
+            if (data.analytics && !instagramConnected) {
+              setAnalytics(data.analytics);
+            }
             if (typeof data.autonomousMode === 'boolean') setAutonomousMode(data.autonomousMode);
             if (data.autonomous24x7) setAutonomousConfig(data.autonomous24x7);
           }
@@ -107,6 +119,19 @@ export default function App() {
 
     // Poll autonomous status every 15s to keep countdown and telemetry in sync
     const pollInterval = setInterval(async () => {
+      try {
+        const statusRes = await fetch('/api/account/status');
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          setInstagramConnected(Boolean(status.success && status.isConnected));
+          if (status.success && status.isConnected && status.account) {
+            setAnalytics(prev => ({ ...prev, profile: status.account }));
+          }
+        }
+      } catch {
+        // quiet connection verification tick
+      }
+
       try {
         const res = await fetch('/api/autonomous/status');
         if (res.ok) {
@@ -392,7 +417,33 @@ export default function App() {
 
   const handleOAuthConnected = async (profile: AccountAnalytics['profile']) => {
     setAnalytics(prev => ({ ...prev, profile }));
+    setInstagramConnected(true);
     showToast(`Connected ${profile.handle} to SARLX.Ai.`);
+  };
+
+  const handleRefreshInstagramStatus = async () => {
+    const res = await fetch('/api/account/status');
+    const data = await res.json().catch(() => ({}));
+    const connected = Boolean(res.ok && data.success && data.isConnected);
+    setInstagramConnected(connected);
+    if (connected && data.account) {
+      setAnalytics(prev => ({ ...prev, profile: data.account }));
+      showToast(`Instagram connected as ${data.account.handle}.`);
+    } else {
+      showToast(data.error || 'Instagram is not connected.');
+    }
+    return data;
+  };
+
+  const handleDisconnectInstagram = async () => {
+    const res = await fetch('/api/auth/instagram/disconnect', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Could not disconnect Instagram.');
+    }
+    setInstagramConnected(false);
+    setAnalytics(DEFAULT_ACCOUNT_ANALYTICS);
+    showToast('Instagram disconnected.');
   };
 
   const handleResetToZero = async () => {
@@ -488,6 +539,7 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         analytics={analytics}
+        instagramConnected={instagramConnected}
         autonomousMode={autonomousMode}
         setAutonomousMode={setAutonomousMode}
         pendingCommentsCount={pendingCommentsCount}
@@ -500,9 +552,11 @@ export default function App() {
         isOpen={isAccountModalOpen}
         onClose={() => setIsAccountModalOpen(false)}
         currentProfile={analytics.profile}
-        onConnect={handleConnectAccount}
+        isConnected={instagramConnected}
         onResetToZero={handleResetToZero}
         onOAuthConnected={handleOAuthConnected}
+        onRefreshStatus={handleRefreshInstagramStatus}
+        onDisconnect={handleDisconnectInstagram}
       />
 
       {/* Reel Player Modal for Inspecting Autonomously Published Video */}
