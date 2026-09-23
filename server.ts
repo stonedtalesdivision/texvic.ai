@@ -998,49 +998,99 @@ const AUTONOMOUS_AUDIO_TRACKS = [
 ];
 
 async function researchTopicFromInternet(niche: string): Promise<{ topic: string; ideaHook: string; webSources: string[] }> {
-  if (hasGeminiKey() && Date.now() > quotaCooldownUntil) {
-    try {
-      const prompt = `You are an elite short-form video trend researcher for SARLX.Ai.
-Search the live web for the latest viral trends, breakthrough discussions, debates, or news in the "${niche}" niche today.
-Identify 1 standout breakthrough or high-interest trend, extract 2-3 specific web sources or platforms, and formulate a 3-second pattern-interrupt hook for an Instagram Reel.
-Respond in valid JSON format:
+  if (!hasGeminiKey()) {
+    throw new Error("Gemini research is unavailable because GEMINI_API_KEY is not configured.");
+  }
+
+  const prompt = `You are an elite short-form video trend researcher for SARLX.Ai.
+Identify one strong, current, high-interest trend, breakthrough, discussion, or news angle in the "${niche}" niche that would work well for an Instagram Reel.
+Prefer recent developments and recognizable topics. Formulate a 3-second pattern-interrupt hook.
+Return ONLY valid JSON:
 {
   "topic": "Concise trending topic or breakthrough title",
   "ideaHook": "A compelling 3-second visual contradiction or surprising statement",
-  "webSources": ["Source 1 / Publication", "Source 2 / Community"]
+  "webSources": ["Source or publication name", "Platform or community name"]
 }`;
+
+  // First attempt: Gemini + Google Search grounding for genuinely current research.
+  if (Date.now() > quotaCooldownUntil) {
+    try {
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
-        contents: prompt,
+        contents: `Search the live web and ${prompt}`,
         config: {
-          tools: [{ googleSearch: {} }]
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          temperature: 0.7,
         }
       });
+
       const text = response.text?.trim() || "";
       if (text) {
-        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        const cleaned = text.replace(/^\`\`\`(?:json)?\\s*/i, '').replace(/\\s*\`\`\`$/, '').trim();
         const parsed = JSON.parse(cleaned);
         if (parsed.topic && parsed.ideaHook) {
           return {
             topic: parsed.topic,
             ideaHook: parsed.ideaHook,
-            webSources: Array.isArray(parsed.webSources) && parsed.webSources.length > 0 ? parsed.webSources : ["Google Grounding Engine", "Live Web Trends"]
+            webSources: Array.isArray(parsed.webSources) && parsed.webSources.length > 0
+              ? parsed.webSources
+              : ["Google Search Grounding", "Live Web"]
           };
         }
       }
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      if (errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("Quota exceeded")) {
+      const isQuota = /429|RESOURCE_EXHAUSTED|quota|Quota exceeded/i.test(errMsg);
+      if (isQuota) {
         quotaCooldownUntil = Date.now() + 60000;
-        console.info("[Autonomous 24x7 Engine] Live search quota reached. Smoothly switching to curated real-time web intelligence.");
+        console.info("[Autonomous 24x7 Engine] Google Search grounding quota reached; falling back to plain Gemini research.");
       } else {
-        console.info("[Autonomous 24x7 Engine] Activating curated trend intelligence engine.");
+        console.info(`[Autonomous 24x7 Engine] Gemini web research failed; falling back to plain Gemini research: ${errMsg.slice(0, 140)}`);
       }
     }
   }
 
-  throw new Error("Gemini research is unavailable. Gemini-only mode will not use a non-Gemini fallback.");
+  // Second attempt: plain Gemini, with no Search tool and no non-Gemini fallback.
+  // This keeps the product zero-budget and Gemini-only when Search grounding is unavailable.
+  const fallbackModels = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+  for (const model of fallbackModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: `${prompt}
+You do not have web browsing in this request. Do not invent specific URLs or claim that you verified a source. If you cannot identify a concrete source, use source labels such as "Gemini trend synthesis" and "Current AI ecosystem".`,
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.7,
+        }
+      });
 
+      const text = response.text?.trim() || "";
+      if (text) {
+        const cleaned = text.replace(/^\`\`\`(?:json)?\\s*/i, '').replace(/\\s*\`\`\`$/, '').trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed.topic && parsed.ideaHook) {
+          return {
+            topic: parsed.topic,
+            ideaHook: parsed.ideaHook,
+            webSources: Array.isArray(parsed.webSources) && parsed.webSources.length > 0
+              ? parsed.webSources
+              : ["Gemini trend synthesis", "Current AI ecosystem"]
+          };
+        }
+      }
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      console.info(`[Autonomous 24x7 Engine] Gemini research model ${model} failed: ${errMsg.slice(0, 140)}`);
+      if (/429|RESOURCE_EXHAUSTED|quota|Quota exceeded/i.test(errMsg)) {
+        quotaCooldownUntil = Date.now() + 60000;
+        break;
+      }
+    }
+  }
+
+  throw new Error("Gemini research is unavailable. All Gemini research attempts failed.");
 }
 
 async function generateAutonomousReelWithStrategy(
