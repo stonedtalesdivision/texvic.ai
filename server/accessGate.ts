@@ -21,6 +21,8 @@ const PUBLIC_PATHS = new Set([
   "/auth/instagram/callback",
   "/auth/instagram/callback/",
   "/api/webhooks/instagram",
+  "/api/video-worker/claim",
+  "/api/video-worker/jobs/",
 ]);
 
 function parseCookies(header: string | undefined): Record<string, string> {
