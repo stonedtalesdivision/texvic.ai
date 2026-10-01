@@ -18,6 +18,7 @@ import {
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
 import { THEME_PAGE_PROFILE, buildThemeResearchContext } from "./server/themePage.js";
+import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract } from "./server/videoEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -108,6 +109,69 @@ async function generateGeminiJson(
 }
 
 // ==========================================
+// CLOUD VIDEO ENGINE
+function requireVideoWorker(req: express.Request, res: express.Response): boolean {
+  const token = String(req.headers["x-texvic-worker-token"] || "");
+  if (!verifyVideoWorkerToken(token)) {
+    res.status(401).json({ success: false, error: "Invalid video worker token." });
+    return false;
+  }
+  return true;
+}
+
+app.get("/api/video/contract", (req, res) => {
+  res.json({ success: true, contract: getVideoWorkerContract() });
+});
+
+app.get("/api/video/jobs", (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+  res.json({ success: true, jobs: listVideoJobs(limit) });
+});
+
+app.post("/api/video/jobs", (req, res) => {
+  const { reelId, prompt, provider } = req.body || {};
+  if (!reelId || !prompt) return res.status(400).json({ success: false, error: "reelId and prompt are required." });
+  const reel = db.prepare("SELECT id FROM reels WHERE id = ?").get(String(reelId));
+  if (!reel) return res.status(404).json({ success: false, error: "Reel not found." });
+  const job = createVideoJob({ reelId: String(reelId), prompt: String(prompt), provider: provider ? String(provider) : undefined });
+  res.status(201).json({ success: true, job });
+});
+
+app.get("/api/video-worker/claim", (req, res) => {
+  if (!requireVideoWorker(req, res)) return;
+  const job = claimNextVideoJob();
+  if (!job) return res.status(204).send();
+  res.json({ success: true, job });
+});
+
+app.post("/api/video-worker/jobs/:id/status", (req, res) => {
+  if (!requireVideoWorker(req, res)) return;
+  const { status, sourceUrl, error } = req.body || {};
+  const allowed = new Set(["GENERATING", "DOWNLOADING", "PROCESSING", "READY", "FAILED"]);
+  if (!allowed.has(String(status))) return res.status(400).json({ success: false, error: "Invalid video job status." });
+  const job = updateVideoJob(String(req.params.id), {
+    status: String(status) as any,
+    source_url: sourceUrl ? String(sourceUrl) : undefined,
+    error: error ? String(error) : null
+  });
+  if (!job) return res.status(404).json({ success: false, error: "Video job not found." });
+  res.json({ success: true, job });
+});
+
+app.post("/api/video-worker/jobs/:id/output", express.raw({ type: ["video/mp4", "application/octet-stream"], limit: "300mb" }), async (req, res) => {
+  if (!requireVideoWorker(req, res)) return;
+  const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
+  if (!body.length) return res.status(400).json({ success: false, error: "MP4 body is required." });
+  try {
+    const job = await saveVideoOutput(String(req.params.id), body, "mp4");
+    if (!job) return res.status(404).json({ success: false, error: "Video job not found." });
+    db.prepare("UPDATE reels SET video_url = ?, updated_at = ? WHERE id = ?").run(job.output_url, new Date().toISOString(), job.reel_id);
+    res.json({ success: true, job });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
 // 1. REAL INSTAGRAM OAUTH & META GRAPH API
 // ==========================================
 
@@ -1310,6 +1374,17 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       new Date().toISOString()
     );
 
+    const videoPrompt = [
+      `Create an original 9:16 short-form Reel for the SARLX.Ai theme page.`,
+      `Topic: ${topicInfo.topic}`,
+      `Hook: ${topicInfo.ideaHook}`,
+      `Visual direction: cinematic futuristic technology, premium typography space, fast hook, clear payoff.`,
+      `Scenes: ${JSON.stringify(reel.scenes)}`,
+      `Audio mood: ${reel.audio.mood || "energetic cinematic"}.`,
+      `Do not include captions, logos, UI, watermarks, or copyrighted music; TEXVIC handles overlays and publishing.`
+    ].join("\n");
+    const videoJob = createVideoJob({ reelId: reel.id, prompt: videoPrompt });
+
     // Insert into autonomous_logs
     const logId = `log-${Date.now()}`;
     db.prepare(`
@@ -1356,7 +1431,8 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
         reelTitle: reel.title,
         reelId: reel.id,
         instagramPostId: publicationId || 'pending_meta_auth',
-        status: reelStatus
+        status: reelStatus,
+        videoJobId: videoJob.id
       }
     };
   } catch (err: any) {
