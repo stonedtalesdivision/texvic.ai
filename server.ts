@@ -18,7 +18,7 @@ import {
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
 import { THEME_PAGE_PROFILE, buildThemeResearchContext } from "./server/themePage.js";
-import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract } from "./server/videoEngine.js";
+import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract, verifyMediaSignature } from "./server/videoEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -44,8 +44,15 @@ app.use((req, res, next) => {
   ownerAuthMiddleware(req, res, next);
 });
 
-// Generated media is private too; it is only reachable with an owner session.
-app.use("/media", express.static(path.join(process.cwd(), "data", "media")));
+// Finished MP4s need to be fetchable by Instagram/Meta, but the dashboard remains owner-only.
+app.get("/media/reels/:filename", (req, res) => {
+  const filename = path.basename(String(req.params.filename || ""));
+  const token = String(req.query.token || "");
+  if (!verifyMediaSignature(filename, token)) {
+    return res.status(403).send("Forbidden");
+  }
+  res.sendFile(path.join(process.cwd(), "data", "media", "reels", filename));
+});
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({
