@@ -95,7 +95,8 @@ function hasValidSession(req: Request): boolean {
 }
 
 function isPublicPath(req: Request): boolean {
-  return PUBLIC_PATHS.has(req.path);
+  if (PUBLIC_PATHS.has(req.path)) return true;
+  return req.path.startsWith("/api/video-worker/jobs/");
 }
 
 function loginPage(error = ""): string {
