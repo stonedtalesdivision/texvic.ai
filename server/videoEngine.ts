@@ -27,6 +27,25 @@ export interface VideoJob {
 
 const MEDIA_DIR = path.join(process.cwd(), 'data', 'media', 'reels');
 
+function mediaSigningKey(): string {
+  const key = process.env.MEDIA_SIGNING_KEY || '';
+  if (key.length < 32) throw new Error('MEDIA_SIGNING_KEY must be configured with at least 32 characters.');
+  return key;
+}
+
+export function createMediaSignature(filename: string): string {
+  return crypto.createHmac('sha256', mediaSigningKey()).update(filename).digest('hex');
+}
+
+export function verifyMediaSignature(filename: string, signature: string): boolean {
+  if (!signature || signature.length !== 64) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(createMediaSignature(filename)), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -139,7 +158,7 @@ export async function saveVideoOutput(id: string, body: Buffer, extension = 'mp4
   return updateVideoJob(id, {
     status: 'READY',
     output_path: outputPath,
-    output_url: `${appUrl}/media/reels/${encodeURIComponent(filename)}`,
+    output_url: `${appUrl}/media/reels/${encodeURIComponent(filename)}?token=${createMediaSignature(filename)}`,
     error: null,
   });
 }
