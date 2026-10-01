@@ -17,6 +17,7 @@ import {
 } from "./server/metaGraphApi.js";
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
+import { THEME_PAGE_PROFILE, buildThemeResearchContext } from "./server/themePage.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -1044,7 +1045,7 @@ async function researchTopicFromInternet(niche: string): Promise<{ topic: string
     throw new Error("Gemini research is unavailable because GEMINI_API_KEY is not configured.");
   }
 
-  const prompt = `You are an elite short-form video trend researcher for SARLX.Ai.
+  const prompt = `You are the autonomous content researcher for ${THEME_PAGE_PROFILE.handle} (${THEME_PAGE_PROFILE.brand}).\n${buildThemeResearchContext()}\n\nYou are an elite short-form video trend researcher for SARLX.Ai.
 Identify one strong, current, high-interest trend, breakthrough, discussion, or news angle in the "${niche}" niche that would work well for an Instagram Reel.
 Prefer recent developments and recognizable topics. Formulate a 3-second pattern-interrupt hook.
 Return ONLY valid JSON:
@@ -1158,7 +1159,7 @@ ANALYTICS STRATEGY FEEDBACK INJECTION:
 - High retention audio tempo: "${strategy.highRetentionAudioTempo}"
 - Recommended high-affinity keywords: ${strategy.recommendedNicheKeywords.join(", ")}
 
-Generate a high-velocity, 3-scene 9:16 viral reel for:
+Generate a high-velocity, original 3-scene 9:16 Reel for the SARLX.Ai theme page.\nTheme-page context:\n${buildThemeResearchContext()}\n\nTopic:
 Topic: ${topicInfo.topic}
 Hook Concept: ${topicInfo.ideaHook}
 Target Duration: 8s
@@ -1251,7 +1252,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
   try {
     const configQuery = db.prepare('SELECT * FROM autonomous_config WHERE id = ?');
     const configRow = configQuery.get('default_config') as any;
-    const niche = configRow?.target_niche || "AI Tech & Breakthroughs";
+    const niche = configRow?.target_niche || THEME_PAGE_PROFILE.niche;
 
     // Stage 1: Research from internet
     db.prepare(`UPDATE autonomous_config SET current_stage = 'researching_web', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
