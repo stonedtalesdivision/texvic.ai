@@ -239,11 +239,32 @@ def run_once():
         print(f"[TEXVIC Worker] READY {job_id}")
         return True
     except Exception as exc:
-        print(f"[TEXVIC Worker] FAILED {job_id}: {exc}")
-        try:
-            texvic_status(job_id, "FAILED", str(exc))
-        except Exception as report_error:
-            print(f"[TEXVIC Worker] Could not report failure: {report_error}")
+        error_text = str(exc)
+        hosted_gpu_unavailable = (
+            provider in ("ltx23-hf", "ltx-2.3-hf", "huggingface-ltx23")
+            and (
+                "No GPU was available" in error_text
+                or "ZeroGPU" in error_text
+                or "GPU was not available" in error_text
+            )
+        )
+
+        if hosted_gpu_unavailable:
+            print(f"[TEXVIC Worker] Hosted LTX GPU unavailable; re-queueing {job_id}")
+            try:
+                texvic_status(
+                    job_id,
+                    "QUEUED",
+                    "Hosted LTX GPU temporarily unavailable; job re-queued."
+                )
+            except Exception as report_error:
+                print(f"[TEXVIC Worker] Could not re-queue job: {report_error}")
+        else:
+            print(f"[TEXVIC Worker] FAILED {job_id}: {exc}")
+            try:
+                texvic_status(job_id, "FAILED", error_text)
+            except Exception as report_error:
+                print(f"[TEXVIC Worker] Could not report failure: {report_error}")
         return True
 
 
