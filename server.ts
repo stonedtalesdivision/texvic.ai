@@ -154,7 +154,7 @@ app.get("/api/video-worker/claim", (req, res) => {
 app.post("/api/video-worker/jobs/:id/status", (req, res) => {
   if (!requireVideoWorker(req, res)) return;
   const { status, sourceUrl, error } = req.body || {};
-  const allowed = new Set(["GENERATING", "DOWNLOADING", "PROCESSING", "READY", "FAILED"]);
+  const allowed = new Set(["QUEUED", "GENERATING", "DOWNLOADING", "PROCESSING", "READY", "FAILED"]);
   if (!allowed.has(String(status))) return res.status(400).json({ success: false, error: "Invalid video job status." });
   const job = updateVideoJob(String(req.params.id), {
     status: String(status) as any,
