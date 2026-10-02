@@ -260,6 +260,9 @@ def run_once():
                 )
             except Exception as report_error:
                 print(f"[TEXVIC Worker] Could not re-queue job: {report_error}")
+            # Avoid a hot retry loop when Hugging Face ZeroGPU has no capacity.
+            print("[TEXVIC Worker] Cooling down for 60 seconds before retrying hosted LTX.")
+            time.sleep(60)
         else:
             print(f"[TEXVIC Worker] FAILED {job_id}: {exc}")
             try:
