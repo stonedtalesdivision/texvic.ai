@@ -221,8 +221,7 @@ def run_once():
 
     job = result["job"]
     job_id = job["id"]
-    provider = str(job.get("provider") or VIDEO_PROVIDER).lower()
-
+    # Use the worker-selected provider so jobs created before a provider switch can be resumed safely.\n    provider = VIDEO_PROVIDER or str(job.get("provider") or "").lower()\n
     print(
         f"[TEXVIC Worker] Claimed {job_id} for Reel {job['reel_id']} "
         f"(provider={provider})"
