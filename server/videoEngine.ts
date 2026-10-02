@@ -80,7 +80,7 @@ export function createVideoJob(input: {
   `).run(
     id,
     input.reelId,
-    input.provider || process.env.VIDEO_PROVIDER || 'comfyui-colab',
+    input.provider || process.env.VIDEO_PROVIDER || 'ltx23-hf',
     input.prompt,
     timestamp,
     timestamp
@@ -165,7 +165,7 @@ export async function saveVideoOutput(id: string, body: Buffer, extension = 'mp4
 
 export function getVideoWorkerContract() {
   return {
-    provider: process.env.VIDEO_PROVIDER || 'comfyui-colab',
+    provider: process.env.VIDEO_PROVIDER || 'ltx23-hf',
     workerProtocol: 'texvic-video-worker-v1',
     output: {
       container: 'mp4',
