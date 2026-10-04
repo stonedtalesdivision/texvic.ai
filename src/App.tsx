@@ -15,6 +15,7 @@ import { ContentGallery } from './components/ContentGallery';
 import { AccountConnectorModal } from './components/AccountConnectorModal';
 import { AutonomousEngine24x7 } from './components/AutonomousEngine24x7';
 import { ReelPlayer } from './components/ReelPlayer';
+import { AssetLibrary } from './components/AssetLibrary';
 
 const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
   {
@@ -50,7 +51,7 @@ const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous'>('autonomous');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous'>('autonomous');
   const [autonomousMode, setAutonomousMode] = useState<boolean>(true);
   const [analytics, setAnalytics] = useState<AccountAnalytics>(DEFAULT_ACCOUNT_ANALYTICS);
   const [reels, setReels] = useState<ReelItem[]>([]);
@@ -678,6 +679,18 @@ export default function App() {
                 onDeleteScheduled={handleDeleteScheduled}
                 onNavigateToCreate={() => setActiveTab('reels')}
               />
+            </motion.div>
+          )}
+
+          {activeTab === 'assets' && (
+            <motion.div
+              key="assets"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <AssetLibrary />
             </motion.div>
           )}
 
