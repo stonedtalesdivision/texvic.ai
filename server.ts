@@ -144,6 +144,122 @@ async function generateGeminiJson(
   return null;
 }
 
+async function validateRenderedReel(videoPath: string): Promise<{
+  valid: boolean;
+  duration: number;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+  sizeBytes: number;
+  error?: string;
+}> {
+  try {
+    const stat = fs.statSync(videoPath);
+    if (stat.size < 50 * 1024) {
+      return {
+        valid: false, duration: 0, width: 0, height: 0, hasAudio: false,
+        sizeBytes: stat.size, error: "Rendered video is unexpectedly small."
+      };
+    }
+
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration:stream=codec_type,width,height",
+      "-of", "json",
+      videoPath
+    ]);
+
+    const probe = JSON.parse(stdout || "{}");
+    const streams = Array.isArray(probe.streams) ? probe.streams : [];
+    const video = streams.find((stream: any) => stream.codec_type === "video");
+    const hasAudio = streams.some((stream: any) => stream.codec_type === "audio");
+    const duration = Number(probe.format?.duration || 0);
+    const width = Number(video?.width || 0);
+    const height = Number(video?.height || 0);
+
+    if (!video) {
+      return { valid: false, duration, width, height, hasAudio, sizeBytes: stat.size, error: "No video stream found." };
+    }
+    if (width !== 1080 || height !== 1920) {
+      return {
+        valid: false, duration, width, height, hasAudio, sizeBytes: stat.size,
+        error: `Expected 1080x1920, got ${width}x${height}.`
+      };
+    }
+    if (duration < 5 || duration > 90) {
+      return {
+        valid: false, duration, width, height, hasAudio, sizeBytes: stat.size,
+        error: `Invalid Reel duration: ${duration.toFixed(2)}s.`
+      };
+    }
+
+    return { valid: true, duration, width, height, hasAudio, sizeBytes: stat.size };
+  } catch (err: any) {
+    return {
+      valid: false,
+      duration: 0,
+      width: 0,
+      height: 0,
+      hasAudio: false,
+      sizeBytes: 0,
+      error: err?.message || String(err)
+    };
+  }
+}
+
+function selectAutonomousSceneAssets(reel: any): { scenes: any[]; musicPath?: string } | null {
+  const used = new Set<string>();
+
+  const scenes = (Array.isArray(reel.scenes) ? reel.scenes : []).map((scene: any, index: number) => {
+    const theme = String(scene.visualTheme || "").toLowerCase();
+    const tags = ["ai", "technology", ...theme.split(/[^a-z0-9]+/i).filter(Boolean)];
+
+    let candidates = selectAssets({
+      type: "video",
+      tags,
+      limit: 8,
+      avoidRecentlyUsedDays: 3
+    }).filter((asset: any) => !used.has(asset.id));
+
+    if (!candidates.length) {
+      candidates = selectAssets({
+        type: "video",
+        limit: 8,
+        avoidRecentlyUsedDays: 3
+      }).filter((asset: any) => !used.has(asset.id));
+    }
+
+    const asset = candidates[0];
+    if (!asset) return null;
+
+    used.add(asset.id);
+
+    return {
+      assetId: asset.id,
+      duration: Number(scene.durationSeconds || 2.4),
+      crop: index % 3 === 1 ? "left" : index % 3 === 2 ? "right" : "center",
+      zoom: Number(scene.pacingEffect === "zoom-in" ? 1.08 : scene.pacingEffect === "pulse" ? 1.04 : 1),
+      speed: 1,
+      transition: "cut",
+      text: scene.hookText || scene.secondaryText || ""
+    };
+  });
+
+  if (!scenes.length || scenes.some((scene: any) => !scene)) return null;
+
+  const audioAssets = selectAssets({
+    type: "audio",
+    tags: ["music", "electronic", "phonk", "house", "trap"],
+    limit: 10,
+    avoidRecentlyUsedDays: 3
+  });
+
+  return {
+    scenes,
+    musicPath: audioAssets[0]?.file_path
+  };
+}
+
 // ==========================================
 // REUSABLE ASSET + REEL COMPOSER ENGINE
 // ==========================================
