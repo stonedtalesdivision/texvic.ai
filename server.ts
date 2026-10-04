@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import crypto from "node:crypto";
 import fs from "fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
@@ -32,6 +34,7 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const execFileAsync = promisify(execFile);
 
 const oauthStates = new Map<string, number>();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -1439,18 +1442,11 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     console.log(`[Autonomous 24x7 Engine] Step 3/4: Synthesizing scenes & beat-matched audio with strategy feedback...`);
     const reel = await generateAutonomousReelWithStrategy(topicInfo, niche, strategy);
 
-    // Stage 4: Persist the Gemini-generated content package.
-    // No video model, paid media API, or Instagram publication is invoked in Gemini-only mode.
-    db.prepare(`UPDATE autonomous_config SET current_stage = 'content_ready', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
-    console.log(`[Autonomous 24x7 Engine] Step 4/4: Saving Gemini content package for the first Reel...`);
+    // Stage 4: Persist, render, validate, publish, and record the autonomous Reel.
+    db.prepare(`UPDATE autonomous_config SET current_stage = 'rendering_video', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    console.log(`[Autonomous 24x7 Engine] Step 4/8: Rendering Reel from the Asset Library...`);
 
-    const publicationId: string | null = null;
-    const permalink: string | null = null;
-    const publishError: string | null = 'Content ready; waiting for a zero-cost video provider.';
-    const videoUrl: string | null = null;
-    const reelStatus = 'draft';
-
-    // Insert the generated content package; the MP4 is intentionally deferred.
+    const reelStatus = 'video_rendering';
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
@@ -1470,10 +1466,10 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       reel.retentionEstimate,
       reelStatus,
       reel.videoTemplateId,
-      videoUrl,
-      publicationId,
-      permalink,
-      publicationId ? new Date().toISOString() : null,
+      null,
+      null,
+      null,
+      null,
       new Date().toISOString(),
       new Date().toISOString()
     );
@@ -1489,12 +1485,58 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     ].join("\n");
     const videoJob = createVideoJob({ reelId: reel.id, prompt: videoPrompt });
 
-    // Insert into autonomous_logs
+    const localAssets = selectAutonomousSceneAssets(reel);
+    let rendered = false;
+    let videoUrl: string | null = null;
+    let validation: any = null;
+
+    if (localAssets) {
+      try {
+        const composed = await composeReel({
+          reelId: reel.id,
+          scenes: localAssets.scenes,
+          musicPath: localAssets.musicPath,
+          width: 1080,
+          height: 1920,
+          fps: 30
+        });
+
+        validation = await validateRenderedReel(composed.outputPath);
+        if (!validation.valid) {
+          throw new Error(`Video validation failed: ${validation.error || "invalid MP4"}`);
+        }
+
+        const videoBody = fs.readFileSync(composed.outputPath);
+        const savedJob = await saveVideoOutput(videoJob.id, videoBody, "mp4");
+        if (!savedJob?.output_url) {
+          throw new Error("Rendered video could not be published to the signed media store.");
+        }
+
+        videoUrl = savedJob.output_url;
+        rendered = true;
+
+        db.prepare(`
+          UPDATE reels
+          SET status = 'video_ready', video_url = ?, scenes_json = ?, updated_at = ?
+          WHERE id = ?
+        `).run(videoUrl, JSON.stringify(localAssets.scenes), new Date().toISOString(), reel.id);
+
+        db.prepare(`UPDATE autonomous_config SET current_stage = 'video_ready', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+        console.log(`[Autonomous 24x7 Engine] Step 5/8: Video rendered and validated (${validation.width}x${validation.height}, ${validation.duration.toFixed(1)}s).`);
+      } catch (err: any) {
+        const message = err?.message || String(err);
+        updateVideoJob(videoJob.id, { status: 'FAILED', error: message });
+        db.prepare(`UPDATE reels SET status = 'video_failed', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), reel.id);
+        db.prepare(`UPDATE autonomous_config SET current_stage = 'video_failed', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+        console.warn(`[Autonomous 24x7 Engine] Local render failed; video worker remains available for retry: ${message}`);
+      }
+    }
+
     const logId = `log-${Date.now()}`;
     db.prepare(`
       INSERT INTO autonomous_logs (
-        id, timestamp, topic_researched, web_sources_json, idea_hook, reel_id, ig_media_id, status, reach_gained, views_gained
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+        id, timestamp, topic_researched, web_sources_json, idea_hook, reel_id, ig_media_id, status, reach_gained, views_gained, details_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
     `).run(
       logId,
       new Date().toISOString(),
@@ -1502,29 +1544,82 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       JSON.stringify(topicInfo.webSources),
       topicInfo.ideaHook,
       reel.id,
-      reelStatus
+      null,
+      rendered ? 'video_ready' : 'video_queued',
+      JSON.stringify({
+        videoJobId: videoJob.id,
+        validation,
+        renderedLocally: rendered,
+        publishStatus: rendered ? 'queued' : 'waiting_for_video_worker'
+      })
     );
 
-    // Update config
-    const intervalMins = configRow?.interval_minutes || 180;
-    db.prepare(`
-      UPDATE autonomous_config 
-      SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ?
-      WHERE id = 'default_config'
-    `).run(
-      new Date().toISOString(),
-      new Date(Date.now() + intervalMins * 60000).toISOString(),
-      new Date().toISOString()
-    );
+    if (!rendered) {
+      db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'video_queued', updated_at = ? WHERE id = 'default_config'`)
+        .run(
+          new Date().toISOString(),
+          new Date(Date.now() + (configRow?.interval_minutes || 180) * 60000).toISOString(),
+          new Date().toISOString()
+        );
+      return {
+        success: true,
+        reel,
+        error: 'Reel content is ready, but local rendering needs a video worker or usable Asset Library footage.',
+        log: {
+          id: logId,
+          timestamp: new Date().toISOString(),
+          topicResearched: topicInfo.topic,
+          webSources: topicInfo.webSources,
+          ideaHook: topicInfo.ideaHook,
+          reelTitle: reel.title,
+          reelId: reel.id,
+          instagramPostId: 'pending_video',
+          status: 'video_queued',
+          videoJobId: videoJob.id
+        }
+      };
+    }
 
-    console.log(`[Autonomous 24x7 Engine] Cycle completed! Gemini content "${reel.title}" saved as draft; video/publishing is deferred.`);
+    // Step 6/8: Validate publish prerequisites.
+    db.prepare(`UPDATE autonomous_config SET current_stage = 'validating_publish', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    console.log(`[Autonomous 24x7 Engine] Step 6/8: Validating Instagram publishing prerequisites...`);
 
-    // Recalculate feedback loop after publication
+    const account = db.prepare('SELECT account_id, access_token, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+    if (!account?.is_connected || !account?.account_id || !account?.access_token) {
+      db.prepare(`UPDATE reels SET status = 'video_ready', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), reel.id);
+      db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'waiting_for_instagram', updated_at = ? WHERE id = 'default_config'`)
+        .run(
+          new Date().toISOString(),
+          new Date(Date.now() + (configRow?.interval_minutes || 180) * 60000).toISOString(),
+          new Date().toISOString()
+        );
+      console.log(`[Autonomous 24x7 Engine] Step 7/8: Instagram is not connected; Reel remains video-ready for automatic publication after connection.`);
+      return {
+        success: true,
+        reel,
+        error: 'Instagram is not connected. Video is ready and will publish after the account is connected.',
+        log: { id: logId, reelId: reel.id, status: 'video_ready', videoJobId: videoJob.id }
+      };
+    }
+
+    // Step 7/8: Queue real Meta publication. The persistent worker handles retries.
+    db.prepare(`UPDATE autonomous_config SET current_stage = 'publishing', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    const publishJobId = enqueueJob('PUBLISH_SCHEDULED_REEL', { reelId: reel.id, videoUrl, autonomousLogId: logId });
+    db.prepare(`UPDATE reels SET status = 'publish_queued', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), reel.id);
+    console.log(`[Autonomous 24x7 Engine] Step 7/8: Reel queued for Instagram publication (${publishJobId}).`);
+
+    // Step 8/8: The background publisher records media ID/permalink and queues live analytics.
+    db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'publish_queued', updated_at = ? WHERE id = 'default_config'`)
+      .run(
+        new Date().toISOString(),
+        new Date(Date.now() + (configRow?.interval_minutes || 180) * 60000).toISOString(),
+        new Date().toISOString()
+      );
+
     computeStrategyFeedback();
 
     return {
       success: true,
-      error: publishError || undefined,
       reel,
       log: {
         id: logId,
@@ -1534,9 +1629,10 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
         ideaHook: topicInfo.ideaHook,
         reelTitle: reel.title,
         reelId: reel.id,
-        instagramPostId: publicationId || 'pending_meta_auth',
-        status: reelStatus,
-        videoJobId: videoJob.id
+        instagramPostId: 'publish_queued',
+        status: 'publish_queued',
+        videoJobId: videoJob.id,
+        publishJobId
       }
     };
   } catch (err: any) {
