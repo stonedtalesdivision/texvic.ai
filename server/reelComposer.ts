@@ -57,10 +57,11 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     for (let i = 0; i < resolved.length; i++) {
       const { scene, asset } = resolved[i];
       const output = path.join(workDir, `scene-${i}.mp4`);
+      const zoom = Math.max(1, Math.min(scene.zoom || 1, 1.5));
+      const cropX = scene.crop === 'left' ? '0' : scene.crop === 'right' ? 'in_w-1080' : '(in_w-1080)/2';
       const vf = [
-        'scale=1080:1920:force_original_aspect_ratio=increase',
-        'crop=1080:1920',
-        `zoompan=z='min(zoom+${Math.max(0, (scene.zoom || 1) - 1) / 30},${Math.max(1, scene.zoom || 1)})':d=1:s=1080x1920:fps=30`
+        `scale=ceil(1080*${zoom}/2)*2:ceil(1920*${zoom}/2)*2:force_original_aspect_ratio=increase`,
+        `crop=1080:1920:${cropX}:0`
       ];
       const filters = [
         `setpts=PTS/${Math.max(0.25, Math.min(scene.speed || 1, 2))}`,
