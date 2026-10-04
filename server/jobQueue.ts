@@ -164,18 +164,43 @@ export function startJobWorker() {
                 });
 
                 if (pubResult.success) {
+                  const publishedAt = new Date().toISOString();
                   db.prepare(`
-                    UPDATE reels 
+                    UPDATE reels
                     SET status = 'published', ig_media_id = ?, ig_container_id = ?, permalink = ?, publish_timestamp = ?, updated_at = ?
                     WHERE id = ?
                   `).run(
                     pubResult.mediaId || null,
                     pubResult.containerId || null,
                     pubResult.permalink || null,
-                    new Date().toISOString(),
-                    new Date().toISOString(),
+                    publishedAt,
+                    publishedAt,
                     reel.id
                   );
+
+                  if (payload.autonomousLogId) {
+                    db.prepare(`
+                      UPDATE autonomous_logs
+                      SET ig_media_id = ?, status = 'published', details_json = ?
+                      WHERE id = ?
+                    `).run(
+                      pubResult.mediaId || null,
+                      JSON.stringify({
+                        publishedAt,
+                        permalink: pubResult.permalink || null,
+                        containerId: pubResult.containerId || null
+                      }),
+                      String(payload.autonomousLogId)
+                    );
+                  }
+
+                  // Feed the analytics loop immediately; the next background sync
+                  // will hydrate reach, plays, likes, comments, shares and saves.
+                  enqueueJob('SYNC_INSTAGRAM_INSIGHTS', { reelId: reel.id, mediaId: pubResult.mediaId || null });
+                  if (pubResult.mediaId) {
+                    enqueueJob('SYNC_MEDIA_COMMENTS', { mediaId: pubResult.mediaId });
+                  }
+                  enqueueJob('ANALYTICS_STRATEGY_FEEDBACK', { reelId: reel.id });
                 } else {
                   throw new Error(pubResult.error || 'Publishing reel failed');
                 }
@@ -284,9 +309,11 @@ export function startJobWorker() {
             WHERE id = ?
           `).run(new Date().toISOString(), job.id);
         } else {
-          const newStatus = job.attempts >= 3 ? 'failed' : 'pending';
-          // Exponential retry backoff: run after 1 min, 5 mins, etc.
-          const retryTime = new Date(Date.now() + job.attempts * 60000).toISOString();
+          const maxAttempts = job.job_type === 'PUBLISH_SCHEDULED_REEL' ? 6 : 3;
+          const newStatus = job.attempts >= maxAttempts ? 'failed' : 'pending';
+          // Exponential retry backoff, capped at 30 minutes.
+          const retryMinutes = Math.min(30, Math.max(1, 2 ** Math.max(0, job.attempts - 1)));
+          const retryTime = new Date(Date.now() + retryMinutes * 60000).toISOString();
           db.prepare(`
             UPDATE background_jobs 
             SET status = ?, run_at = ?, last_error = ? 
