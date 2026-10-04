@@ -4,7 +4,7 @@ import { AccountAnalytics } from '../types';
 
 interface NavbarProps {
   activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous';
-  setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous') => void;
+  setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous') => void;
   analytics: AccountAnalytics;
   instagramConnected: boolean;
   autonomousMode: boolean;
