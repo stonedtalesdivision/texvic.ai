@@ -1,9 +1,9 @@
 import React from 'react';
-import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, LogOut } from 'lucide-react';
+import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, LogOut, Archive } from 'lucide-react';
 import { AccountAnalytics } from '../types';
 
 interface NavbarProps {
-  activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous';
+  activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous';
   setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous') => void;
   analytics: AccountAnalytics;
   instagramConnected: boolean;
@@ -111,7 +111,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button type="button" onClick={() => setActiveTab('posts')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'posts' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><Sparkles className="w-3.5 h-3.5 text-amber-400" />Carousel & Post Maker</button>
         <button type="button" onClick={() => setActiveTab('comments')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all relative ${activeTab === 'comments' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><MessageSquare className="w-3.5 h-3.5 text-emerald-400" />Auto-Responder{pendingCommentsCount > 0 && <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-pink-500 text-white">{pendingCommentsCount}</span>}</button>
         <button type="button" onClick={() => setActiveTab('schedule')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'schedule' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><Calendar className="w-3.5 h-3.5 text-purple-400" />Auto-Scheduler</button>
-        <button type="button" onClick={() => setActiveTab('gallery')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'gallery' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><Instagram className="w-3.5 h-3.5 text-rose-400" />Content Gallery</button>
+        <button type="button" onClick={() => setActiveTab('gallery')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'gallery' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><Instagram className="w-3.5 h-3.5 text-rose-400" />Content Gallery</button><button type="button" onClick={() => setActiveTab('assets')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'assets' ? 'bg-violet-500/15 text-violet-200 border border-violet-500/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><Archive className="w-3.5 h-3.5 text-violet-400" />Asset Library</button>
       </div>
     </header>
   );
