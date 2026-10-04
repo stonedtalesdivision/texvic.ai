@@ -23,6 +23,7 @@ import { THEME_PAGE_PROFILE, buildThemeResearchContext } from "./server/themePag
 import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract, verifyMediaSignature } from "./server/videoEngine.js";
 import { registerAsset, getAsset, listAssets, selectAssets } from "./server/assetLibrary.js";
 import { composeReel } from "./server/reelComposer.js";
+import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -207,33 +208,14 @@ async function validateRenderedReel(videoPath: string): Promise<{
   }
 }
 
-function selectAutonomousSceneAssets(reel: any): { scenes: any[]; musicPath?: string } | null {
-  const used = new Set<string>();
+async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; musicPath?: string } | null> {
+  const prepared = await ensureAutonomousVisualAssets(reel);
+  if (!prepared.assets.length || prepared.assets.length < (Array.isArray(reel.scenes) ? reel.scenes.length : 0)) {
+    return null;
+  }
 
-  const scenes = (Array.isArray(reel.scenes) ? reel.scenes : []).map((scene: any, index: number) => {
-    const theme = String(scene.visualTheme || "").toLowerCase();
-    const tags = ["ai", "technology", ...theme.split(/[^a-z0-9]+/i).filter(Boolean)];
-
-    let candidates = selectAssets({
-      type: "video",
-      tags,
-      limit: 8,
-      avoidRecentlyUsedDays: 3
-    }).filter((asset: any) => !used.has(asset.id));
-
-    if (!candidates.length) {
-      candidates = selectAssets({
-        type: "video",
-        limit: 8,
-        avoidRecentlyUsedDays: 3
-      }).filter((asset: any) => !used.has(asset.id));
-    }
-
-    const asset = candidates[0];
-    if (!asset) return null;
-
-    used.add(asset.id);
-
+  const scenes = prepared.assets.map((asset: any, index: number) => {
+    const scene = Array.isArray(reel.scenes) ? reel.scenes[index] || {} : {};
     return {
       assetId: asset.id,
       duration: Number(scene.durationSeconds || 2.4),
@@ -245,8 +227,6 @@ function selectAutonomousSceneAssets(reel: any): { scenes: any[]; musicPath?: st
     };
   });
 
-  if (!scenes.length || scenes.some((scene: any) => !scene)) return null;
-
   const audioAssets = selectAssets({
     type: "audio",
     tags: ["music", "electronic", "phonk", "house", "trap"],
@@ -254,12 +234,13 @@ function selectAutonomousSceneAssets(reel: any): { scenes: any[]; musicPath?: st
     avoidRecentlyUsedDays: 3
   });
 
+  console.log(`[Autonomous 24x7 Engine] Visual producer ready: ${prepared.generated} generated asset(s), ${prepared.assets.length} scene asset(s).`);
+
   return {
     scenes,
     musicPath: audioAssets[0]?.file_path
   };
 }
-
 // ==========================================
 // REUSABLE ASSET + REEL COMPOSER ENGINE
 // ==========================================
@@ -1601,7 +1582,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     ].join("\n");
     const videoJob = createVideoJob({ reelId: reel.id, prompt: videoPrompt });
 
-    const localAssets = selectAutonomousSceneAssets(reel);
+    const localAssets = await selectAutonomousSceneAssets(reel);
     let rendered = false;
     let videoUrl: string | null = null;
     let validation: any = null;
