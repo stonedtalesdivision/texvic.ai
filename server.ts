@@ -19,6 +19,8 @@ import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
 import { THEME_PAGE_PROFILE, buildThemeResearchContext } from "./server/themePage.js";
 import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract, verifyMediaSignature } from "./server/videoEngine.js";
+import { registerAsset, getAsset, listAssets, selectAssets } from "./server/assetLibrary.js";
+import { composeReel } from "./server/reelComposer.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -114,6 +116,80 @@ async function generateGeminiJson(
 
   return null;
 }
+
+// ==========================================
+// REUSABLE ASSET + REEL COMPOSER ENGINE
+// ==========================================
+
+app.get("/api/assets", (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500);
+  const tags = String(req.query.tags || "").split(",").map(v => v.trim()).filter(Boolean);
+  res.json({ success: true, assets: listAssets({
+    type: req.query.type ? String(req.query.type) as any : undefined,
+    category: req.query.category ? String(req.query.category) : undefined,
+    tags,
+    limit
+  }) });
+});
+
+app.get("/api/assets/:id", (req, res) => {
+  const asset = getAsset(String(req.params.id));
+  if (!asset) return res.status(404).json({ success: false, error: "Asset not found." });
+  res.json({ success: true, asset });
+});
+
+app.get("/api/assets/select", (req, res) => {
+  const tags = String(req.query.tags || "").split(",").map(v => v.trim()).filter(Boolean);
+  const excludeIds = String(req.query.excludeIds || "").split(",").map(v => v.trim()).filter(Boolean);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+  res.json({ success: true, assets: selectAssets({
+    type: String(req.query.type || "video") as any,
+    category: req.query.category ? String(req.query.category) : undefined,
+    tags,
+    excludeIds,
+    avoidRecentlyUsedDays: Number(req.query.avoidDays) || 3,
+    limit
+  }) });
+});
+
+app.post("/api/assets/register", async (req, res) => {
+  const { type, sourcePath, category } = req.body || {};
+  if (!type || !sourcePath || !category) {
+    return res.status(400).json({ success: false, error: "type, sourcePath and category are required." });
+  }
+  try {
+    const asset = await registerAsset({
+      type: String(type) as any,
+      sourcePath: String(sourcePath),
+      category: String(category),
+      tags: Array.isArray(req.body.tags) ? req.body.tags.map(String) : [],
+      duration: req.body.duration == null ? null : Number(req.body.duration),
+      width: req.body.width == null ? null : Number(req.body.width),
+      height: req.body.height == null ? null : Number(req.body.height),
+      source: req.body.source ? String(req.body.source) : "manual",
+      prompt: req.body.prompt ? String(req.body.prompt) : null,
+      mood: req.body.mood ? String(req.body.mood) : null,
+      camera: req.body.camera ? String(req.body.camera) : null,
+      metadata: req.body.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {}
+    });
+    res.status(201).json({ success: true, asset });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+app.post("/api/reels/compose", async (req, res) => {
+  const { reelId, scenes, voicePath, musicPath } = req.body || {};
+  if (!reelId || !Array.isArray(scenes) || !scenes.length) {
+    return res.status(400).json({ success: false, error: "reelId and scenes are required." });
+  }
+  try {
+    const result = await composeReel({ reelId: String(reelId), scenes, voicePath, musicPath });
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err?.message || String(err) });
+  }
+});
 
 // ==========================================
 // CLOUD VIDEO ENGINE
