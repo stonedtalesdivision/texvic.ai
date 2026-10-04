@@ -17,11 +17,27 @@ function escapeDrawtext(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/%/g, '\\%');
 }
 
+function hueToHex(hue: number, saturation: number, lightness: number): string {
+  const s = saturation / 100;
+  const l = lightness / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((hue / 60) % 2 - 1));
+  const m = l - c / 2;
+  const sector = Math.floor(hue / 60);
+  const rgb = sector === 0 ? [c, x, 0]
+    : sector === 1 ? [x, c, 0]
+    : sector === 2 ? [0, c, x]
+    : sector === 3 ? [0, x, c]
+    : sector === 4 ? [x, 0, c]
+    : [c, 0, x];
+  return '#' + rgb.map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('');
+}
+
 function themePalette(scene: any, index: number): { bg: string; accent: string } {
   const seed = hashNumber(JSON.stringify({ theme: scene?.visualTheme || '', hook: scene?.hookText || '', index }));
   const hue = seed % 360;
   const accentHue = (hue + 42 + index * 17) % 360;
-  return { bg: `hsl(${hue},55%,8%)`, accent: `hsl(${accentHue},85%,62%)` };
+  return { bg: hueToHex(hue, 55, 8), accent: hueToHex(accentHue, 85, 62) };
 }
 
 function sceneTitle(scene: any): string {
