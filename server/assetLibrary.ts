@@ -81,7 +81,7 @@ export function listAssets(options: {
 } = {}): MediaAsset[] {
   const limit = Math.min(Math.max(options.limit || 50, 1), 500);
   const clauses: string[] = [];
-  const args: unknown[] = [];
+  const args: any[] = [];
   if (options.type) { clauses.push('type = ?'); args.push(options.type); }
   if (options.category) { clauses.push('category = ?'); args.push(options.category); }
   const sql = `SELECT * FROM media_assets ${clauses.length ? 'WHERE ' + clauses.join(' AND ') : ''} ORDER BY created_at DESC LIMIT ?`;
