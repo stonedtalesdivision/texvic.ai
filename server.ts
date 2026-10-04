@@ -70,53 +70,80 @@ function hasGeminiKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5);
 }
 
-let quotaCooldownUntil = 0;
+let searchQuotaCooldownUntil = 0;
+
+const GEMINI_MODEL_FALLBACKS = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
+  "gemini-3.8-flash"
+];
+
+const GEMINI_RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+function isRetryableGeminiError(errMsg: string): boolean {
+  return /429|408|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|deadline/i.test(errMsg);
+}
+
+function isQuotaGeminiError(errMsg: string): boolean {
+  return /429|RESOURCE_EXHAUSTED|quota|Quota exceeded/i.test(errMsg);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function generateGeminiJson(
   prompt: string,
-  models = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"]
+  models = GEMINI_MODEL_FALLBACKS
 ): Promise<any | null> {
   if (!hasGeminiKey()) return null;
 
-  const now = Date.now();
-  if (now < quotaCooldownUntil) {
-    return null;
-  }
-
   for (const model of models) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.7,
-        }
-      });
+    for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.7,
+          }
+        });
 
-      const text = response.text?.trim() || "";
-      if (text) {
-        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-        const parsed = JSON.parse(cleaned);
-        return parsed;
-      }
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      const isQuotaExceeded = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("Quota exceeded");
-      
-      if (isQuotaExceeded) {
-        quotaCooldownUntil = Date.now() + 60000;
-        console.info(`[Gemini Engine] Free tier quota reached for ${model}. Smoothly switching to algorithmic engine.`);
+        const text = response.text?.trim() || "";
+        if (text) {
+          const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+          const parsed = JSON.parse(cleaned);
+          return parsed;
+        }
+
+        console.info(`[Gemini Engine] Model ${model} returned an empty response.`);
         break;
-      } else {
-        console.info(`[Gemini Engine] Model ${model} fallback triggered: ${errMsg.slice(0, 100)}`);
+      } catch (err: any) {
+        const errMsg = err?.message || String(err);
+        const retryable = isRetryableGeminiError(errMsg);
+
+        if (retryable && attempt < GEMINI_RETRY_DELAYS_MS.length) {
+          const jitter = Math.floor(Math.random() * 250);
+          const delay = GEMINI_RETRY_DELAYS_MS[attempt] + jitter;
+          console.info(`[Gemini Engine] ${model} transient failure; retrying in ${delay}ms: ${errMsg.slice(0, 140)}`);
+          await sleep(delay);
+          continue;
+        }
+
+        if (isQuotaGeminiError(errMsg)) {
+          console.info(`[Gemini Engine] ${model} quota/rate limit reached; moving to the next Gemini model.`);
+        } else {
+          console.info(`[Gemini Engine] Model ${model} fallback triggered: ${errMsg.slice(0, 140)}`);
+        }
+        break;
       }
     }
   }
 
   return null;
 }
-
 // ==========================================
 // REUSABLE ASSET + REEL COMPOSER ENGINE
 // ==========================================
@@ -1203,7 +1230,7 @@ Return ONLY valid JSON:
 }`;
 
   // First attempt: Gemini + Google Search grounding for genuinely current research.
-  if (Date.now() > quotaCooldownUntil) {
+  if (Date.now() > searchQuotaCooldownUntil) {
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3.8-flash",
@@ -1233,7 +1260,7 @@ Return ONLY valid JSON:
       const errMsg = err?.message || String(err);
       const isQuota = /429|RESOURCE_EXHAUSTED|quota|Quota exceeded/i.test(errMsg);
       if (isQuota) {
-        quotaCooldownUntil = Date.now() + 60000;
+        searchQuotaCooldownUntil = Date.now() + 60000;
         console.info("[Autonomous 24x7 Engine] Google Search grounding quota reached; falling back to plain Gemini research.");
       } else {
         console.info(`[Autonomous 24x7 Engine] Gemini web research failed; falling back to plain Gemini research: ${errMsg.slice(0, 140)}`);
@@ -1243,7 +1270,7 @@ Return ONLY valid JSON:
 
   // Second attempt: plain Gemini, with no Search tool and no non-Gemini fallback.
   // This keeps the product zero-budget and Gemini-only when Search grounding is unavailable.
-  const fallbackModels = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+  const fallbackModels = GEMINI_MODEL_FALLBACKS;
   for (const model of fallbackModels) {
     try {
       const response = await ai.models.generateContent({
@@ -1261,6 +1288,7 @@ You do not have web browsing in this request. Do not invent specific URLs or cla
         const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
         const parsed = JSON.parse(cleaned);
         if (parsed.topic && parsed.ideaHook) {
+          searchQuotaCooldownUntil = 0;
           return {
             topic: parsed.topic,
             ideaHook: parsed.ideaHook,
@@ -1268,14 +1296,13 @@ You do not have web browsing in this request. Do not invent specific URLs or cla
               ? parsed.webSources
               : ["Gemini trend synthesis", "Current AI ecosystem"]
           };
-          quotaCooldownUntil = 0;
         }
       }
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       console.info(`[Autonomous 24x7 Engine] Gemini research model ${model} failed: ${errMsg.slice(0, 140)}`);
       if (/429|RESOURCE_EXHAUSTED|quota|Quota exceeded/i.test(errMsg)) {
-        quotaCooldownUntil = Date.now() + 60000;
+        searchQuotaCooldownUntil = Date.now() + 60000;
         break;
       }
     }
@@ -1297,7 +1324,7 @@ async function generateAutonomousReelWithStrategy(
 
   let reelData: any = null;
 
-  if (hasGeminiKey() && Date.now() > quotaCooldownUntil) {
+  if (hasGeminiKey()) {
     try {
       const prompt = `You are SARLX.Ai, an elite autonomous Instagram Reel Director.
 ANALYTICS STRATEGY FEEDBACK INJECTION:
@@ -1356,7 +1383,7 @@ Respond in JSON:
     } catch (e: any) {
       const errMsg = e?.message || String(e);
       if (errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota")) {
-        quotaCooldownUntil = Date.now() + 60000;
+        searchQuotaCooldownUntil = Date.now() + 60000;
       }
       console.info("[Autonomous 24x7 Engine] Using high-retention algorithmic script engine.");
     }
@@ -1598,50 +1625,3 @@ app.post("/api/autonomous/config", (req, res) => {
   }
 
   if (targetNiche) {
-    db.prepare(`UPDATE autonomous_config SET target_niche = ?, updated_at = ? WHERE id = 'default_config'`).run(targetNiche, new Date().toISOString());
-  }
-
-  const state = getDatabaseState();
-  res.json({ success: true, config: state.autonomous24x7 });
-});
-
-app.post("/api/autonomous/trigger-cycle", async (req, res) => {
-  const result = await runAutonomous24x7Cycle();
-  const state = getDatabaseState();
-  res.json({
-    ...result,
-    analytics: state.analytics,
-    config: state.autonomous24x7
-  });
-});
-
-// Vite Middleware for development & Static Serving for production
-async function setupServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  startAuthMaintenance();
-
-  // Start background job queue worker
-  startJobWorker();
-
-  // Start 24x7 autonomous background reel agent daemon
-  initAutonomousDaemon();
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Instagram AI Growth Agent Server running on http://0.0.0.0:${PORT}`);
-  });
-}
-
-setupServer();
