@@ -690,6 +690,23 @@ export default function App() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
             >
+              <ContentGallery
+                reels={reels}
+                posts={posts}
+                onScheduleReel={handleScheduleReel}
+                onSchedulePost={handleSchedulePost}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'assets' && (
+            <motion.div
+              key="assets"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
               <AssetLibrary />
             </motion.div>
           )}
