@@ -80,15 +80,19 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
     if (!candidates.length) candidates = selectAssets({ type: 'video', limit: 8, excludeIds: [...used], avoidRecentlyUsedDays: 3 });
     if (candidates[0]) { assets.push(candidates[0]); used.add(candidates[0].id); continue; }
     const sourcePath = await renderGeneratedScene(scene, index, String(reel.id || 'autonomous'));
-    const generated = await registerAsset({
-      type: 'video', sourcePath, category: 'autonomous-generated', tags,
-      duration: Math.max(2, Math.min(Number(scene?.durationSeconds || 3), 12)), width: 1080, height: 1920,
-      source: 'ffmpeg-autonomous-visual-producer', prompt: sceneTitle(scene),
-      mood: String(reel?.audio?.mood || 'cinematic'), camera: String(scene?.camera || 'motion-graphics'),
-      metadata: { reelId: String(reel.id || ''), sceneIndex: index, visualTheme: scene?.visualTheme || null, pacingEffect: scene?.pacingEffect || null }
-    });
-    assets.push(generated);
-    used.add(generated.id);
+    try {
+      const generated = await registerAsset({
+        type: 'video', sourcePath, category: 'autonomous-generated', tags,
+        duration: Math.max(2, Math.min(Number(scene?.durationSeconds || 3), 12)), width: 1080, height: 1920,
+        source: 'ffmpeg-autonomous-visual-producer', prompt: sceneTitle(scene),
+        mood: String(reel?.audio?.mood || 'cinematic'), camera: String(scene?.camera || 'motion-graphics'),
+        metadata: { reelId: String(reel.id || ''), sceneIndex: index, visualTheme: scene?.visualTheme || null, pacingEffect: scene?.pacingEffect || null }
+      });
+      assets.push(generated);
+      used.add(generated.id);
+    } finally {
+      await fs.rm(sourcePath, { force: true });
+    }
   }
   return { assets, generated: assets.filter(asset => asset.source === 'ffmpeg-autonomous-visual-producer').length };
 }
