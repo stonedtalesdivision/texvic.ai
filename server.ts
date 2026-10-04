@@ -1285,6 +1285,7 @@ You do not have web browsing in this request. Do not invent specific URLs or cla
         const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
         const parsed = JSON.parse(cleaned);
         if (parsed.topic && parsed.ideaHook) {
+          searchQuotaCooldownUntil = 0;
           return {
             topic: parsed.topic,
             ideaHook: parsed.ideaHook,
@@ -1292,7 +1293,6 @@ You do not have web browsing in this request. Do not invent specific URLs or cla
               ? parsed.webSources
               : ["Gemini trend synthesis", "Current AI ecosystem"]
           };
-          searchQuotaCooldownUntil = 0;
         }
       }
     } catch (err: any) {
@@ -1321,7 +1321,7 @@ async function generateAutonomousReelWithStrategy(
 
   let reelData: any = null;
 
-  if (hasGeminiKey() && Date.now() > searchQuotaCooldownUntil) {
+  if (hasGeminiKey()) {
     try {
       const prompt = `You are SARLX.Ai, an elite autonomous Instagram Reel Director.
 ANALYTICS STRATEGY FEEDBACK INJECTION:
