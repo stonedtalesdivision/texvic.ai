@@ -70,6 +70,35 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS media_assets (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    category TEXT NOT NULL,
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    duration REAL,
+    width INTEGER,
+    height INTEGER,
+    source TEXT NOT NULL,
+    prompt TEXT,
+    mood TEXT,
+    camera TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    usage_count INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS asset_usage (
+    id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL,
+    reel_id TEXT NOT NULL,
+    scene_number INTEGER NOT NULL,
+    transform_json TEXT NOT NULL DEFAULT '{}',
+    used_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS autonomous_config (
     id TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, interval_minutes INTEGER DEFAULT 180,
     target_niche TEXT DEFAULT 'AI Tech & Breakthroughs', current_stage TEXT DEFAULT 'idle',
