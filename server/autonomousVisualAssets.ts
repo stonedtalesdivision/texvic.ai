@@ -52,11 +52,11 @@ async function renderGeneratedScene(scene: any, index: number, reelId: string): 
   const safeId = reelId.replace(/[^a-zA-Z0-9_-]/g, '-');
   const output = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp4`);
   const motion = index % 3;
-  const boxX = motion === 0 ? "w*0.06+sin(t*0.65)*w*0.035" : motion === 1 ? "w*0.52+cos(t*0.45)*w*0.10" : "w*0.18+sin(t*0.35)*w*0.12";
-  const boxY = motion === 2 ? "h*0.16+cos(t*0.55)*h*0.10" : "h*0.42+sin(t*0.40)*h*0.09";
+  const boxX = motion === 0 ? "iw*0.06+sin(t*0.65)*iw*0.035" : motion === 1 ? "iw*0.52+cos(t*0.45)*iw*0.10" : "iw*0.18+sin(t*0.35)*iw*0.12";
+  const boxY = motion === 2 ? "ih*0.16+cos(t*0.55)*ih*0.10" : "ih*0.42+sin(t*0.40)*ih*0.09";
   const filter = [
-    `drawbox=x='${boxX}':y='${boxY}':w='w*0.72':h='h*0.42':color='${palette.accent}@0.18':t=fill`,
-    `drawbox=x='w*0.12+cos(t*0.28)*w*0.08':y='h*0.64+sin(t*0.33)*h*0.06':w='w*0.46':h='h*0.012':color='${palette.accent}@0.75':t=fill`,
+    `drawbox=x='${boxX}':y='${boxY}':w='iw*0.72':h='ih*0.42':color='${palette.accent}@0.18':t=fill`,
+    `drawbox=x='iw*0.12+cos(t*0.28)*iw*0.08':y='ih*0.64+sin(t*0.33)*ih*0.06':w='iw*0.46':h='ih*0.012':color='${palette.accent}@0.75':t=fill`,
     `drawtext=fontfile='${FONT_PATH}':text='${title}':fontcolor=white@0.92:fontsize=64:line_spacing=18:x=(w-text_w)/2:y=h*0.46-text_h/2:shadowcolor=black@0.55:shadowx=3:shadowy=3:alpha='0.78+0.18*sin(t*2)'`,
     `drawtext=fontfile='${FONT_PATH}':text='SARLX.AI':fontcolor='${palette.accent}':fontsize=30:x=(w-text_w)/2:y=h*0.76`
   ].join(',');
