@@ -12,6 +12,7 @@ import { CarouselPostCreator } from './components/CarouselPostCreator';
 import { AutoResponder } from './components/AutoResponder';
 import { SchedulePublisher } from './components/SchedulePublisher';
 import { ContentGallery } from './components/ContentGallery';
+import { AssetLibrary } from './components/AssetLibrary';
 import { AccountConnectorModal } from './components/AccountConnectorModal';
 import { AutonomousEngine24x7 } from './components/AutonomousEngine24x7';
 import { ReelPlayer } from './components/ReelPlayer';
@@ -50,7 +51,7 @@ const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'autonomous'>('autonomous');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous'>('autonomous');
   const [autonomousMode, setAutonomousMode] = useState<boolean>(true);
   const [analytics, setAnalytics] = useState<AccountAnalytics>(DEFAULT_ACCOUNT_ANALYTICS);
   const [reels, setReels] = useState<ReelItem[]>([]);
@@ -689,12 +690,7 @@ export default function App() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.2 }}
             >
-              <ContentGallery
-                reels={reels}
-                posts={posts}
-                onScheduleReel={handleScheduleReel}
-                onSchedulePost={handleSchedulePost}
-              />
+              <AssetLibrary />
             </motion.div>
           )}
         </AnimatePresence>
