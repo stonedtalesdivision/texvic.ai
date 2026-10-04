@@ -13,10 +13,6 @@ function hashNumber(input: string): number {
   return crypto.createHash('sha256').update(input).digest().readUInt32BE(0);
 }
 
-function escapeDrawtext(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/%/g, '\\%');
-}
-
 function hueToHex(hue: number, saturation: number, lightness: number): string {
   const s = saturation / 100;
   const l = lightness / 100;
@@ -48,23 +44,30 @@ async function renderGeneratedScene(scene: any, index: number, reelId: string): 
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   const duration = Math.max(2, Math.min(Number(scene?.durationSeconds || 3), 12));
   const palette = themePalette(scene, index);
-  const title = escapeDrawtext(sceneTitle(scene));
+  const title = sceneTitle(scene);
   const safeId = reelId.replace(/[^a-zA-Z0-9_-]/g, '-');
-  const output = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp4`);
+  const nonce = `${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
+  const output = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.mp4`);
+  const titleFile = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.txt`);
+  await fs.writeFile(titleFile, title, 'utf8');
   const motion = index % 3;
   const boxX = motion === 0 ? "iw*0.06+sin(t*0.65)*iw*0.035" : motion === 1 ? "iw*0.52+cos(t*0.45)*iw*0.10" : "iw*0.18+sin(t*0.35)*iw*0.12";
   const boxY = motion === 2 ? "ih*0.16+cos(t*0.55)*ih*0.10" : "ih*0.42+sin(t*0.40)*ih*0.09";
   const filter = [
     `drawbox=x='${boxX}':y='${boxY}':w='iw*0.72':h='ih*0.42':color='${palette.accent}@0.18':t=fill`,
     `drawbox=x='iw*0.12+cos(t*0.28)*iw*0.08':y='ih*0.64+sin(t*0.33)*ih*0.06':w='iw*0.46':h='ih*0.012':color='${palette.accent}@0.75':t=fill`,
-    `drawtext=fontfile='${FONT_PATH}':text='${title}':fontcolor=white@0.92:fontsize=64:line_spacing=18:x=(w-text_w)/2:y=h*0.46-text_h/2:shadowcolor=black@0.55:shadowx=3:shadowy=3:alpha='0.78+0.18*sin(t*2)'`,
+    `drawtext=fontfile='${FONT_PATH}':textfile='${titleFile}':fontcolor=white@0.92:fontsize=64:line_spacing=18:x=(w-text_w)/2:y=h*0.46-text_h/2:shadowcolor=black@0.55:shadowx=3:shadowy=3:alpha='0.78+0.18*sin(t*2)'`,
     `drawtext=fontfile='${FONT_PATH}':text='SARLX.AI':fontcolor='${palette.accent}':fontsize=30:x=(w-text_w)/2:y=h*0.76`
   ].join(',');
-  await execFileAsync('ffmpeg', [
-    '-y', '-f', 'lavfi', '-i', `color=c=${palette.bg}:s=1080x1920:r=30`, '-t', String(duration),
-    '-vf', filter, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
-  ], { maxBuffer: 1024 * 1024 * 8 });
-  return output;
+  try {
+    await execFileAsync('ffmpeg', [
+      '-y', '-f', 'lavfi', '-i', `color=c=${palette.bg}:s=1080x1920:r=30`, '-t', String(duration),
+      '-vf', filter, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
+    ], { maxBuffer: 1024 * 1024 * 8 });
+    return output;
+  } finally {
+    await fs.rm(titleFile, { force: true });
+  }
 }
 
 export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets: MediaAsset[]; generated: number }> {
