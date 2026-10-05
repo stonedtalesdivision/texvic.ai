@@ -77,11 +77,9 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
     contents: visualPrompt,
     config: {
       responseModalities: ['IMAGE'],
-      responseFormat: {
-        image: {
-          aspectRatio: '9:16',
-          imageSize: '1K'
-        }
+      imageConfig: {
+        aspectRatio: '9:16',
+        imageSize: '1K'
       }
     }
   });
