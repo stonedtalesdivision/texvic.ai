@@ -1316,7 +1316,68 @@ const AUTONOMOUS_AUDIO_TRACKS = [
   }
 ];
 
-async function researchTopicFromInternet(niche: string): Promise<{ topic: string; ideaHook: string; webSources: string[] }> {
+function normalizeContentText(value: unknown): string {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function contentWordSet(value: unknown): Set<string> {
+  return new Set(normalizeContentText(value).split(/\s+/).filter(word => word.length >= 4));
+}
+
+function contentSimilarity(a: unknown, b: unknown): number {
+  const left = contentWordSet(a);
+  const right = contentWordSet(b);
+  if (!left.size || !right.size) return 0;
+  let intersection = 0;
+  for (const word of left) if (right.has(word)) intersection++;
+  return intersection / Math.max(1, Math.min(left.size, right.size));
+}
+
+const GENERIC_HOOK_PATTERNS = [
+  /\bstop (clicking|chatting|asking|using)/i,
+  /\byour ai (just |can now |is about to )/i,
+  /\bai is changing the world\b/i,
+  /\bthe future of ai\b/i,
+  /\bthis changes everything\b/i,
+  /\byou won.?t believe/i,
+  /\bhere.?s why ai/i,
+  /\bai just got (smarter|better|crazy)/i,
+  /\bstart giving (your )?ai a job/i
+];
+
+function autonomousIdeaQualityIssue(topicInfo: { topic: string; ideaHook: string }, recentTopics: string[]): string | null {
+  const topic = String(topicInfo.topic || '').trim();
+  const hook = String(topicInfo.ideaHook || '').trim();
+  if (topic.length < 12) return 'topic is too vague or short';
+  if (hook.length < 12 || hook.length > 180) return 'hook length is invalid';
+  if (GENERIC_HOOK_PATTERNS.some(pattern => pattern.test(hook))) return 'hook uses a generic or overused AI pattern';
+
+  const topicWords = contentWordSet(topic);
+  const hookWords = contentWordSet(hook);
+  if (![...topicWords].some(word => hookWords.has(word))) {
+    return 'hook does not name or clearly reference the researched subject';
+  }
+
+  if (recentTopics.some(previous => contentSimilarity(topic, previous) >= 0.62)) {
+    return 'topic is too similar to a recently published/researched topic';
+  }
+
+  if ([/ai is changing/i, /future of ai/i, /ai agents? (are|will be)/i, /productivity with ai/i, /how ai is transforming/i]
+    .some(pattern => pattern.test(topic))) {
+    return 'topic is a generic AI theme rather than a concrete subject';
+  }
+
+  return null;
+}
+
+function getRecentAutonomousTopics(limit = 20): string[] {
+  const rows = db.prepare(
+    'SELECT topic_researched FROM autonomous_logs WHERE topic_researched IS NOT NULL AND topic_researched != \'\' ORDER BY timestamp DESC LIMIT ?'
+  ).all(limit) as any[];
+  return rows.map(row => String(row.topic_researched || '').trim()).filter(Boolean);
+}
+
+async function researchTopicFromInternet(niche: string, avoidTopics: string[] = []): Promise<{ topic: string; ideaHook: string; webSources: string[] }> {
   if (!hasGeminiKey()) {
     throw new Error("Gemini research is unavailable because GEMINI_API_KEY is not configured.");
   }
@@ -1325,6 +1386,9 @@ async function researchTopicFromInternet(niche: string): Promise<{ topic: string
 Identify ONE specific, recognizable subject for a high-retention Instagram Reel in the "${niche}" niche.
 Do NOT return generic themes such as "AI is changing the world", "AI agents are the future", "productivity tips", or vague motivational claims.
 Prefer a named model, product, company, launch, benchmark, capability, research result, creator trend, or concrete user behavior.
+Your hook MUST name or clearly reference the specific subject. Never begin with generic patterns such as "Stop clicking", "Stop chatting", "Your AI just learned", "AI is changing", or "This changes everything".
+Avoid repeating any recently used topics:
+${avoidTopics.length ? avoidTopics.map(topic => "- " + topic).join("\\n") : "- none provided"}
 The Reel must teach or reveal ONE concrete thing in under 15 seconds.
 Create a hook that creates curiosity without making an unsupported claim.
 Return ONLY valid JSON:
@@ -1538,7 +1602,25 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     // Stage 1: Research from internet
     db.prepare(`UPDATE autonomous_config SET current_stage = 'researching_web', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
     console.log(`[Autonomous 24x7 Engine] Step 1/4: Researching internet trends for niche "${niche}"...`);
-    const topicInfo = await researchTopicFromInternet(niche);
+    const recentTopics = getRecentAutonomousTopics(20);
+    let topicInfo: { topic: string; ideaHook: string; webSources: string[] } | null = null;
+    let lastQualityIssue = 'unknown quality issue';
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const candidate = await researchTopicFromInternet(niche, recentTopics);
+      const qualityIssue = autonomousIdeaQualityIssue(candidate, recentTopics);
+      if (!qualityIssue) {
+        topicInfo = candidate;
+        break;
+      }
+      lastQualityIssue = qualityIssue;
+      recentTopics.push(candidate.topic);
+      console.warn(`[Autonomous 24x7 Engine] Rejected research candidate (attempt ${attempt}/3): ${qualityIssue}. Topic="${candidate.topic.slice(0, 120)}"`);
+    }
+
+    if (!topicInfo) {
+      throw new Error(`No sufficiently specific/fresh autonomous topic was generated after 3 attempts: ${lastQualityIssue}`);
+    }
 
     // Stage 2: Ideating hook
     db.prepare(`UPDATE autonomous_config SET current_stage = 'ideating_hook', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
@@ -1747,7 +1829,10 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     };
   } catch (err: any) {
     console.error("[Autonomous 24x7 Engine] Cycle execution error:", err);
-    db.prepare(`UPDATE autonomous_config SET current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
+    const retryAt = new Date(Date.now() + intervalMinutes * 60000).toISOString();
+    db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
+      .run(new Date().toISOString(), retryAt, new Date().toISOString());
     return { success: false, error: err?.message || String(err) };
   } finally {
     isCycleRunning = false;
