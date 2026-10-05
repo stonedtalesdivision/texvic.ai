@@ -1523,7 +1523,21 @@ Respond in JSON:
 }
 
 let isCycleRunning = false;
-Step 1/4: Researching internet trends for niche "${niche}"...`);
+
+async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any; log?: any; error?: string }> {
+  if (isCycleRunning) {
+    return { success: false, error: "An autonomous cycle is already in progress." };
+  }
+  isCycleRunning = true;
+
+  try {
+    const configQuery = db.prepare('SELECT * FROM autonomous_config WHERE id = ?');
+    const configRow = configQuery.get('default_config') as any;
+    const niche = configRow?.target_niche || THEME_PAGE_PROFILE.niche;
+
+    // Stage 1: Research from internet
+    db.prepare(`UPDATE autonomous_config SET current_stage = 'researching_web', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
+    console.log(`[Autonomous 24x7 Engine] Step 1/4: Researching internet trends for niche "${niche}"...`);
     const topicInfo = await researchTopicFromInternet(niche);
 
     // Stage 2: Ideating hook
