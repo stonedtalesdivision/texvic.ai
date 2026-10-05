@@ -24,6 +24,7 @@ import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVide
 import { registerAsset, getAsset, listAssets, selectAssets } from "./server/assetLibrary.js";
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
+import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -193,6 +194,12 @@ async function validateRenderedReel(videoPath: string): Promise<{
         error: `Invalid Reel duration: ${duration.toFixed(2)}s.`
       };
     }
+    if (!hasAudio) {
+      return {
+        valid: false, duration, width, height, hasAudio, sizeBytes: stat.size,
+        error: "Rendered Reel has no audio stream."
+      };
+    }
 
     return { valid: true, duration, width, height, hasAudio, sizeBytes: stat.size };
   } catch (err: any) {
@@ -233,12 +240,16 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     limit: 10,
     avoidRecentlyUsedDays: 3
   });
+  const musicAsset = audioAssets[0] || await ensureAutonomousAudioAsset(reel);
+  if (!musicAsset?.file_path) {
+    throw new Error("Autonomous Reel requires a generated or registered music asset.");
+  }
 
-  console.log(`[Autonomous 24x7 Engine] Visual producer ready: ${prepared.generated} generated asset(s), ${prepared.assets.length} scene asset(s).`);
+  console.log(`[Autonomous 24x7 Engine] Media producer ready: ${prepared.generated} generated visual asset(s), ${prepared.assets.length} scene asset(s), audio=${musicAsset.id}.`);
 
   return {
     scenes,
-    musicPath: audioAssets[0]?.file_path
+    musicPath: musicAsset.file_path
   };
 }
 // ==========================================
