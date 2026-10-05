@@ -172,6 +172,7 @@ export async function publishReelToInstagram(
     videoUrl: string;
     caption: string;
     shareToFeed?: boolean;
+    audioName?: string;
   }
 ): Promise<PublishReelResult> {
   if (!igAccountId || !accessToken) {
@@ -190,6 +191,10 @@ export async function publishReelToInstagram(
       caption: params.caption,
       share_to_feed: params.shareToFeed !== false ? 'true' : 'false',
       access_token: accessToken
+    });
+    if (params.audioName) {
+      containerBody.set('audio_name', params.audioName.slice(0, 255));
+    }
     });
 
     const createRes = await fetch(createContainerUrl, {
