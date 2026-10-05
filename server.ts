@@ -75,6 +75,18 @@ function hasGeminiKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5);
 }
 
+function hasNemotronKey(): boolean {
+  return Boolean(process.env.NEMOTRON_API_KEY && process.env.NEMOTRON_API_KEY.length > 5);
+}
+
+function getNemotronModel(): string {
+  return String(process.env.NEMOTRON_MODEL || "nvidia/nemotron-3-super-120b-a12b").replace(/:free$/i, "");
+}
+
+function getNvidiaNimUrl(): string {
+  return String(process.env.NVIDIA_NIM_URL || "https://integrate.api.nvidia.com/v1").replace(/\/$/, "");
+}
+
 let searchQuotaCooldownUntil = 0;
 
 const GEMINI_MODEL_FALLBACKS = [
@@ -97,42 +109,80 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function generateNemotronJson(prompt: string): Promise<any | null> {
+  if (!hasNemotronKey()) return null;
+  const model = getNemotronModel();
+  const url = `${getNvidiaNimUrl()}/chat/completions`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.NEMOTRON_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: "You are the text intelligence engine for SARLX.Ai. Return valid JSON only. Be specific, factual, concrete, and avoid generic AI marketing language."
+          },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 4000,
+        response_format: { type: "json_object" }
+      }),
+      signal: controller.signal
+    });
+
+    const bodyText = await response.text();
+    if (!response.ok) throw new Error(`NVIDIA Nemotron HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
+    const payload = JSON.parse(bodyText);
+    const content = payload?.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    const cleaned = String(content).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    return JSON.parse(cleaned);
+  } catch (err: any) {
+    const message = err?.name === "AbortError" ? "request timed out after 90s" : (err?.message || String(err));
+    console.warn(`[Nemotron Engine] ${model} failed: ${message.slice(0, 300)}`);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function generateGeminiJson(
   prompt: string,
   models = GEMINI_MODEL_FALLBACKS
 ): Promise<any | null> {
   if (!hasGeminiKey()) return null;
-
   for (const model of models) {
     for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {
       try {
         const response = await ai.models.generateContent({
           model,
           contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.7,
-          }
+          config: { responseMimeType: "application/json", temperature: 0.7 }
         });
-
         const text = response.text?.trim() || "";
         if (text) {
-          const cleaned = text.replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, '').trim();
+          const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
           return JSON.parse(cleaned);
         }
-
-        console.info(`[Gemini Engine] Model ${model} returned an empty response.`);
         break;
       } catch (err: any) {
         const errMsg = err?.message || String(err);
-
         if (isRetryableGeminiError(errMsg) && attempt < GEMINI_RETRY_DELAYS_MS.length) {
           const delay = GEMINI_RETRY_DELAYS_MS[attempt];
           console.info(`[Gemini Engine] ${model} transient failure; retrying in ${delay}ms: ${errMsg.slice(0, 140)}`);
           await sleep(delay);
           continue;
         }
-
         if (isQuotaGeminiError(errMsg)) {
           console.info(`[Gemini Engine] ${model} quota/rate limit reached; moving to the next Gemini model.`);
         } else {
@@ -142,7 +192,20 @@ async function generateGeminiJson(
       }
     }
   }
+  return null;
+}
 
+async function generateTextJson(prompt: string): Promise<any | null> {
+  const nemotronResult = await generateNemotronJson(prompt);
+  if (nemotronResult) {
+    console.info(`[AI Text Engine] Nemotron ${getNemotronModel()} generated the content.`);
+    return nemotronResult;
+  }
+  const geminiResult = await generateGeminiJson(prompt);
+  if (geminiResult) {
+    console.info("[AI Text Engine] Gemini generated the content after Nemotron fallback.");
+    return geminiResult;
+  }
   return null;
 }
 
@@ -1437,48 +1500,36 @@ Return ONLY valid JSON:
     }
   }
 
-  // Second attempt: plain Gemini, with no Search tool and no non-Gemini fallback.
-  // This keeps the product zero-budget and Gemini-only when Search grounding is unavailable.
-  const fallbackModels = GEMINI_MODEL_FALLBACKS;
-  for (const model of fallbackModels) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: `${prompt}
-You do not have web browsing in this request. Do not invent specific URLs or claim that you verified a source. If you cannot identify a concrete source, use source labels such as "Gemini trend synthesis" and "Current AI ecosystem".`,
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.7,
-        }
-      });
+  // Second attempt: Nemotron text intelligence. It synthesizes the research prompt
+  // without claiming live browsing or inventing unverifiable URLs.
+  const nemotronResult = await generateNemotronJson(`${prompt}
+You do not have live web browsing in this request. Do not invent specific URLs or claim that you verified a source. Prefer a concrete named subject, recent product/model/research development, or clearly identifiable AI behavior. If a source cannot be verified, use source labels such as "Nemotron trend synthesis" and "Current AI ecosystem".`);
 
-      const text = response.text?.trim() || "";
-      if (text) {
-        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-        const parsed = JSON.parse(cleaned);
-        if (parsed.topic && parsed.ideaHook) {
-          searchQuotaCooldownUntil = 0;
-          return {
-            topic: parsed.topic,
-            ideaHook: parsed.ideaHook,
-            webSources: Array.isArray(parsed.webSources) && parsed.webSources.length > 0
-              ? parsed.webSources
-              : ["Gemini trend synthesis", "Current AI ecosystem"]
-          };
-        }
-      }
-    } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      console.info(`[Autonomous 24x7 Engine] Gemini research model ${model} failed: ${errMsg.slice(0, 140)}`);
-      if (isQuotaGeminiError(errMsg)) {
-        console.info(`[Autonomous 24x7 Engine] Gemini research model ${model} hit quota/rate limits; trying the next model.`);
-        continue;
-      }
-    }
+  if (nemotronResult?.topic && nemotronResult?.ideaHook) {
+    searchQuotaCooldownUntil = 0;
+    console.info("[Autonomous 24x7 Engine] Nemotron supplied the research candidate after Gemini Search grounding was unavailable.");
+    return {
+      topic: nemotronResult.topic,
+      ideaHook: nemotronResult.ideaHook,
+      webSources: Array.isArray(nemotronResult.webSources) && nemotronResult.webSources.length > 0
+        ? nemotronResult.webSources
+        : ["Nemotron trend synthesis", "Current AI ecosystem"]
+    };
   }
 
-  throw new Error("Gemini research is unavailable. All Gemini research attempts failed.");
-}
+  const geminiResult = await generateGeminiJson(prompt);
+  if (geminiResult?.topic && geminiResult?.ideaHook) {
+    searchQuotaCooldownUntil = 0;
+    return {
+      topic: geminiResult.topic,
+      ideaHook: geminiResult.ideaHook,
+      webSources: Array.isArray(geminiResult.webSources) && geminiResult.webSources.length > 0
+        ? geminiResult.webSources
+        : ["Gemini trend synthesis", "Current AI ecosystem"]
+    };
+  }
+
+  throw new Error("Text research is unavailable. Nemotron and Gemini research attempts failed.");
 
 async function generateAutonomousReelWithStrategy(
   topicInfo: { topic: string; ideaHook: string; webSources: string[] }, 
@@ -1550,7 +1601,7 @@ Respond in JSON:
     }
   ]
 }`;
-      const aiResult = await generateGeminiJson(prompt);
+      const aiResult = await generateTextJson(prompt);
       if (aiResult && aiResult.title && Array.isArray(aiResult.scenes) && aiResult.scenes.length > 0) {
         reelData = aiResult;
       }
@@ -1560,7 +1611,7 @@ Respond in JSON:
     }
   }
   if (!reelData) {
-    throw new Error("Gemini content generation is unavailable. Gemini-only mode will not use an algorithmic fallback.");
+    throw new Error("AI text generation is unavailable. Nemotron and Gemini providers both failed.");
   }
 
   return {
