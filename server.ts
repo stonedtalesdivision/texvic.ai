@@ -1530,6 +1530,7 @@ You do not have live web browsing in this request. Do not invent specific URLs o
   }
 
   throw new Error("Text research is unavailable. Nemotron and Gemini research attempts failed.");
+}
 
 async function generateAutonomousReelWithStrategy(
   topicInfo: { topic: string; ideaHook: string; webSources: string[] }, 
