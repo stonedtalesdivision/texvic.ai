@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { GoogleGenAI } from '@google/genai';
 import { promisify } from 'node:util';
 import { registerAsset, selectAssets, type MediaAsset } from './assetLibrary.js';
 
@@ -40,33 +41,88 @@ function sceneTitle(scene: any): string {
   return String(scene?.hookText || scene?.secondaryText || scene?.visualTheme || 'SARLX.AI').trim().slice(0, 72);
 }
 
-async function renderGeneratedScene(scene: any, index: number, reelId: string): Promise<string> {
+async function renderGeneratedScene(scene: any, index: number, reel: any): Promise<string> {
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   const duration = Math.max(2, Math.min(Number(scene?.durationSeconds || 3), 12));
-  const palette = themePalette(scene, index);
-  const title = sceneTitle(scene);
-  const safeId = reelId.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const safeId = String(reel?.id || 'autonomous').replace(/[^a-zA-Z0-9_-]/g, '-');
   const nonce = `${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
   const output = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.mp4`);
+  const imagePath = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.png`);
   const titleFile = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.txt`);
+  const subtitleFile = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}-sub.txt`);
+  const title = sceneTitle(scene);
+  const subtitle = String(scene?.secondaryText || '').trim().slice(0, 110);
+
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error('Gemini image generation unavailable: GEMINI_API_KEY is not configured.');
+  }
+
+  const topic = String(reel?.title || reel?.niche || 'AI technology');
+  const visualTheme = String(scene?.visualTheme || 'cinematic technology');
+  const visualPrompt = [
+    'Create a premium vertical 9:16 editorial visual for an Instagram Reel.',
+    `Topic: ${topic}.`,
+    `Scene concept: ${title}.`,
+    `Supporting idea: ${subtitle || 'show the concrete subject visually'}.`,
+    `Visual direction: ${visualTheme}.`,
+    'Make the subject concrete and immediately recognizable, not an abstract AI background.',
+    'Use cinematic lighting, strong depth, realistic materials, a clear focal subject, modern social-media composition, and a visually surprising detail.',
+    'Do not render any words, captions, logos, UI, watermarks, charts, or typography in the image.',
+    'Leave clean negative space around the upper and lower thirds for video text overlays.'
+  ].join(' ');
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-image',
+    contents: visualPrompt,
+    config: {
+      responseModalities: ['IMAGE'],
+      responseFormat: {
+        image: {
+          aspectRatio: '9:16',
+          imageSize: '1K'
+        }
+      }
+    }
+  });
+
+  const parts = response?.candidates?.[0]?.content?.parts || [];
+  const imagePart = parts.find((part: any) => part?.inlineData?.data);
+  if (!imagePart?.inlineData?.data) {
+    throw new Error('Gemini image generation returned no image data.');
+  }
+
+  await fs.writeFile(imagePath, Buffer.from(imagePart.inlineData.data, 'base64'));
   await fs.writeFile(titleFile, title, 'utf8');
-  const motion = index % 3;
-  const boxX = motion === 0 ? "iw*0.06+sin(t*0.65)*iw*0.035" : motion === 1 ? "iw*0.52+cos(t*0.45)*iw*0.10" : "iw*0.18+sin(t*0.35)*iw*0.12";
-  const boxY = motion === 2 ? "ih*0.16+cos(t*0.55)*ih*0.10" : "ih*0.42+sin(t*0.40)*ih*0.09";
+  await fs.writeFile(subtitleFile, subtitle, 'utf8');
+
+  const seed = hashNumber(JSON.stringify({ theme: scene?.visualTheme || '', hook: scene?.hookText || '', index }));
+  const accent = hueToHex(seed % 360, 85, 62);
   const filter = [
-    `drawbox=x='${boxX}':y='${boxY}':w='iw*0.72':h='ih*0.42':color='${palette.accent}@0.18':t=fill`,
-    `drawbox=x='iw*0.12+cos(t*0.28)*iw*0.08':y='ih*0.64+sin(t*0.33)*ih*0.06':w='iw*0.46':h='ih*0.012':color='${palette.accent}@0.75':t=fill`,
-    `drawtext=fontfile='${FONT_PATH}':textfile='${titleFile}':fontcolor=white@0.92:fontsize=64:line_spacing=18:x=(w-text_w)/2:y=h*0.46-text_h/2:shadowcolor=black@0.55:shadowx=3:shadowy=3:alpha='0.78+0.18*sin(t*2)'`,
-    `drawtext=fontfile='${FONT_PATH}':text='SARLX.AI':fontcolor='${palette.accent}':fontsize=30:x=(w-text_w)/2:y=h*0.76`
+    'scale=1080:1920:force_original_aspect_ratio=increase',
+    'crop=1080:1920:(iw-1080)/2:(ih-1920)/2',
+    `drawbox=x=0:y=0:w=1080:h=1920:color=black@0.12:t=fill`,
+    `drawtext=fontfile='${FONT_PATH}':textfile='${titleFile}':fontcolor=white@0.96:fontsize=64:line_spacing=16:x=(w-text_w)/2:y=h*0.40-text_h/2:shadowcolor=black@0.7:shadowx=3:shadowy=3`,
+    `drawtext=fontfile='${FONT_PATH}':textfile='${subtitleFile}':fontcolor=white@0.86:fontsize=30:line_spacing=10:x=(w-text_w)/2:y=h*0.58:shadowcolor=black@0.6:shadowx=2:shadowy=2`,
+    `drawbox=x=72:y=72:w=936:h=8:color='${accent}@0.9':t=fill`,
+    `drawtext=fontfile='${FONT_PATH}':text='SARLX.AI':fontcolor='${accent}':fontsize=30:x=(w-text_w)/2:y=h*0.88`
   ].join(',');
+
   try {
     await execFileAsync('ffmpeg', [
-      '-y', '-f', 'lavfi', '-i', `color=c=${palette.bg}:s=1080x1920:r=30`, '-t', String(duration),
-      '-vf', filter, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
+      '-y', '-loop', '1', '-i', imagePath, '-t', String(duration),
+      '-vf', filter,
+      '-an', '-r', '30',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
+      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
     ], { maxBuffer: 1024 * 1024 * 8 });
     return output;
   } finally {
-    await fs.rm(titleFile, { force: true });
+    await Promise.all([
+      fs.rm(imagePath, { force: true }),
+      fs.rm(titleFile, { force: true }),
+      fs.rm(subtitleFile, { force: true })
+    ]);
   }
 }
 
@@ -82,7 +138,7 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
     let candidates = selectAssets({ type: 'video', tags, limit: 8, excludeIds: [...used], avoidRecentlyUsedDays: 3 });
     if (!candidates.length) candidates = selectAssets({ type: 'video', limit: 8, excludeIds: [...used], avoidRecentlyUsedDays: 3 });
     if (candidates[0]) { assets.push(candidates[0]); used.add(candidates[0].id); continue; }
-    const sourcePath = await renderGeneratedScene(scene, index, String(reel.id || 'autonomous'));
+    const sourcePath = await renderGeneratedScene(scene, index, reel);
     try {
       const generated = await registerAsset({
         type: 'video', sourcePath, category: 'autonomous-generated', tags,
