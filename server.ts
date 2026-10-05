@@ -1282,43 +1282,37 @@ app.post("/api/reset", (req, res) => {
 
 const AUTONOMOUS_AUDIO_TRACKS = [
   {
-    id: "audio-phonk-1",
-    title: "Midnight Phonk Drive (Sped Up)",
-    artist: "Kxllswitch & DJ Vex",
+    id: "sarlx-original-cyber-pulse",
+    title: "SARLX Original — Cyber Pulse",
+    artist: "SARLX.Ai",
     bpm: 142,
-    viralVelocity: "+480% this week",
-    category: "Electronic / Phonk",
-    duration: 12,
+    category: "Original Electronic",
+    duration: 30,
     mood: "High Energy & Driving",
     dropTimestamp: 2.2,
-    synthPreset: "cyber-synth",
-    usesCount: "1.4M reels"
+    synthPreset: "cyber-synth"
   },
   {
-    id: "audio-bass-2",
-    title: "Sub-Zero Bass Drop (Viral Hook)",
-    artist: "Metro Pulse",
+    id: "sarlx-original-bass-drive",
+    title: "SARLX Original — Bass Drive",
+    artist: "SARLX.Ai",
     bpm: 128,
-    viralVelocity: "+610% this week",
-    category: "Trap & Bass",
-    duration: 9,
+    category: "Original Trap / Bass",
+    duration: 30,
     mood: "Hyped / Dramatic Cut",
     dropTimestamp: 1.8,
-    synthPreset: "trap-bass",
-    usesCount: "2.8M reels"
+    synthPreset: "trap-bass"
   },
   {
-    id: "audio-house-4",
-    title: "Sunset Neon Groove",
-    artist: "Horizon Club",
+    id: "sarlx-original-neon-groove",
+    title: "SARLX Original — Neon Groove",
+    artist: "SARLX.Ai",
     bpm: 124,
-    viralVelocity: "+290% this week",
-    category: "Deep House / Luxury",
-    duration: 14,
+    category: "Original Deep House",
+    duration: 30,
     mood: "Luxury / Smooth Rhythm",
     dropTimestamp: 3.2,
-    synthPreset: "deep-house",
-    usesCount: "1.1M reels"
+    synthPreset: "deep-house"
   }
 ];
 
