@@ -158,9 +158,13 @@ export function startJobWorker() {
                 if (!videoUrl) {
                   throw new Error('Gemini-only mode: Reel content is ready but no video_url is available. Video generation is intentionally deferred to a zero-cost provider.');
                 }
+                const reelAudio = (() => {
+                  try { return JSON.parse(reel.audio_json || '{}'); } catch { return {}; }
+                })();
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
-                  caption: `${reel.caption}${reel.hashtags_json ? `\\n\\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`
+                  caption: `${reel.caption}${reel.hashtags_json ? `\n\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`,
+                  audioName: reelAudio?.title ? String(reelAudio.title) : undefined
                 });
 
                 if (pubResult.success) {
