@@ -1437,15 +1437,13 @@ function contentSimilarity(a: unknown, b: unknown): number {
 }
 
 const GENERIC_HOOK_PATTERNS = [
-  /\bstop (clicking|chatting|asking|using)/i,
-  /\byour ai (just |can now |is about to )/i,
   /\bai is changing the world\b/i,
   /\bthe future of ai\b/i,
   /\bthis changes everything\b/i,
   /\byou won.?t believe/i,
   /\bhere.?s why ai/i,
-  /\bai just got (smarter|better|crazy)/i,
-  /\bstart giving (your )?ai a job/i
+  /\bai just got (smarter|better|crazy)\b/i,
+  /\bstart giving (your )?ai a job\b/i
 ];
 
 function autonomousIdeaQualityIssue(topicInfo: { topic: string; ideaHook: string }, recentTopics: string[]): string | null {
@@ -1747,7 +1745,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     }
 
     if (!reel) {
-      throw new Error(`Gemini generated Reel content failed the quality gate after 2 attempts: ${lastReelQualityIssue}`);
+      throw new Error(`AI-generated Reel content failed the quality gate after 2 attempts: ${lastReelQualityIssue}`);
     }
 
     // Stage 4: Persist, render, validate, publish, and record the autonomous Reel.
