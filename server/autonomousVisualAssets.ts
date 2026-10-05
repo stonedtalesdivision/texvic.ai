@@ -135,8 +135,12 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
     const scene = scenes[index];
     const theme = String(scene?.visualTheme || '').toLowerCase();
     const tags = ['autonomous', 'generated', 'ai', 'technology', ...theme.split(/[^a-z0-9]+/i).filter(Boolean).slice(0, 5)];
-    let candidates = selectAssets({ type: 'video', tags, limit: 8, excludeIds: [...used], avoidRecentlyUsedDays: 3 });
-    if (!candidates.length) candidates = selectAssets({ type: 'video', limit: 8, excludeIds: [...used], avoidRecentlyUsedDays: 3 });
+    let candidates = selectAssets({ type: 'video', tags, limit: 12, excludeIds: [...used], avoidRecentlyUsedDays: 3 })
+      .filter(asset => asset.source !== 'ffmpeg-autonomous-visual-producer');
+    if (!candidates.length) {
+      candidates = selectAssets({ type: 'video', limit: 12, excludeIds: [...used], avoidRecentlyUsedDays: 3 })
+        .filter(asset => asset.source !== 'ffmpeg-autonomous-visual-producer');
+    }
     if (candidates[0]) { assets.push(candidates[0]); used.add(candidates[0].id); continue; }
     const sourcePath = await renderGeneratedScene(scene, index, reel);
     try {
