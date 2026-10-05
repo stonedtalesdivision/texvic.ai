@@ -80,7 +80,12 @@ function hasNemotronKey(): boolean {
 }
 
 function getNemotronModel(): string {
-  return String(process.env.NEMOTRON_MODEL || "nvidia/nemotron-3-super-120b-a12b").replace(/:free$/i, "");
+  const configured = String(process.env.NEMOTRON_MODEL || "nvidia/nemotron-3-super-120b-a12b");
+  // OpenRouter model IDs may intentionally include :free. NVIDIA NIM does not.
+  if (/openrouter\.ai/i.test(getNvidiaNimUrl())) {
+    return configured;
+  }
+  return configured.replace(/:free$/i, "");
 }
 
 function getNvidiaNimUrl(): string {
@@ -96,6 +101,7 @@ const GEMINI_MODEL_FALLBACKS = [
 ];
 
 const GEMINI_RETRY_DELAYS_MS = [1000, 2000, 4000];
+const NEMOTRON_RETRY_DELAYS_MS = [2500, 5000, 10000];
 
 function isRetryableGeminiError(errMsg: string): boolean {
   return /429|408|500|502|503|504|RESOURCE_EXHAUSTED|UNAVAILABLE|deadline/i.test(errMsg);
@@ -113,47 +119,68 @@ async function generateNemotronJson(prompt: string): Promise<any | null> {
   if (!hasNemotronKey()) return null;
   const model = getNemotronModel();
   const url = `${getNvidiaNimUrl()}/chat/completions`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90000);
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.NEMOTRON_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: "You are the text intelligence engine for SARLX.Ai. Return valid JSON only. Be specific, factual, concrete, and avoid generic AI marketing language."
-          },
-          { role: "user", content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 4000,
-        response_format: { type: "json_object" }
-      }),
-      signal: controller.signal
-    });
+  for (let attempt = 0; attempt <= NEMOTRON_RETRY_DELAYS_MS.length; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
 
-    const bodyText = await response.text();
-    if (!response.ok) throw new Error(`NVIDIA Nemotron HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
-    const payload = JSON.parse(bodyText);
-    const content = payload?.choices?.[0]?.message?.content;
-    if (!content) return null;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.NEMOTRON_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content: "You are the text intelligence engine for SARLX.Ai. Return valid JSON only. Be specific, factual, concrete, and avoid generic AI marketing language."
+            },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 8000,
+          response_format: { type: "json_object" }
+        }),
+        signal: controller.signal
+      });
 
-    const cleaned = String(content).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    return JSON.parse(cleaned);
-  } catch (err: any) {
-    const message = err?.name === "AbortError" ? "request timed out after 90s" : (err?.message || String(err));
-    console.warn(`[Nemotron Engine] ${model} failed: ${message.slice(0, 300)}`);
-    return null;
-  } finally {
-    clearTimeout(timeout);
+      const bodyText = await response.text();
+      if (!response.ok) {
+        const error = new Error(`Nemotron HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
+        if (response.status === 429 && attempt < NEMOTRON_RETRY_DELAYS_MS.length) {
+          const delay = NEMOTRON_RETRY_DELAYS_MS[attempt];
+          console.info(`[Nemotron Engine] ${model} upstream rate-limited; retrying in ${delay}ms...`);
+          await sleep(delay);
+          continue;
+        }
+        throw error;
+      }
+
+      const payload = JSON.parse(bodyText);
+      const content = payload?.choices?.[0]?.message?.content;
+      if (!content) return null;
+
+      const cleaned = String(content).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      return JSON.parse(cleaned);
+    } catch (err: any) {
+      const message = err?.name === "AbortError" ? "request timed out after 90s" : (err?.message || String(err));
+      if (attempt < NEMOTRON_RETRY_DELAYS_MS.length && /429|408|500|502|503|504|rate.?limit|temporarily rate.?limited|upstream/i.test(message)) {
+        const delay = NEMOTRON_RETRY_DELAYS_MS[attempt];
+        console.info(`[Nemotron Engine] ${model} transient failure; retrying in ${delay}ms: ${message.slice(0, 180)}`);
+        await sleep(delay);
+        continue;
+      }
+      console.warn(`[Nemotron Engine] ${model} failed: ${message.slice(0, 300)}`);
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  return null;
 }
 
 async function generateGeminiJson(
@@ -1383,8 +1410,21 @@ function normalizeContentText(value: unknown): string {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+const CONTENT_STOPWORDS = new Set([
+  "about", "after", "again", "also", "been", "being", "could", "does", "doesnt",
+  "from", "have", "into", "just", "more", "most", "only", "over", "really",
+  "should", "some", "than", "that", "their", "them", "then", "there", "these",
+  "they", "this", "through", "very", "what", "when", "where", "which", "while",
+  "with", "your", "you", "chatting", "chat", "stop", "using", "time", "run",
+  "local", "locally", "ai", "artificial", "intelligence"
+]);
+
 function contentWordSet(value: unknown): Set<string> {
-  return new Set(normalizeContentText(value).split(/\s+/).filter(word => word.length >= 4));
+  return new Set(
+    normalizeContentText(value)
+      .split(/\s+/)
+      .filter(word => word.length >= 4 && !CONTENT_STOPWORDS.has(word))
+  );
 }
 
 function contentSimilarity(a: unknown, b: unknown): number {
@@ -1417,8 +1457,10 @@ function autonomousIdeaQualityIssue(topicInfo: { topic: string; ideaHook: string
 
   const topicWords = contentWordSet(topic);
   const hookWords = contentWordSet(hook);
-  if (![...topicWords].some(word => hookWords.has(word))) {
-    return 'hook does not name or clearly reference the researched subject';
+  const sharedWords = [...topicWords].filter(word => hookWords.has(word));
+  const sharedSpecificWords = sharedWords.filter(word => /\d/.test(word) || word.length >= 6);
+  if (sharedWords.length < 2 && sharedSpecificWords.length < 1) {
+    return 'hook does not contain enough specific subject language from the researched topic';
   }
 
   if (recentTopics.some(previous => contentSimilarity(topic, previous) >= 0.62)) {
