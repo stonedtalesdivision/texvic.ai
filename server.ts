@@ -1328,13 +1328,16 @@ async function researchTopicFromInternet(niche: string): Promise<{ topic: string
   }
 
   const prompt = `You are the autonomous content researcher for ${THEME_PAGE_PROFILE.handle} (${THEME_PAGE_PROFILE.brand}).\n${buildThemeResearchContext()}\n\nYou are an elite short-form video trend researcher for SARLX.Ai.
-Identify one strong, current, high-interest trend, breakthrough, discussion, or news angle in the "${niche}" niche that would work well for an Instagram Reel.
-Prefer recent developments and recognizable topics. Formulate a 3-second pattern-interrupt hook.
+Identify ONE specific, recognizable subject for a high-retention Instagram Reel in the "${niche}" niche.
+Do NOT return generic themes such as "AI is changing the world", "AI agents are the future", "productivity tips", or vague motivational claims.
+Prefer a named model, product, company, launch, benchmark, capability, research result, creator trend, or concrete user behavior.
+The Reel must teach or reveal ONE concrete thing in under 15 seconds.
+Create a hook that creates curiosity without making an unsupported claim.
 Return ONLY valid JSON:
 {
-  "topic": "Concise trending topic or breakthrough title",
-  "ideaHook": "A compelling 3-second visual contradiction or surprising statement",
-  "webSources": ["Source or publication name", "Platform or community name"]
+  "topic": "Specific named subject + concrete angle",
+  "ideaHook": "A sharp 3-second pattern interrupt tied directly to that subject",
+  "webSources": ["Specific publication/platform/source label", "Second source label if available"]
 }`;
 
   // First attempt: Gemini + Google Search grounding for genuinely current research.
@@ -1425,10 +1428,10 @@ async function generateAutonomousReelWithStrategy(
   strategy: StrategyFeedback
 ) {
   const audio = AUTONOMOUS_AUDIO_TRACKS[Math.floor(Math.random() * AUTONOMOUS_AUDIO_TRACKS.length)];
-  const duration = 8;
-  const s1Duration = 2.4;
-  const s2Duration = 3.2;
-  const s3Duration = 2.4;
+  const duration = 12;
+  const s1Duration = 3.0;
+  const s2Duration = 4.5;
+  const s3Duration = 4.5;
 
   let reelData: any = null;
 
@@ -1441,10 +1444,15 @@ ANALYTICS STRATEGY FEEDBACK INJECTION:
 - High retention audio tempo: "${strategy.highRetentionAudioTempo}"
 - Recommended high-affinity keywords: ${strategy.recommendedNicheKeywords.join(", ")}
 
-Generate a high-velocity, original 3-scene 9:16 Reel for the SARLX.Ai theme page.\nTheme-page context:\n${buildThemeResearchContext()}\n\nTopic:
+Generate a high-velocity, original 3-scene 9:16 Reel for the SARLX.Ai theme page.
+The Reel must be specific to the researched subject, not generic AI content.
+Every scene must visually depict the actual subject or consequence being discussed.
+Use concrete entities, mechanisms, interfaces, objects, environments, or metaphorical scenes tied to the topic.
+Avoid generic glowing brains, robots, random code, abstract neon backgrounds, and stock-looking AI imagery.
+The viewer should learn one useful or surprising fact by the end.\nTheme-page context:\n${buildThemeResearchContext()}\n\nTopic:
 Topic: ${topicInfo.topic}
 Hook Concept: ${topicInfo.ideaHook}
-Target Duration: 8s
+Target Duration: 12s
 Audio Track: ${audio.title} (${audio.bpm} BPM, drop at ${audio.dropTimestamp}s)
 
 Respond in JSON:
@@ -1458,27 +1466,27 @@ Respond in JSON:
     {
       "order": 1,
       "durationSeconds": ${s1Duration},
-      "hookText": "Opening 3-second pattern interrupt",
-      "secondaryText": "Sub-hook reading line",
-      "visualTheme": "neon-cyber",
+      "hookText": "Opening 3-second pattern interrupt naming or clearly implying the specific subject",
+      "secondaryText": "Concrete context or visual setup",
+      "visualTheme": "subject-specific editorial visual",
       "accentColor": "#ec4899",
       "pacingEffect": "flash-cut"
     },
     {
       "order": 2,
       "durationSeconds": ${s2Duration},
-      "hookText": "Core Revelation timed to beat drop",
-      "secondaryText": "Actionable takeaway",
-      "visualTheme": "electric-violet",
+      "hookText": "Specific revelation, mechanism, result, or surprising fact timed to the beat",
+      "secondaryText": "Why this matters in practical terms",
+      "visualTheme": "subject-specific mechanism or consequence",
       "accentColor": "#8b5cf6",
       "pacingEffect": "zoom-in"
     },
     {
       "order": 3,
       "durationSeconds": ${s3Duration},
-      "hookText": "Comment 'GROWTH' for full breakdown",
-      "secondaryText": "Direct DM automation trigger",
-      "visualTheme": "sunset-glow",
+      "hookText": "Strong conclusion or practical takeaway tied to the subject",
+      "secondaryText": "Specific CTA that invites discussion without generic engagement bait",
+      "visualTheme": "subject-specific conclusion or future implication",
       "accentColor": "#f59e0b",
       "pacingEffect": "pulse"
     }
@@ -1521,21 +1529,7 @@ Respond in JSON:
 }
 
 let isCycleRunning = false;
-
-async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any; log?: any; error?: string }> {
-  if (isCycleRunning) {
-    return { success: false, error: "An autonomous cycle is already in progress." };
-  }
-  isCycleRunning = true;
-
-  try {
-    const configQuery = db.prepare('SELECT * FROM autonomous_config WHERE id = ?');
-    const configRow = configQuery.get('default_config') as any;
-    const niche = configRow?.target_niche || THEME_PAGE_PROFILE.niche;
-
-    // Stage 1: Research from internet
-    db.prepare(`UPDATE autonomous_config SET current_stage = 'researching_web', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
-    console.log(`[Autonomous 24x7 Engine] Step 1/4: Researching internet trends for niche "${niche}"...`);
+Step 1/4: Researching internet trends for niche "${niche}"...`);
     const topicInfo = await researchTopicFromInternet(niche);
 
     // Stage 2: Ideating hook
