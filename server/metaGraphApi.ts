@@ -195,7 +195,6 @@ export async function publishReelToInstagram(
     if (params.audioName) {
       containerBody.set('audio_name', params.audioName.slice(0, 255));
     }
-    });
 
     const createRes = await fetch(createContainerUrl, {
       method: 'POST',
