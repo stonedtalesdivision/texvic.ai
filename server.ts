@@ -1632,7 +1632,29 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     // Stage 3: Generating template & reel
     db.prepare(`UPDATE autonomous_config SET current_stage = 'generating_template', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
     console.log(`[Autonomous 24x7 Engine] Step 3/4: Synthesizing scenes & beat-matched audio with strategy feedback...`);
-    const reel = await generateAutonomousReelWithStrategy(topicInfo, niche, strategy);
+    let reel: any = null;
+    let lastReelQualityIssue = 'unknown generated-content quality issue';
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const candidateReel = await generateAutonomousReelWithStrategy(topicInfo, niche, strategy);
+      const firstSceneHook = String(candidateReel?.scenes?.[0]?.hookText || '').trim();
+      const reelQualityIssue = autonomousIdeaQualityIssue(
+        { topic: topicInfo.topic, ideaHook: firstSceneHook },
+        []
+      );
+
+      if (!reelQualityIssue) {
+        reel = candidateReel;
+        break;
+      }
+
+      lastReelQualityIssue = reelQualityIssue;
+      console.warn(`[Autonomous 24x7 Engine] Rejected generated Reel hook (attempt ${attempt}/2): ${reelQualityIssue}. Hook="${firstSceneHook.slice(0, 120)}"`);
+    }
+
+    if (!reel) {
+      throw new Error(`Gemini generated Reel content failed the quality gate after 2 attempts: ${lastReelQualityIssue}`);
+    }
 
     // Stage 4: Persist, render, validate, publish, and record the autonomous Reel.
     db.prepare(`UPDATE autonomous_config SET current_stage = 'rendering_video', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
@@ -1864,7 +1886,37 @@ function initAutonomousDaemon() {
       }
       const now = Date.now();
       const nextRunTime = configRow.next_run ? new Date(configRow.next_run).getTime() : 0;
+      const staleLockTime = new Date(now - 45 * 60 * 1000).toISOString();
+      const activeStages = [
+        'starting_cycle',
+        'researching_web',
+        'ideating_hook',
+        'generating_template',
+        'rendering_video',
+        'video_ready',
+        'validating_publish',
+        'publishing'
+      ];
+
       if (now >= nextRunTime && !isCycleRunning) {
+        const lockResult = db.prepare(`
+          UPDATE autonomous_config
+          SET current_stage = 'starting_cycle', updated_at = ?
+          WHERE id = 'default_config'
+            AND enabled = 1
+            AND next_run IS NOT NULL
+            AND next_run <= ?
+            AND (
+              current_stage IS NULL
+              OR current_stage NOT IN (${activeStages.map(() => '?').join(', ')})
+              OR updated_at < ?
+            )
+        `).run(new Date(now).toISOString(), new Date(now).toISOString(), ...activeStages, staleLockTime);
+
+        if (Number(lockResult.changes || 0) !== 1) {
+          return;
+        }
+
         console.log("[Autonomous 24x7 Daemon] Scheduled time arrived! Starting automatic Reel content creation cycle...");
         await runAutonomous24x7Cycle();
       }
