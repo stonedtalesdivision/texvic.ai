@@ -62,20 +62,32 @@ function verifyPassword(password: string, encodedHash: string): boolean {
   }
 }
 
-function issueSession(res: Response): void {
+function issueSession(res: Response, req?: Request): void {
   const token = crypto.randomBytes(32).toString("base64url");
   sessions.set(token, { expiresAt: Date.now() + SESSION_TTL_MS });
 
+  const isHttps = Boolean(
+    (req && (req.protocol === "https" || req.get("x-forwarded-proto") === "https")) ||
+    (process.env.NODE_ENV === "production" && process.env.APP_URL?.startsWith("https"))
+  );
+  const secureFlag = isHttps ? " Secure;" : "";
+
   res.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
+    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly;${secureFlag} SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`
   );
 }
 
-function clearSession(res: Response): void {
+function clearSession(res: Response, req?: Request): void {
+  const isHttps = Boolean(
+    (req && (req.protocol === "https" || req.get("x-forwarded-proto") === "https")) ||
+    (process.env.NODE_ENV === "production" && process.env.APP_URL?.startsWith("https"))
+  );
+  const secureFlag = isHttps ? " Secure;" : "";
+
   res.setHeader(
     "Set-Cookie",
-    `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
+    `${COOKIE_NAME}=; Path=/; HttpOnly;${secureFlag} SameSite=Lax; Max-Age=0`
   );
 }
 
@@ -96,7 +108,7 @@ function hasValidSession(req: Request): boolean {
 
 function isPublicPath(req: Request): boolean {
   if (PUBLIC_PATHS.has(req.path)) return true;
-  return req.path.startsWith("/api/video-worker/jobs/") || req.path.startsWith("/media/reels/");
+  return req.path.startsWith("/api/video-worker/jobs/") || req.path.startsWith("/media/reels/") || req.path.startsWith("/media/posts/");
 }
 
 function loginPage(error = ""): string {
@@ -148,7 +160,48 @@ export function ownerAuthMiddleware(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  if (hasValidSession(req)) {
+  // 1. Cross-Site Request Forgery (CSRF) & Origin Defense
+  const origin = req.headers.origin ? String(req.headers.origin) : '';
+  const secFetchSite = req.headers['sec-fetch-site'] ? String(req.headers['sec-fetch-site']) : '';
+  const currentHost = String(req.get('host') || '').toLowerCase();
+
+  if (origin) {
+    try {
+      const originHost = new URL(origin).host.toLowerCase();
+      let appUrlHost = '';
+      if (process.env.APP_URL) {
+        try { appUrlHost = new URL(process.env.APP_URL).host.toLowerCase(); } catch {}
+      }
+      const isAllowedOrigin = originHost === currentHost || (appUrlHost && originHost === appUrlHost);
+      if (!isAllowedOrigin) {
+        res.status(403).json({ success: false, error: "Cross-origin request rejected." });
+        return;
+      }
+    } catch {
+      res.status(403).json({ success: false, error: "Malformed Origin header." });
+      return;
+    }
+  } else if (secFetchSite === 'cross-site') {
+    res.status(403).json({ success: false, error: "Cross-site request rejected." });
+    return;
+  }
+
+  // 2. Check reverse proxy headers
+  const hasProxyHeader = Boolean(
+    req.headers["cf-connecting-ip"] ||
+    req.headers["x-forwarded-for"] ||
+    req.headers["x-real-ip"]
+  );
+
+  const host = currentHost;
+  const isExternalHost = !host.startsWith("localhost") && !host.startsWith("127.0.0.1");
+  const ip = req.ip || req.socket.remoteAddress || "";
+  
+  // Direct loopback is trusted ONLY for non-proxied local requests with valid local origin
+  const isDirectLoopback = !hasProxyHeader && !isExternalHost && (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1");
+
+  // Mutating requests or live stream across loopback still require valid session or same-origin
+  if (hasValidSession(req) || (isDirectLoopback && (!origin || origin.includes(currentHost)))) {
     next();
     return;
   }
@@ -199,7 +252,7 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
     }
 
     failedLogins.delete(ip);
-    issueSession(res);
+    issueSession(res, req);
     res.redirect("/");
     return true;
   }
@@ -207,7 +260,7 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
   if (req.method === "POST" && req.path === "/api/auth/owner/logout") {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
     if (token) sessions.delete(token);
-    clearSession(res);
+    clearSession(res, req);
     res.json({ success: true });
     return true;
   }

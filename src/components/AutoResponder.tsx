@@ -94,66 +94,43 @@ export const AutoResponder: React.FC<AutoResponderProps> = ({
     });
   };
 
-  const handleSimulateNewComment = () => {
-    const mockInbound = [
-      {
-        author: 'Liam Miller',
-        handle: '@liamm_films',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
-        text: 'TOOL - sending to my video editor immediately!! 🙌',
-        sentiment: 'purchase_intent' as const,
-        intentLabel: 'Keyword Trigger ("TOOL")'
-      },
-      {
-        author: 'Chloe Dupont',
-        handle: '@chloed_designs',
-        avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&auto=format&fit=crop&q=80',
-        text: 'This retention pacing completely blew my mind. Applying on my next reel! 🔥',
-        sentiment: 'positive' as const,
-        intentLabel: 'High Praise'
-      },
-      {
-        author: 'Jordan Vance',
-        handle: '@jvance_growth',
-        avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=100&auto=format&fit=crop&q=80',
-        text: 'What audio track was used in the first 3 seconds? The bass sync was crazy.',
-        sentiment: 'question' as const,
-        intentLabel: 'Audio Inquiry'
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
+
+  const handleSyncLiveComments = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/comments/sync', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        if (Array.isArray(data.comments)) {
+          for (const c of data.comments) {
+            onAddComment(c);
+          }
+        }
+        setSyncToast(data.message || 'Synced live comments from Instagram!');
+      } else {
+        setSyncToast(data.error || 'Failed to sync comments.');
       }
-    ];
-
-    const pick = mockInbound[Math.floor(Math.random() * mockInbound.length)];
-    const newId = `cmt-${Date.now()}`;
-
-    // If autonomous mode is ON, auto-reply immediately
-    const autoReplyText = pick.sentiment === 'purchase_intent'
-      ? `Just fired the complete cheat-sheet and workflow guide to your DMs ${pick.handle}! Check requests if not in inbox 🚀`
-      : `Appreciate you ${pick.handle}! Keep crushing your reel retention! 🔥`;
-
-    const newComment: CommentItem = {
-      id: newId,
-      postId: 'reel-viral-1',
-      postTitle: 'The 3-Second Rule That 10x My Reel Views',
-      author: pick.author,
-      authorHandle: pick.handle,
-      authorAvatar: pick.avatar,
-      text: pick.text,
-      timestamp: 'Just now',
-      sentiment: pick.sentiment,
-      intentLabel: pick.intentLabel,
-      replyStatus: autonomousMode ? 'auto_replied' : 'pending',
-      replyText: autonomousMode ? autoReplyText : undefined,
-      replyTimestamp: autonomousMode ? 'Just now' : undefined,
-      autoRepliedByAi: autonomousMode
-    };
-
-    onAddComment(newComment);
+    } catch (err: any) {
+      setSyncToast(err?.message || 'Network error syncing comments.');
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setSyncToast(null), 3500);
+    }
   };
 
   const pendingCount = comments.filter(c => c.replyStatus === 'pending').length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-8">
+      {syncToast && (
+        <div className="fixed top-20 right-6 z-50 p-4 rounded-2xl bg-emerald-950/95 border border-emerald-500/40 text-emerald-200 text-xs font-semibold shadow-2xl flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{syncToast}</span>
+        </div>
+      )}
+
       {/* Banner */}
       <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-slate-900 border border-emerald-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -172,11 +149,12 @@ export const AutoResponder: React.FC<AutoResponderProps> = ({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={handleSimulateNewComment}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 transition-all shadow-md"
+            onClick={handleSyncLiveComments}
+            disabled={isSyncing}
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 transition-all shadow-md disabled:opacity-50"
           >
-            <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            Simulate Inbound Comment
+            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : 'Sync Live Comments'}
           </button>
         </div>
       </div>
@@ -215,9 +193,9 @@ export const AutoResponder: React.FC<AutoResponderProps> = ({
             <Zap className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-xs font-bold text-white block">DM Keyword Trigger</span>
+            <span className="text-xs font-bold text-white block">DM Keyword Trigger & Follower Growth</span>
             <span className="text-[11px] text-slate-400">
-              When user writes <strong>"TOOL"</strong> or <strong>"GUIDE"</strong>, auto-dispatch resource link.
+              When viewers comment <strong>"STORY"</strong>, <strong>"DOC"</strong>, <strong>"FILE"</strong>, <strong>"MAP"</strong>, or <strong>"LINK"</strong>, auto-dispatches declassified breakdown and follower invite.
             </span>
           </div>
         </div>

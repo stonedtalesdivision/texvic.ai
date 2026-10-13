@@ -1,10 +1,11 @@
-import React from 'react';
-import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, LogOut, Archive } from 'lucide-react';
-import { AccountAnalytics } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, LogOut, Archive, Users, ChevronDown, Dna, Plus } from 'lucide-react';
+import { AccountAnalytics, ManagedAccount } from '../types';
+import { ThemeToggle } from './ThemeToggle';
 
 interface NavbarProps {
-  activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous';
-  setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous') => void;
+  activeTab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous' | 'swarm';
+  setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous' | 'swarm') => void;
   analytics: AccountAnalytics;
   instagramConnected: boolean;
   autonomousMode: boolean;
@@ -13,6 +14,12 @@ interface NavbarProps {
   onOpenAccountConnector?: () => void;
   autonomous24x7Enabled?: boolean;
   onLogout?: () => void;
+  accounts?: ManagedAccount[];
+  activeAccountId?: string;
+  onSwitchAccount?: (accountId: string) => void;
+  onOpenPersonaModal?: () => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -25,49 +32,163 @@ export const Navbar: React.FC<NavbarProps> = ({
   pendingCommentsCount,
   onOpenAccountConnector,
   autonomous24x7Enabled = true,
-  onLogout
+  onLogout,
+  accounts = [],
+  activeAccountId = 'instagram_primary',
+  onSwitchAccount,
+  onOpenPersonaModal,
+  theme = 'dark',
+  onToggleTheme
 }) => {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const activeAccount = accounts.find(a => a.id === activeAccountId) || accounts[0];
+
   return (
     <header className="sticky top-0 z-50 bg-[#0d121d]/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3.5">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div
-          onClick={onOpenAccountConnector}
-          className="flex items-center gap-3.5 cursor-pointer group"
-          title="Click to switch or configure Instagram profile"
-        >
-          <div className="relative">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 p-[2px] shadow-lg shadow-purple-500/25 group-hover:scale-105 transition-transform flex items-center justify-center">
-              <div className="w-full h-full rounded-[10px] bg-[#0b0f19] flex items-center justify-center overflow-hidden">
-                <span className="font-black text-sm tracking-tighter bg-gradient-to-tr from-cyan-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">SX</span>
+        <div className="relative" ref={dropdownRef}>
+          <div
+            onClick={() => setDropdownOpen(prev => !prev)}
+            className="flex items-center gap-3.5 cursor-pointer group"
+            title="Click to switch accounts or manage Content DNA"
+          >
+            <div className="relative">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-400 via-purple-500 to-pink-500 p-[2px] shadow-lg shadow-purple-500/25 group-hover:scale-105 transition-transform flex items-center justify-center">
+                <div className="w-full h-full rounded-[10px] bg-[#0b0f19] flex items-center justify-center overflow-hidden">
+                  {analytics.profile.avatar ? (
+                    <img src={analytics.profile.avatar} alt="avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="font-black text-sm tracking-tighter bg-gradient-to-tr from-cyan-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                      {analytics.profile.name ? analytics.profile.name.slice(0, 2).toUpperCase() : 'SX'}
+                    </span>
+                  )}
+                </div>
               </div>
+              <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-[#0d121d] rounded-full ${instagramConnected ? 'bg-emerald-500' : 'bg-slate-600'}`} />
             </div>
-            <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 border-2 border-[#0d121d] rounded-full ${instagramConnected ? 'bg-emerald-500' : 'bg-slate-600'}`} />
+
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white tracking-tight flex items-center gap-1.5 text-base group-hover:text-pink-300 transition-colors">
+                  {analytics.profile.name || 'The Untold Archive'}
+                  {instagramConnected && <CheckCircle2 className="w-4 h-4 text-sky-400 fill-sky-400/20" />}
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-transform" />
+                </span>
+                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 flex items-center gap-1">
+                  <Flame className="w-3 h-3 text-pink-400" />
+                  {analytics.metrics.impressionsChange > 0 ? `+${analytics.metrics.impressionsChange}%` : '0%'} Impressions
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                <span>{analytics.profile.handle || '@creator'}</span>
+                <span className="text-slate-600">•</span>
+                <span>{analytics.profile.followers.toLocaleString()} Followers</span>
+                <span className="text-slate-600">•</span>
+                <span className={`text-[11px] font-semibold ${instagramConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {instagramConnected ? 'Connected' : 'Not Connected'}
+                </span>
+              </p>
+            </div>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-white tracking-tight flex items-center gap-1.5 text-base group-hover:text-pink-300 transition-colors">
-                {analytics.profile.name || 'SARLX.Ai'}
-                {instagramConnected && <CheckCircle2 className="w-4 h-4 text-sky-400 fill-sky-400/20" />}
-              </span>
-              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 flex items-center gap-1">
-                <Flame className="w-3 h-3 text-pink-400" />
-                {analytics.metrics.impressionsChange > 0 ? `+${analytics.metrics.impressionsChange}%` : '0%'} Impressions
-              </span>
+          {/* Multi-Account Switcher Dropdown */}
+          {dropdownOpen && (
+            <div className="absolute top-full left-0 mt-3 w-80 bg-[#0e1422] border border-slate-700/80 rounded-2xl shadow-2xl z-50 p-3 space-y-2.5 backdrop-blur-xl">
+              <div className="px-2.5 py-1.5 flex items-center justify-between border-b border-slate-800">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Managed Accounts</span>
+                <span className="text-[10px] text-cyan-400 font-semibold">{accounts.length} Total</span>
+              </div>
+
+              <div className="max-h-56 overflow-y-auto space-y-1">
+                {accounts.map(acc => {
+                  const isCurrent = acc.id === (activeAccount?.id || activeAccountId);
+                  return (
+                    <button
+                      key={acc.id}
+                      onClick={() => {
+                        onSwitchAccount?.(acc.id);
+                        setDropdownOpen(false);
+                      }}
+                      className={`w-full p-2.5 rounded-xl flex items-center justify-between text-left transition-colors ${
+                        isCurrent ? 'bg-cyan-950/40 border border-cyan-500/30 text-white' : 'hover:bg-slate-800/60 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center font-bold text-xs text-white border border-slate-700">
+                          {acc.username ? acc.username.replace(/^@/, '').slice(0, 2).toUpperCase() : 'IG'}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold leading-tight flex items-center gap-1.5">
+                            {acc.username || acc.name || 'Account'}
+                            {acc.isConnected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {acc.persona?.niche ? acc.persona.niche.slice(0, 24) + '...' : `${acc.followersCount || 0} followers`}
+                          </div>
+                        </div>
+                      </div>
+                      {isCurrent && <CheckCircle2 className="w-4 h-4 text-cyan-400" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="pt-2 border-t border-slate-800 flex flex-col gap-1.5">
+                {onOpenPersonaModal && (
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      onOpenPersonaModal();
+                    }}
+                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-900/40 to-cyan-900/40 hover:from-purple-900/60 hover:to-cyan-900/60 text-cyan-200 border border-cyan-500/20 flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Dna className="w-3.5 h-3.5 text-cyan-400" />
+                    Open Content DNA Studio
+                  </button>
+                )}
+
+                {onOpenAccountConnector && (
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      onOpenAccountConnector();
+                    }}
+                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Connect Another Account
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-              <span>{analytics.profile.followers.toLocaleString()} Followers</span>
-              <span className="text-slate-600">•</span>
-              <span className="text-emerald-400 font-medium">{analytics.metrics.impressions.toLocaleString()} Impressions</span>
-              <span className="text-slate-600">•</span>
-              <span className={`text-[11px] font-semibold ${instagramConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {instagramConnected ? 'Instagram Connected' : 'Instagram Not Connected'}
-              </span>
-            </p>
-          </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3 self-end md:self-auto">
+          {onOpenPersonaModal && (
+            <button
+              type="button"
+              onClick={onOpenPersonaModal}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-950/60 to-cyan-950/60 hover:from-purple-900/80 hover:to-cyan-900/80 text-cyan-200 border border-cyan-500/30 flex items-center gap-1.5 transition-all shadow-md shadow-cyan-500/10"
+              title="Inspect or tune this account's learned Content DNA"
+            >
+              <Dna className="w-3.5 h-3.5 text-cyan-400" />
+              Content DNA
+            </button>
+          )}
+
           {onOpenAccountConnector && (
             <button type="button" onClick={onOpenAccountConnector} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors">
               <Instagram className="w-3.5 h-3.5 text-pink-400" />
@@ -85,6 +206,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autonomousMode ? 'translate-x-4' : 'translate-x-0'}`} />
             </button>
           </div>
+
+          {/* Day / Night Mode Toggle Switch */}
+          {onToggleTheme && (
+            <div className="flex items-center px-1" title={theme === 'dark' ? 'Night mode active - click for Day mode' : 'Day mode active - click for Night mode'}>
+              <ThemeToggle theme={theme} onToggle={onToggleTheme} variant="pill" />
+            </div>
+          )}
 
           {onLogout && (
             <button
@@ -104,6 +232,12 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button type="button" onClick={() => setActiveTab('autonomous')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'autonomous' ? 'bg-gradient-to-r from-emerald-500/25 via-teal-500/20 to-sky-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm' : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'}`}>
           <Zap className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400/30" /><span>24/7 Autonomous Pipeline</span>
           {autonomous24x7Enabled ? <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span> : <span className="w-2 h-2 rounded-full bg-slate-600" />}
+        </button>
+
+        <button type="button" onClick={() => setActiveTab('swarm')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'swarm' ? 'bg-gradient-to-r from-cyan-500/25 via-sky-500/20 to-blue-500/20 text-cyan-200 border border-cyan-500/40 shadow-sm' : 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10'}`}>
+          <Users className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Agent Swarm (Interactions)</span>
+          <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-cyan-500/30 text-cyan-200 border border-cyan-400/30">3</span>
         </button>
 
         <button type="button" onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'analytics' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><BarChart3 className="w-3.5 h-3.5 text-sky-400" />Growth & Strategy</button>

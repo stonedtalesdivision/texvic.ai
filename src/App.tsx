@@ -2,7 +2,8 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { 
-  ReelItem, PostItem, CommentItem, AccountAnalytics, StrategyInsight, Autonomous24x7Config 
+  ReelItem, PostItem, CommentItem, AccountAnalytics, StrategyInsight, Autonomous24x7Config,
+  ManagedAccount, AccountPersona 
 } from './types';
 import { DEFAULT_ACCOUNT_ANALYTICS } from './constants';
 import { Navbar } from './components/Navbar';
@@ -14,8 +15,11 @@ import { SchedulePublisher } from './components/SchedulePublisher';
 import { ContentGallery } from './components/ContentGallery';
 import { AssetLibrary } from './components/AssetLibrary';
 import { AccountConnectorModal } from './components/AccountConnectorModal';
+import { AccountPersonaModal } from './components/AccountPersonaModal';
 import { AutonomousEngine24x7 } from './components/AutonomousEngine24x7';
 import { ReelPlayer } from './components/ReelPlayer';
+import { AgentSwarmControl } from './components/AgentSwarmControl';
+import { ThemeToggle } from './components/ThemeToggle';
 
 const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
   {
@@ -51,7 +55,7 @@ const DEFAULT_STRATEGY_INSIGHTS: StrategyInsight[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous'>('autonomous');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous' | 'swarm'>('autonomous');
   const [autonomousMode, setAutonomousMode] = useState<boolean>(true);
   const [analytics, setAnalytics] = useState<AccountAnalytics>(DEFAULT_ACCOUNT_ANALYTICS);
   const [reels, setReels] = useState<ReelItem[]>([]);
@@ -60,8 +64,49 @@ export default function App() {
   const [insights, setInsights] = useState<StrategyInsight[]>(DEFAULT_STRATEGY_INSIGHTS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [isPersonaModalOpen, setIsPersonaModalOpen] = useState<boolean>(false);
   const [previewReel, setPreviewReel] = useState<ReelItem | null>(null);
   const [instagramConnected, setInstagramConnected] = useState(false);
+  const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
+  const [activeAccountId, setActiveAccountId] = useState<string>('instagram_primary');
+
+  // Day / Night mode theme state with localStorage persistence and system fallback
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sarlx_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    return 'dark';
+  });
+
+  useEffect(() => {
+    const isDark = theme === 'dark';
+    document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.classList.toggle('light', !isDark);
+    document.documentElement.setAttribute('data-theme', theme);
+    document.body.classList.toggle('dark', isDark);
+    document.body.classList.toggle('light', !isDark);
+    document.body.setAttribute('data-theme', theme);
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem('sarlx_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  // Keyboard Escape listener to close preview window immediately
+  useEffect(() => {
+    if (!previewReel) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPreviewReel(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewReel]);
 
   const [autonomousConfig, setAutonomousConfig] = useState<Autonomous24x7Config>({
     enabled: true,
@@ -89,6 +134,15 @@ export default function App() {
   useEffect(() => {
     async function loadLiveWorkspace() {
       try {
+        const accRes = await fetch('/api/accounts');
+        if (accRes.ok) {
+          const accData = await accRes.json();
+          if (accData.success && Array.isArray(accData.accounts)) {
+            setAccounts(accData.accounts);
+            if (accData.activeAccountId) setActiveAccountId(accData.activeAccountId);
+          }
+        }
+
         const statusRes = await fetch('/api/account/status');
         if (statusRes.ok) {
           const status = await statusRes.json();
@@ -105,7 +159,9 @@ export default function App() {
             if (data.reels && Array.isArray(data.reels)) setReels(data.reels);
             if (data.posts && Array.isArray(data.posts)) setPosts(data.posts);
             if (data.comments && Array.isArray(data.comments)) setComments(data.comments);
-            if (data.analytics && !instagramConnected) {
+            if (data.accounts && Array.isArray(data.accounts)) setAccounts(data.accounts);
+            if (data.activeAccountId) setActiveAccountId(data.activeAccountId);
+            if (data.analytics) {
               setAnalytics(data.analytics);
             }
             if (typeof data.autonomousMode === 'boolean') setAutonomousMode(data.autonomousMode);
@@ -117,7 +173,73 @@ export default function App() {
       }
     }
     loadLiveWorkspace();
+  }, [instagramConnected]);
 
+  const handleSwitchAccount = async (targetId: string) => {
+    try {
+      const res = await fetch('/api/accounts/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: targetId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveAccountId(targetId);
+        if (data.store) {
+          if (data.store.reels) setReels(data.store.reels);
+          if (data.store.posts) setPosts(data.store.posts);
+          if (data.store.comments) setComments(data.store.comments);
+          if (data.store.analytics) setAnalytics(data.store.analytics);
+          if (data.store.autonomous24x7) setAutonomousConfig(data.store.autonomous24x7);
+          if (data.store.accounts) setAccounts(data.store.accounts);
+        }
+        const acc = accounts.find(a => a.id === targetId);
+        showToast(`Switched active account to ${acc?.username || acc?.name || targetId}`);
+      }
+    } catch (err) {
+      console.warn('Could not switch account:', err);
+    }
+  };
+
+  const handleUpdatePersona = async (persona: AccountPersona) => {
+    try {
+      const res = await fetch(`/api/accounts/${activeAccountId}/update-persona`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ persona })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAccounts(prev => prev.map(a => a.id === activeAccountId ? { ...a, persona } : a));
+        showToast('Account Content DNA tuned & saved!');
+      }
+    } catch (err) {
+      console.warn('Could not update persona:', err);
+    }
+  };
+
+  const handleLearnPersona = async (options?: { customDescription?: string; sampleCaptions?: string[] }) => {
+    try {
+      showToast('Extracting & reverse-engineering Content DNA with AI...');
+      const res = await fetch(`/api/accounts/${activeAccountId}/learn-persona`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(options || {})
+      });
+      const data = await res.json();
+      if (data.success && data.persona) {
+        setAccounts(prev => prev.map(a => a.id === activeAccountId ? { ...a, persona: data.persona } : a));
+        if (data.store?.autonomous24x7) setAutonomousConfig(data.store.autonomous24x7);
+        showToast(`Successfully learned Content DNA for @${data.persona.handle || 'account'}!`);
+      } else {
+        throw new Error(data.error || 'Failed to extract Content DNA.');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error extracting Content DNA');
+    }
+  };
+
+  useEffect(() => {
     // Poll autonomous status every 15s to keep countdown and telemetry in sync
     const pollInterval = setInterval(async () => {
       try {
@@ -169,7 +291,7 @@ export default function App() {
     showToast(enabled ? '24/7 Autonomous Pipeline Activated' : '24/7 Autonomous Pipeline Paused');
   };
 
-  const handleUpdateAutonomousConfig = async (params: { intervalMinutes?: number; targetNiche?: string; instagramPublishing?: any }) => {
+  const handleUpdateAutonomousConfig = async (params: { intervalMinutes?: number; targetNiche?: string; instagramPublishing?: any; formatPreference?: 'reels_only' | 'carousels_only' | 'balanced' }) => {
     setAutonomousConfig(prev => ({
       ...prev,
       ...params,
@@ -310,32 +432,53 @@ export default function App() {
   };
 
   const handlePublishNow = async (item: ReelItem | PostItem, type: 'reel' | 'post') => {
-    if (type !== 'reel') {
-      throw new Error('Carousel publishing is not enabled yet. Only Instagram Reels use the live publishing pipeline.');
+    if (type === 'reel') {
+      const res = await fetch('/api/reels/publish-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reelId: item.id })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const message = data.error || 'Instagram publishing failed.';
+        showToast(message);
+        throw new Error(message);
+      }
+
+      setReels(prev => prev.map(r => r.id === item.id ? {
+        ...r,
+        status: 'published',
+        instagramPostId: data.mediaId,
+        permalink: data.permalink,
+        publishTimestamp: new Date().toISOString()
+      } : r));
+
+      showToast(`Published Reel "${item.title}" to Instagram.`);
+    } else {
+      const res = await fetch('/api/posts/publish-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId: item.id })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const message = data.error || 'Instagram carousel publishing failed.';
+        showToast(message);
+        throw new Error(message);
+      }
+
+      setPosts(prev => prev.map(p => p.id === item.id ? {
+        ...p,
+        status: 'published',
+        instagramPostId: data.mediaId,
+        permalink: data.permalink,
+        publishTimestamp: new Date().toISOString()
+      } : p));
+
+      showToast(`Published Carousel "${item.title}" to Instagram.`);
     }
-
-    const res = await fetch('/api/reels/publish-now', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reelId: item.id })
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      const message = data.error || 'Instagram publishing failed.';
-      showToast(message);
-      throw new Error(message);
-    }
-
-    setReels(prev => prev.map(r => r.id === item.id ? {
-      ...r,
-      status: 'published',
-      instagramPostId: data.mediaId,
-      permalink: data.permalink,
-      publishTimestamp: new Date().toISOString()
-    } : r));
-
-    showToast(`Published "${item.title}" to Instagram.`);
   };
 
   const handleDeleteScheduled = async (id: string, type: 'reel' | 'post') => {
@@ -355,6 +498,26 @@ export default function App() {
       }
     }
     showToast(`Removed from schedule queue`);
+  };
+
+  const handleDeleteContent = async (id: string, type: 'reel' | 'post') => {
+    if (type === 'reel') {
+      setReels(prev => prev.filter(r => r.id !== id));
+      try {
+        await fetch(`/api/reels/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.warn('Could not delete reel from server:', err);
+      }
+      showToast('Reel deleted from gallery');
+    } else {
+      setPosts(prev => prev.filter(p => p.id !== id));
+      try {
+        await fetch(`/api/posts/${id}`, { method: 'DELETE' });
+      } catch (err) {
+        console.warn('Could not delete post from server:', err);
+      }
+      showToast('Carousel deleted from gallery');
+    }
   };
 
   const handleUpdateComment = async (comment: CommentItem) => {
@@ -393,7 +556,7 @@ export default function App() {
   const handleOAuthConnected = async (profile: AccountAnalytics['profile']) => {
     setAnalytics(prev => ({ ...prev, profile }));
     setInstagramConnected(true);
-    showToast(`Connected ${profile.handle} to SARLX.Ai.`);
+    showToast(`Connected ${profile.handle} to The Untold Archive.`);
   };
 
   const handleRefreshInstagramStatus = useCallback(async () => {
@@ -444,7 +607,7 @@ export default function App() {
       console.warn('Could not call /api/reset:', err);
       setAnalytics(DEFAULT_ACCOUNT_ANALYTICS);
     }
-    showToast('Reset account to SARLX.Ai baseline (0 metrics)');
+    showToast('Reset account to The Untold Archive baseline (0 metrics)');
   };
 
   const handleExecuteInsight = (insight: StrategyInsight) => {
@@ -497,7 +660,7 @@ export default function App() {
   const scheduledPosts = posts.filter(p => p.status === 'scheduled');
 
   return (
-    <div className="min-h-screen bg-[#0b0f17] text-slate-100 flex flex-col font-sans selection:bg-pink-500/30 selection:text-pink-200">
+    <div className={`min-h-screen flex flex-col font-sans selection:bg-pink-500/30 selection:text-pink-200 transition-colors duration-300 ${theme === 'light' ? 'bg-[#f8fafc] text-slate-900' : 'bg-[#0b0f17] text-slate-100'}`} data-theme={theme}>
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -525,6 +688,12 @@ export default function App() {
         onOpenAccountConnector={() => setIsAccountModalOpen(true)}
         autonomous24x7Enabled={autonomousConfig.enabled}
         onLogout={handleLogout}
+        accounts={accounts}
+        activeAccountId={activeAccountId}
+        onSwitchAccount={handleSwitchAccount}
+        onOpenPersonaModal={() => setIsPersonaModalOpen(true)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       {/* Account Connector Modal */}
@@ -539,38 +708,79 @@ export default function App() {
         onDisconnect={handleDisconnectInstagram}
       />
 
+      {/* Account Persona & Content DNA Studio Modal */}
+      <AccountPersonaModal
+        isOpen={isPersonaModalOpen}
+        onClose={() => setIsPersonaModalOpen(false)}
+        account={accounts.find(a => a.id === activeAccountId) || null}
+        onUpdatePersona={handleUpdatePersona}
+        onLearnPersona={handleLearnPersona}
+      />
+
       {/* Reel Player Modal for Inspecting Autonomously Published Video */}
       <AnimatePresence>
         {previewReel && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            initial={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+            animate={{ opacity: 1, backdropFilter: 'blur(16px)' }}
+            exit={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+            transition={{ duration: 0.22 }}
+            className="fixed inset-0 z-50 bg-black/80 flex items-start sm:items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto"
             onClick={() => setPreviewReel(null)}
           >
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+              initial={{ scale: 0.94, opacity: 0, y: 16 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 16 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 340 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative max-w-sm w-full bg-slate-950 border border-slate-800 rounded-3xl p-4 shadow-2xl space-y-3"
+              className="relative max-w-5xl w-full my-auto max-h-[95vh] flex flex-col bg-slate-950/95 dark:bg-slate-950/95 bg-white border border-white/15 dark:border-white/15 border-slate-200 rounded-3xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] overflow-hidden"
             >
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  Direct Instagram Reel Preview
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPreviewReel(null)}
-                  className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              {/* Sticky Top Glass Header with Close Window Controls & Theme Switch */}
+              <div className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-3 bg-slate-900/90 dark:bg-slate-900/90 bg-slate-50/95 backdrop-blur-xl border-b border-white/10 dark:border-white/10 border-slate-200 select-none">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-bold text-white dark:text-white text-slate-900 flex items-center gap-2">
+                      <span>Direct Instagram Reel Preview</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-500 dark:text-pink-300 border border-pink-500/30">
+                        {previewReel.duration || 30}s HD
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-400 text-slate-600 truncate max-w-xs sm:max-w-md">
+                      {previewReel.title}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  {/* Theme Switcher in Preview Header */}
+                  <ThemeToggle theme={theme} onToggle={toggleTheme} variant="icon-only" />
+
+                  {/* Prominent Close Window Button */}
+                  <button
+                    type="button"
+                    onClick={() => setPreviewReel(null)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-500 dark:text-rose-400 hover:text-white border border-rose-500/30 hover:border-rose-400/50 transition-all duration-200 active:scale-95 cursor-pointer shadow-sm group"
+                    title="Close preview window (Esc)"
+                    aria-label="Close preview window"
+                  >
+                    <X className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
+                    <span className="font-semibold">Close Window</span>
+                    <kbd className="hidden sm:inline-block px-1.5 py-0.2 text-[10px] font-mono rounded bg-black/10 dark:bg-white/10 text-slate-600 dark:text-slate-300">Esc</kbd>
+                  </button>
+                </div>
               </div>
 
-              <ReelPlayer reel={previewReel} />
+              {/* Scrollable Modal Content */}
+              <div className="overflow-y-auto p-3 sm:p-5 no-scrollbar flex-1 flex flex-col items-center justify-center">
+                <div className="w-full">
+                  <ReelPlayer reel={previewReel} onClose={() => setPreviewReel(null)} />
+                </div>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -594,6 +804,7 @@ export default function App() {
                 onTriggerCycle={handleTriggerAutonomousCycle}
                 onPreviewReel={(reel) => setPreviewReel(reel)}
                 reels={reels}
+                onNavigateToSwarm={() => setActiveTab('swarm')}
               />
             </motion.div>
           )}
@@ -627,6 +838,7 @@ export default function App() {
               <ReelGenerator
                 onSaveToGallery={handleSaveReelToGallery}
                 onScheduleReel={handleScheduleReel}
+                onPublishNow={(reel) => handlePublishNow(reel, 'reel')}
               />
             </motion.div>
           )}
@@ -642,6 +854,7 @@ export default function App() {
               <CarouselPostCreator
                 onSaveToGallery={handleSavePostToGallery}
                 onSchedulePost={handleSchedulePost}
+                onPublishNow={(post) => handlePublishNow(post, 'post')}
               />
             </motion.div>
           )}
@@ -695,6 +908,14 @@ export default function App() {
                 posts={posts}
                 onScheduleReel={handleScheduleReel}
                 onSchedulePost={handleSchedulePost}
+                onPublishReelNow={(reel) => handlePublishNow(reel, 'reel')}
+                onPublishPostNow={(post) => handlePublishNow(post, 'post')}
+                onDeleteReel={(id) => handleDeleteContent(id, 'reel')}
+                onDeletePost={(id) => handleDeleteContent(id, 'post')}
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                onConvertedToReel={(newReel) => setReels(prev => [newReel, ...prev])}
+                onShowToast={showToast}
               />
             </motion.div>
           )}
@@ -708,6 +929,18 @@ export default function App() {
               transition={{ duration: 0.2 }}
             >
               <AssetLibrary />
+            </motion.div>
+          )}
+
+          {activeTab === 'swarm' && (
+            <motion.div
+              key="swarm"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <AgentSwarmControl onShowToast={showToast} />
             </motion.div>
           )}
         </AnimatePresence>

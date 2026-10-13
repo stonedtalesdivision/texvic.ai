@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from './database.js';
@@ -70,7 +71,31 @@ export async function registerAsset(input: {
 
 export function getAsset(id: string): MediaAsset | null {
   const row = db.prepare('SELECT * FROM media_assets WHERE id = ?').get(id) as any;
-  return row ? normalizeAsset(row) : null;
+  if (!row) return null;
+  if (row.file_path && !fsSync.existsSync(row.file_path)) {
+    // Disk file was removed, auto-prune
+    try {
+      db.prepare('DELETE FROM asset_usage WHERE asset_id = ?').run(id);
+      db.prepare('DELETE FROM media_assets WHERE id = ?').run(id);
+    } catch {}
+    return null;
+  }
+  return normalizeAsset(row);
+}
+
+export async function deleteAsset(id: string): Promise<boolean> {
+  const row = db.prepare('SELECT * FROM media_assets WHERE id = ?').get(id) as any;
+  if (!row) return false;
+  if (row.file_path && fsSync.existsSync(row.file_path)) {
+    try {
+      await fs.unlink(row.file_path);
+    } catch (e) {
+      console.warn(`[AssetLibrary] Could not remove file ${row.file_path}:`, e);
+    }
+  }
+  db.prepare('DELETE FROM asset_usage WHERE asset_id = ?').run(id);
+  db.prepare('DELETE FROM media_assets WHERE id = ?').run(id);
+  return true;
 }
 
 export function listAssets(options: {
@@ -86,7 +111,32 @@ export function listAssets(options: {
   if (options.category) { clauses.push('category = ?'); args.push(options.category); }
   const sql = `SELECT * FROM media_assets ${clauses.length ? 'WHERE ' + clauses.join(' AND ') : ''} ORDER BY created_at DESC LIMIT ?`;
   args.push(limit);
-  return (db.prepare(sql).all(...args) as any[]).map(normalizeAsset).filter(asset =>
+  const rows = db.prepare(sql).all(...args) as any[];
+
+  // Auto-prune ghost assets if file was deleted from disk in Windows Explorer
+  const validAssets: MediaAsset[] = [];
+  const pruneIds: string[] = [];
+
+  for (const row of rows) {
+    if (row.file_path && !fsSync.existsSync(row.file_path)) {
+      pruneIds.push(row.id);
+    } else {
+      validAssets.push(normalizeAsset(row));
+    }
+  }
+
+  if (pruneIds.length > 0) {
+    try {
+      const placeholders = pruneIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM asset_usage WHERE asset_id IN (${placeholders})`).run(...pruneIds);
+      db.prepare(`DELETE FROM media_assets WHERE id IN (${placeholders})`).run(...pruneIds);
+      console.log(`[AssetLibrary] Auto-pruned ${pruneIds.length} orphaned asset record(s) whose files were deleted from disk.`);
+    } catch (e) {
+      console.warn('[AssetLibrary] Failed to prune missing assets from DB:', e);
+    }
+  }
+
+  return validAssets.filter(asset =>
     !options.tags?.length || options.tags.every(tag => asset.tags.includes(tag))
   );
 }

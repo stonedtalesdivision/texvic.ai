@@ -57,12 +57,29 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     for (let i = 0; i < resolved.length; i++) {
       const { scene, asset } = resolved[i];
       const output = path.join(workDir, `scene-${i}.mp4`);
-      const zoom = Math.max(1, Math.min(scene.zoom || 1, 1.5));
-      const cropX = scene.crop === 'left' ? '0' : scene.crop === 'right' ? 'in_w-1080' : '(in_w-1080)/2';
-      const vf = [
-        `scale=ceil(1080*${zoom}/2)*2:ceil(1920*${zoom}/2)*2:force_original_aspect_ratio=increase`,
-        `crop=1080:1920:${cropX}:0`
-      ];
+      
+      // Determine if asset is already rendered at standard 1080x1920 portrait resolution
+      const isFullVertical = (asset.width === 1080 && asset.height === 1920) || asset.source === 'ffmpeg-autonomous-visual-producer';
+      
+      const vf: string[] = [];
+      if (isFullVertical) {
+        // PRESERVE 100% ORIGINAL RESOLUTION & SAFE ZONE:
+        // Never apply destructive zoom or asymmetric horizontal cropping (which clips typography).
+        vf.push('scale=1080:1920:force_original_aspect_ratio=decrease');
+        vf.push('pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
+      } else {
+        // Non-vertical or external asset: scale and crop centered without top-clipping
+        const zoom = Math.max(1, Math.min(scene.zoom || 1, 1.25));
+        const cropX = scene.crop === 'left' ? '0' : scene.crop === 'right' ? 'in_w-1080' : '(in_w-1080)/2';
+        const cropY = '(in_h-1920)/2';
+        vf.push(`scale=ceil(1080*${zoom}/2)*2:ceil(1920*${zoom}/2)*2:force_original_aspect_ratio=increase`);
+        vf.push(`crop=1080:1920:${cropX}:${cropY}`);
+      }
+
+      // Cinematic Creator Grading & 35mm Film Grain Polish
+      vf.push('eq=contrast=1.05:saturation=1.10:brightness=-0.01');
+      vf.push('noise=alls=8:allf=t+u');
+
       const filters = [
         `setpts=PTS/${Math.max(0.25, Math.min(scene.speed || 1, 2))}`,
         ...vf
@@ -72,20 +89,21 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
         '-t', String(Math.max(0.5, scene.duration)),
         '-vf', filters.join(','),
         '-an', '-r', String(input.fps || 30),
+        '-threads', '2',
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22',
         '-pix_fmt', 'yuv420p', output
       ]);
       normalized.push(output);
       markAssetUsed(asset.id, input.reelId, i + 1, {
-        crop: scene.crop || 'center',
-        zoom: scene.zoom || 1,
+        crop: isFullVertical ? 'center' : (scene.crop || 'center'),
+        zoom: isFullVertical ? 1 : (scene.zoom || 1),
         speed: scene.speed || 1,
         transition: scene.transition || 'cut'
       });
     }
 
     const concatFile = path.join(workDir, 'concat.txt');
-    await fs.writeFile(concatFile, normalized.map(file => `file '${file.replace(/'/g, "'\\''")}'`).join('\n'));
+    await fs.writeFile(concatFile, normalized.map(file => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
 
     const silent = path.join(workDir, 'video.mp4');
     await run('ffmpeg', [
@@ -102,12 +120,16 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     if (!audioCount) {
       await fs.copyFile(silent, outputPath);
     } else {
-      const audioInputs: string[] = [];
-      if (input.voicePath) audioInputs.push('[1:a]');
-      if (input.musicPath) audioInputs.push(`[${input.voicePath ? 2 : 1}:a]`);
-      const mix = audioInputs.length > 1
-        ? `${audioInputs.join('')}amix=inputs=${audioInputs.length}:duration=first:dropout_transition=2[a]`
-        : `${audioInputs[0]}aresample=async=1[a]`;
+      let mix: string;
+      if (input.voicePath && input.musicPath) {
+        // Professional creator audio ducking: Spoken voiceover at 100%, background music ducked to 16% (-16dB)
+        // Layered with 0.0s cinematic sub-bass whoosh impact [sfx] for pattern-interrupt retention
+        mix = "aevalsrc='sin(2*PI*(85-55*t)*t)*exp(-3.5*t)*0.85':d=1.2[sfx];[1:a]volume=1.0[voice];[2:a]volume=0.16[bgm];[voice][bgm][sfx]amix=inputs=3:duration=first:dropout_transition=2[a]";
+      } else if (input.voicePath) {
+        mix = "aevalsrc='sin(2*PI*(85-55*t)*t)*exp(-3.5*t)*0.85':d=1.2[sfx];[1:a]volume=1.0[voice];[voice][sfx]amix=inputs=2:duration=first:dropout_transition=2[a]";
+      } else {
+        mix = '[1:a]aresample=async=1[a]';
+      }
       await run('ffmpeg', [
         ...inputs,
         '-filter_complex', mix,

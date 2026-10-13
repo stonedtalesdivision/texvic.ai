@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { 
   Sparkles, Layers, ChevronLeft, ChevronRight, Bookmark, Calendar, 
-  Copy, Check, Send, Heart, MessageCircle, RefreshCw, CheckCircle2 
+  Copy, Check, Send, Heart, MessageCircle, RefreshCw, CheckCircle2, Loader2 
 } from 'lucide-react';
 import { PostItem, CarouselSlide } from '../types';
 
 interface CarouselPostCreatorProps {
   onSaveToGallery: (post: PostItem) => void;
   onSchedulePost: (post: PostItem) => void;
+  onPublishNow?: (post: PostItem) => void | Promise<void>;
 }
 
 const defaultStarterCarousel: PostItem = {
@@ -54,15 +55,27 @@ const defaultStarterCarousel: PostItem = {
 
 export const CarouselPostCreator: React.FC<CarouselPostCreatorProps> = ({
   onSaveToGallery,
-  onSchedulePost
+  onSchedulePost,
+  onPublishNow
 }) => {
   const [topic, setTopic] = useState('How 1 structural change in your content generates 10x bookmarks');
   const [niche, setNiche] = useState('Instagram Strategy & AI Growth');
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [currentPost, setCurrentPost] = useState<PostItem>(defaultStarterCarousel);
   const [copiedCaption, setCopiedCaption] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  const handlePublishNowClick = async () => {
+    if (!onPublishNow) return;
+    setIsPublishing(true);
+    try {
+      await onPublishNow(currentPost);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
 
   const slides = currentPost.slides || [];
   const activeSlide = slides[activeSlideIndex] || slides[0];
@@ -281,22 +294,43 @@ export const CarouselPostCreator: React.FC<CarouselPostCreatorProps> = ({
               ))}
             </div>
 
-            <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+              {onPublishNow && (
+                <button
+                  type="button"
+                  disabled={isPublishing}
+                  onClick={handlePublishNowClick}
+                  className="flex-1 py-2 px-3 rounded-lg text-xs font-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                  title="Publish Carousel immediately to Instagram"
+                >
+                  {isPublishing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      Publish Now
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleSave}
                 className="flex-1 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center gap-1.5 transition-all"
               >
                 <Bookmark className="w-3.5 h-3.5 text-amber-400" />
-                Save to Content Gallery
+                Save to Gallery
               </button>
               <button
                 type="button"
                 onClick={() => onSchedulePost(currentPost)}
-                className="flex-1 py-2 rounded-lg text-xs font-bold bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 flex items-center justify-center gap-1.5 transition-all"
+                className="py-2 px-3 rounded-lg text-xs font-bold bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 flex items-center justify-center gap-1.5 transition-all"
               >
                 <Calendar className="w-3.5 h-3.5 text-purple-400" />
-                Schedule Drop
+                Schedule
               </button>
             </div>
           </div>
@@ -339,7 +373,7 @@ export const CarouselPostCreator: React.FC<CarouselPostCreatorProps> = ({
 
               {/* Slide Top Bar */}
               <div className="relative z-10 flex items-center justify-between text-xs text-slate-400 font-medium">
-                <span className="font-bold text-pink-400">@SARLX.Ai</span>
+                <span className="font-bold text-amber-400">@theuntoldarch</span>
                 <span className="text-[10px] uppercase tracking-wider font-mono bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-800">
                   Part 0{activeSlideIndex + 1}
                 </span>

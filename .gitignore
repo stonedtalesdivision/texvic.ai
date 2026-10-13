@@ -6,3 +6,17 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Runtime SQLite Databases & Browser Profile (Contains active session tokens & cookies)
+data/
+*.db
+*.db-*
+*.sqlite*
+data/browser_profile/
+data/instagram_storage_state.json
+
+# Scratch and Temporary Media
+scratch/
+temp_test.*
+test_*.jpg
+test_*.txt

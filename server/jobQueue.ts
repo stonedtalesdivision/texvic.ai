@@ -4,8 +4,12 @@ import {
   fetchLiveInstagramInsights, 
   publishReelToInstagram, 
   fetchLiveInstagramComments, 
-  replyToInstagramComment 
+  replyToInstagramComment,
+  postCommentToMedia
 } from './metaGraphApi.js';
+import { renderReelVideo, normalizeVideoUrl } from './reelPipeline.js';
+import { executeSwarmCycle, checkDailyReset } from './agentSwarm.js';
+import { getActivePersona } from './themePage.js';
 
 export interface BackgroundJob {
   id: string;
@@ -154,9 +158,12 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (reel && account?.access_token && account?.account_id) {
-                const videoUrl = payload.videoUrl || reel.video_url || '';
+                let videoUrl = payload.videoUrl || reel.video_url || '';
                 if (!videoUrl) {
-                  throw new Error('Gemini-only mode: Reel content is ready but no video_url is available. Video generation is intentionally deferred to a zero-cost provider.');
+                  console.info(`[Job Queue] Scheduled reel "${reel.title || reel.id}" has no video yet. Rendering on-the-fly...`);
+                  videoUrl = await renderReelVideo(reel);
+                } else {
+                  videoUrl = normalizeVideoUrl(videoUrl);
                 }
                 const reelAudio = (() => {
                   try { return JSON.parse(reel.audio_json || '{}'); } catch { return {}; }
@@ -198,11 +205,25 @@ export function startJobWorker() {
                     );
                   }
 
+                  // Reset autonomous stage to idle now that publishing completed
+                  db.prepare(`UPDATE autonomous_config SET current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`).run(publishedAt);
+
                   // Feed the analytics loop immediately; the next background sync
                   // will hydrate reach, plays, likes, comments, shares and saves.
                   enqueueJob('SYNC_INSTAGRAM_INSIGHTS', { reelId: reel.id, mediaId: pubResult.mediaId || null });
                   if (pubResult.mediaId) {
                     enqueueJob('SYNC_MEDIA_COMMENTS', { mediaId: pubResult.mediaId });
+
+                    // Instant First Comment Kickstart: Seed creator discussion CTA immediately
+                    try {
+                      const persona = getActivePersona();
+                      const firstComment = `Comment 'ARCHIVE' below and I'll send you the declassified dossier + coordinates 📜 What is your theory on what actually occurred? 👇`;
+                      postCommentToMedia(pubResult.mediaId, firstComment, decryptSecret(account.access_token)).then(res => {
+                        if (res.success) {
+                          console.log(`[Job Queue] ✅ Instant first comment seeded on reel ${pubResult.mediaId} (Comment ID: ${res.commentId})`);
+                        }
+                      }).catch(() => {});
+                    } catch {}
                   }
                   enqueueJob('ANALYTICS_STRATEGY_FEEDBACK', { reelId: reel.id });
                 } else {
@@ -219,7 +240,7 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (account?.access_token && account?.account_id) {
-                const insightsRes = await fetchLiveInstagramInsights(account.account_id, account.access_token);
+                const insightsRes = await fetchLiveInstagramInsights(account.account_id, decryptSecret(account.access_token));
                 if (insightsRes.success && insightsRes.accountMetrics) {
                   const m = insightsRes.accountMetrics;
                   db.prepare(`
@@ -256,7 +277,7 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (account?.access_token && payload.mediaId) {
-                const commentsRes = await fetchLiveInstagramComments(payload.mediaId, account.access_token);
+                const commentsRes = await fetchLiveInstagramComments(payload.mediaId, decryptSecret(account.access_token));
                 if (commentsRes.success && commentsRes.comments) {
                   const insertComment = db.prepare(`
                     INSERT OR IGNORE INTO comments_inbox (
@@ -275,17 +296,40 @@ export function startJobWorker() {
                       new Date().toISOString()
                     );
 
-                    // Check for auto-responder trigger keywords
+                    // Check for universal auto-responder trigger keywords and high-intent requests
                     const upperText = c.text.toUpperCase();
-                    if (upperText.includes('AGENT') || upperText.includes('INFO') || upperText.includes('GROWTH')) {
-                      const replyMessage = `⚡ Sent! Check your Instagram DMs for the full autonomous workflow blueprint!`;
-                      await replyToInstagramComment(c.id, replyMessage, account.access_token);
+                    const LEAD_KEYWORDS = [
+                      'STORY', 'DOC', 'FILE', 'ARCHIVE', 'MAP', 'CASE', 'SECRET', 'PART2', 'MORE',
+                      'TOOL', 'LINK', 'PROMPT', 'GUIDE', 'CODE', 'INFO', 'AGENT', 'GROWTH',
+                      'FREE', 'ACCESS', 'WORKFLOW', 'TEST', 'SOURCE',
+                      'SEND', 'PLEASE', 'WANT', 'NEED', 'INTERESTED', 'YES'
+                    ];
+
+                    const matchedLeadKeyword = LEAD_KEYWORDS.find(kw => {
+                      const regex = new RegExp(`\\b${kw}\\b`, 'i');
+                      return regex.test(upperText);
+                    });
+
+                    if (matchedLeadKeyword) {
+                      const persona = getActivePersona();
+                      const handle = persona.handle || '@theuntoldarch';
+                      const replyVariants = [
+                        `📜 Just sent the full declassified dossier to your DMs! Check message requests. Follow ${handle} for daily untold world mysteries!`,
+                        `📁 Sent the complete case file + satellite map to your DMs! Make sure to follow ${handle} so you never miss a new investigation!`,
+                        `🕵️ The full archive breakdown is in your DMs! Follow ${handle} for tomorrow's crazy real-world mystery!`,
+                        `✨ Dossier delivered to your message requests! Follow ${handle} for more stories they never taught in school!`
+                      ];
+                      const replyMessage = replyVariants[Math.floor(Math.random() * replyVariants.length)];
+
+                      await replyToInstagramComment(c.id, replyMessage, decryptSecret(account.access_token));
 
                       db.prepare(`
                         UPDATE comments_inbox 
                         SET reply_status = 'replied', reply_text = ?, automated_dm_sent = 1, dm_keyword_triggered = ?
                         WHERE ig_comment_id = ?
-                      `).run(replyMessage, 'AGENT', c.id);
+                      `).run(replyMessage, matchedLeadKeyword, c.id);
+
+                      console.log(`[Growth Engine] ✅ Auto-replied to comment from ${c.username} with trigger '${matchedLeadKeyword}': "${replyMessage}"`);
                     }
                   }
                 }
@@ -295,6 +339,11 @@ export function startJobWorker() {
 
             case 'ANALYTICS_STRATEGY_FEEDBACK': {
               computeStrategyFeedback();
+              break;
+            }
+
+            case 'EXECUTE_SWARM_CYCLE': {
+              await executeSwarmCycle();
               break;
             }
 
@@ -324,6 +373,18 @@ export function startJobWorker() {
             WHERE id = ?
           `).run(newStatus, retryTime, errorMessage, job.id);
         }
+      }
+      // Periodic check: reset agent daily limits at midnight
+      checkDailyReset();
+
+      // Auto-schedule continuous swarm interaction cycles every 20 minutes
+      const pendingSwarmJob = db.prepare(`
+        SELECT id FROM background_jobs 
+        WHERE job_type = 'EXECUTE_SWARM_CYCLE' AND status IN ('pending', 'processing')
+      `).get();
+
+      if (!pendingSwarmJob) {
+        enqueueJob('EXECUTE_SWARM_CYCLE', {}, new Date(Date.now() + 20 * 60000));
       }
     } catch (workerErr) {
       console.warn('[Background Job Worker] Error polling queue:', workerErr);

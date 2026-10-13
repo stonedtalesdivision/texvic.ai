@@ -48,6 +48,30 @@ export const PRODUCTION_TEMPLATES: ReelTemplate[] = [
     recommendedAudioMood: 'Inspiring / Storytelling',
     hookStyle: 'Read this twice if you are building in 2026',
     watchTimeBenefit: 'Extended reading dwell time increases watch duration'
+  },
+  {
+    id: 'template-split-screen',
+    name: '2-Tier Split-Screen Viral Accelerator',
+    category: 'High Retention & Viral Loops',
+    description: 'Top half plays core mystery/tutorial narrative, bottom half plays hypnotic satisfying b-roll / wireframes to hold viewer gaze and 2.5x loop retention.',
+    targetDuration: 12,
+    pacing: 'split-screen',
+    visualStyle: 'Dual-Tier Split Screen with Laser Neon HUD Divider & Bottom B-Roll',
+    recommendedAudioMood: 'Hyped / Dramatic Cut',
+    hookStyle: 'Watch what happens when you combine X with Y',
+    watchTimeBenefit: '+240% viewer retention rate via dual-stimulus focal tracking'
+  },
+  {
+    id: 'template-comment-poll-challenge',
+    name: 'Pinned Comment Poll & 0.5s Pause Challenge',
+    category: 'Max Engagement & Comments',
+    description: 'Pairs an automated pinned [A] vs [B] Community Poll in the first comment with a 0.5s "Pause to Read" micro-challenge in Scene 2, compelling viewers to vote in comments and rewind.',
+    targetDuration: 12,
+    pacing: 'fast-hook',
+    visualStyle: 'Cinematic Visuals with 0.5s Unredacted Pause Challenge and Pinned Comment Voting',
+    recommendedAudioMood: 'Hyped / Dramatic Cut',
+    hookStyle: 'Moral/Technical Dilemma: Which theory is real? Vote [A] or [B] in comments',
+    watchTimeBenefit: '+320% comment velocity and 135%+ replay retention'
   }
 ];
 
@@ -121,15 +145,15 @@ export const PRODUCTION_TRENDING_AUDIOS: TrendingAudio[] = [
 
 export const DEFAULT_ACCOUNT_ANALYTICS: AccountAnalytics = {
   profile: {
-    handle: '@SARLX.Ai',
-    name: 'SARLX.Ai',
+    handle: '@theuntoldarch',
+    name: 'The Untold Archive',
     avatar: '',
     followers: 0,
     followersChange: 0,
     following: 0,
     postsCount: 0,
-    category: 'AI Growth Engine',
-    bio: '⚡ Autonomous Instagram growth & reach agent for SARLX.Ai\n🎬 Real-time viral reels, carousels, and 24/7 engagement',
+    category: 'Untold World Mysteries',
+    bio: '🌍 Untold World Events, Heists & Mysteries\n⚡ Stories that sound like fiction, but are 100% real\n🎬 Cinematic investigations published daily',
     isVerified: true
   },
   metrics: {

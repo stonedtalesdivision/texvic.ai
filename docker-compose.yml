@@ -1,0 +1,16 @@
+services:
+  texvic-ai:
+    build: .
+    container_name: texvic-ai-agent
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    env_file:
+      - .env
+    volumes:
+      # Persist SQLite database, Instagram authenticated cookies, and browser profile across restarts
+      - ./data:/app/data
+    environment:
+      - PORT=3100
+      - HOST=0.0.0.0
+      - NODE_ENV=production

@@ -160,6 +160,58 @@ export async function getInstagramAccountProfile(
 }
 
 /**
+ * Pre-flight probe to verify public accessibility of media URL before sending to Meta Graph API.
+ * Prevents account strikes and rate limit exhaustion caused by dead Cloudflare tunnels or 502/530 error pages.
+ */
+export async function verifyPublicMediaUrl(mediaUrl: string, expectedType: 'image' | 'video' = 'image'): Promise<{ reachable: boolean; status?: number; contentType?: string; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    const res = await fetch(mediaUrl, {
+      method: 'GET',
+      headers: { 'Range': 'bytes=0-1024' },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      return {
+        reachable: false,
+        status: res.status,
+        contentType,
+        error: `Public media URL returned HTTP ${res.status}. If using a Cloudflare tunnel or reverse proxy, ensure the tunnel is active.`
+      };
+    }
+
+    if (contentType.includes('text/html')) {
+      return {
+        reachable: false,
+        status: res.status,
+        contentType,
+        error: `Public media URL returned HTML instead of media bytes. This means your public tunnel (e.g. Cloudflare) has expired or is displaying an error page.`
+      };
+    }
+
+    if (expectedType === 'image' && !contentType.startsWith('image/')) {
+      return {
+        reachable: false,
+        status: res.status,
+        contentType,
+        error: `Expected image MIME type, received "${contentType}".`
+      };
+    }
+
+    return { reachable: true, status: res.status, contentType };
+  } catch (err: any) {
+    return {
+      reachable: false,
+      error: `Network error probing public media URL: ${err?.message || err}. Ensure your public tunnel (APP_URL) is online.`
+    };
+  }
+}
+
+/**
  * Real Meta Graph API 2-Step Reels Video Publishing Pipeline
  * Step 1: POST /{ig_user_id}/media with media_type=REELS
  * Step 2: Poll container status until FINISHED
@@ -179,6 +231,16 @@ export async function publishReelToInstagram(
     return {
       success: false,
       error: 'Missing Meta Instagram credentials (INSTAGRAM_ACCOUNT_ID or META_ACCESS_TOKEN).'
+    };
+  }
+
+  // Pre-flight probe to ensure video is publicly accessible before pinging Meta
+  const probe = await verifyPublicMediaUrl(params.videoUrl, 'video');
+  if (!probe.reachable) {
+    console.error(`[Meta Reels Pipeline] Pre-flight media probe failed:`, probe.error);
+    return {
+      success: false,
+      error: `Pre-flight validation failed: ${probe.error}`
     };
   }
 
@@ -212,10 +274,10 @@ export async function publishReelToInstagram(
 
     const containerId = createData.id;
 
-    // Step 2: Poll container status (Meta video ingestion takes 4-20 seconds)
+    // Step 2: Poll container status (Meta video ingestion takes 4-45 seconds)
     let isReady = false;
     let attempts = 0;
-    const maxAttempts = 15;
+    const maxAttempts = 30;
 
     while (!isReady && attempts < maxAttempts) {
       attempts++;
@@ -224,6 +286,7 @@ export async function publishReelToInstagram(
       const statusUrl = `${GRAPH_BASE_URL}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(accessToken)}`;
       const statusRes = await fetch(statusUrl);
       const statusData = await statusRes.json();
+      console.log(`[Meta Reels Ingestion] Container ${containerId} status: ${statusData.status_code || statusData.status || 'unknown'} (poll ${attempts}/${maxAttempts})`);
 
       if (statusData.status_code === 'FINISHED') {
         isReady = true;
@@ -293,6 +356,222 @@ export async function publishReelToInstagram(
   }
 }
 
+export interface PublishCarouselResult {
+  success: boolean;
+  mediaId?: string;
+  containerId?: string;
+  permalink?: string;
+  error?: string;
+}
+
+/**
+ * Publishes a multi-slide Carousel (Album) to Instagram via Meta Graph API v21.0
+ * Step 1: Create individual item containers for each slide image with is_carousel_item=true
+ * Step 2: Poll item containers to ensure image ingestion
+ * Step 3: Create parent container with media_type=CAROUSEL and children=<ids>
+ * Step 4: Poll parent container until FINISHED
+ * Step 5: POST /{ig_user_id}/media_publish with creation_id
+ */
+export async function publishCarouselToInstagram(
+  igAccountId: string,
+  accessToken: string,
+  params: {
+    imageUrls: string[];
+    caption: string;
+  }
+): Promise<PublishCarouselResult> {
+  if (!igAccountId || !accessToken) {
+    return {
+      success: false,
+      error: 'Missing Meta Instagram credentials (INSTAGRAM_ACCOUNT_ID or META_ACCESS_TOKEN).'
+    };
+  }
+
+  if (!Array.isArray(params.imageUrls) || params.imageUrls.length < 2) {
+    return {
+      success: false,
+      error: 'Instagram Carousels require at least 2 slide images (up to 10).'
+    };
+  }
+
+  const urlsToPublish = params.imageUrls.slice(0, 10);
+
+  // Pre-flight probe first slide image to ensure public tunnel/URL is reachable before hitting Meta
+  const probe = await verifyPublicMediaUrl(urlsToPublish[0], 'image');
+  if (!probe.reachable) {
+    console.error(`[Meta Carousel Pipeline] Pre-flight media probe failed:`, probe.error);
+    return {
+      success: false,
+      error: `Pre-flight validation failed: ${probe.error}`
+    };
+  }
+
+  try {
+    // Step 1: Create item containers for each slide
+    console.log(`[Meta Carousel Pipeline] Creating ${urlsToPublish.length} slide item containers...`);
+    const childIds: string[] = [];
+
+    for (let i = 0; i < urlsToPublish.length; i++) {
+      const imageUrl = urlsToPublish[i];
+      const itemUrl = `${GRAPH_BASE_URL}/${igAccountId}/media`;
+      const itemBody = new URLSearchParams({
+        image_url: imageUrl,
+        is_carousel_item: 'true',
+        access_token: accessToken
+      });
+
+      const itemRes = await fetch(itemUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: itemBody.toString()
+      });
+
+      const itemData = await itemRes.json();
+      if (!itemRes.ok || !itemData.id) {
+        console.error(`[Meta Carousel Pipeline] Slide ${i + 1} container creation failed:`, itemData);
+        return {
+          success: false,
+          error: itemData.error?.message || `Failed to create item container for slide ${i + 1}`
+        };
+      }
+
+      childIds.push(itemData.id);
+      console.log(`[Meta Carousel Pipeline] Slide ${i + 1} container created: ${itemData.id}`);
+    }
+
+    // Step 2: Wait briefly and check item containers
+    await new Promise(r => setTimeout(r, 2000));
+    for (let i = 0; i < childIds.length; i++) {
+      const childId = childIds[i];
+      let itemReady = false;
+      let attempts = 0;
+      while (!itemReady && attempts < 15) {
+        attempts++;
+        const checkUrl = `${GRAPH_BASE_URL}/${childId}?fields=status_code&access_token=${encodeURIComponent(accessToken)}`;
+        const checkRes = await fetch(checkUrl);
+        const checkData = await checkRes.json();
+        const code = checkData.status_code || checkData.status;
+        if (code === 'FINISHED' || !code) {
+          itemReady = true;
+          break;
+        } else if (code === 'ERROR' || code === 'EXPIRED') {
+          return {
+            success: false,
+            error: `Slide item container ${i + 1} failed processing: ${code}`
+          };
+        }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    // Step 3: Create parent Carousel container
+    console.log(`[Meta Carousel Pipeline] Creating parent Carousel container with children: ${childIds.join(',')}`);
+    const carouselContainerUrl = `${GRAPH_BASE_URL}/${igAccountId}/media`;
+    const carouselBody = new URLSearchParams({
+      media_type: 'CAROUSEL',
+      children: childIds.join(','),
+      caption: params.caption,
+      access_token: accessToken
+    });
+
+    const carouselRes = await fetch(carouselContainerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: carouselBody.toString()
+    });
+
+    const carouselData = await carouselRes.json();
+    if (!carouselRes.ok || !carouselData.id) {
+      console.error('[Meta Carousel Pipeline] Parent carousel container creation failed:', carouselData);
+      return {
+        success: false,
+        error: carouselData.error?.message || 'Failed to create Instagram Carousel parent container'
+      };
+    }
+
+    const containerId = carouselData.id;
+    console.log(`[Meta Carousel Pipeline] Carousel container created: ${containerId}. Polling status...`);
+
+    // Step 4: Poll parent carousel container
+    let isReady = false;
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    while (!isReady && attempts < maxAttempts) {
+      attempts++;
+      await new Promise(r => setTimeout(r, 2000));
+      const statusUrl = `${GRAPH_BASE_URL}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(accessToken)}`;
+      const statusRes = await fetch(statusUrl);
+      const statusData = await statusRes.json();
+      console.log(`[Meta Carousel Pipeline] Container ${containerId} status: ${statusData.status_code || statusData.status || 'unknown'} (poll ${attempts}/${maxAttempts})`);
+
+      if (statusData.status_code === 'FINISHED') {
+        isReady = true;
+        break;
+      } else if (statusData.status_code === 'ERROR' || statusData.status_code === 'EXPIRED') {
+        return {
+          success: false,
+          containerId,
+          error: `Instagram carousel container processing failed: ${statusData.status_code}`
+        };
+      }
+    }
+
+    if (!isReady) {
+      return {
+        success: false,
+        containerId,
+        error: 'Instagram carousel container did not finish processing before timeout.'
+      };
+    }
+
+    // Step 5: Publish carousel container
+    console.log(`[Meta Carousel Pipeline] Publishing container ${containerId}...`);
+    const publishUrl = `${GRAPH_BASE_URL}/${igAccountId}/media_publish`;
+    const publishBody = new URLSearchParams({
+      creation_id: containerId,
+      access_token: accessToken
+    });
+
+    const publishRes = await fetch(publishUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: publishBody.toString()
+    });
+
+    const publishData = await publishRes.json();
+    if (!publishRes.ok || !publishData.id) {
+      return {
+        success: false,
+        containerId,
+        error: publishData.error?.message || 'Failed to publish ready Instagram Carousel container'
+      };
+    }
+
+    const mediaId = publishData.id;
+
+    // Step 6: Fetch permalink
+    let permalink: string | undefined;
+    try {
+      const mediaQueryRes = await fetch(`${GRAPH_BASE_URL}/${mediaId}?fields=permalink&access_token=${encodeURIComponent(accessToken)}`);
+      const mediaQuery = await mediaQueryRes.json();
+      permalink = mediaQuery.permalink;
+    } catch {}
+
+    return {
+      success: true,
+      mediaId,
+      containerId,
+      permalink: permalink || `https://www.instagram.com/p/${mediaId}/`
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Network exception occurred during Instagram Carousel publishing pipeline'
+    };
+  }
+}
+
 /**
  * Ingests real account and media insights directly from Meta Graph API
  */
@@ -336,8 +615,8 @@ export async function fetchLiveInstagramInsights(
       }
     }
 
-    // 2. Recent Media metrics
-    const mediaUrl = `${GRAPH_BASE_URL}/${igAccountId}/media?fields=id,caption,media_type,like_count,comments_count,insights.metric(reach,plays,saved,shares)&limit=10&access_token=${encodeURIComponent(accessToken)}`;
+    // 2. Recent Media metrics (Meta Graph API v26 uses 'views' instead of deprecated 'plays')
+    const mediaUrl = `${GRAPH_BASE_URL}/${igAccountId}/media?fields=id,caption,media_type,like_count,comments_count,insights.metric(reach,views,saved,shares)&limit=10&access_token=${encodeURIComponent(accessToken)}`;
     const mediaRes = await fetch(mediaUrl);
     const mediaData = await mediaRes.json();
 
@@ -353,7 +632,7 @@ export async function fetchLiveInstagramInsights(
           for (const mi of m.insights.data) {
             const v = mi.values?.[0]?.value || 0;
             if (mi.name === 'reach') mReach = Number(v);
-            if (mi.name === 'plays') mPlays = Number(v);
+            if (mi.name === 'views' || mi.name === 'plays') mPlays = Number(v);
             if (mi.name === 'saved') mSaved = Number(v);
             if (mi.name === 'shares') mShares = Number(v);
           }
@@ -450,5 +729,60 @@ export async function replyToInstagramComment(
     return { success: true, replyId: data.id };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error publishing comment reply' };
+  }
+}
+
+/**
+ * Posts a top-level comment to an Instagram media (post or reel) via Meta Graph API
+ */
+export async function postCommentToMedia(
+  mediaId: string,
+  message: string,
+  accessToken: string
+): Promise<{ success: boolean; commentId?: string; error?: string }> {
+  try {
+    const url = `${GRAPH_BASE_URL}/${mediaId}/comments`;
+    const body = new URLSearchParams({
+      message: message,
+      access_token: accessToken
+    });
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.id) {
+      return { success: false, error: data.error?.message || 'Failed to post comment to media' };
+    }
+
+    return { success: true, commentId: data.id };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error posting comment to media' };
+  }
+}
+
+/**
+ * Fetches recent posts and reels with captions, engagement metrics, and timestamps
+ * for account style analysis and Content DNA learning.
+ */
+export async function fetchRecentAccountMedia(
+  igAccountId: string,
+  accessToken: string,
+  limit = 20
+): Promise<Array<{ id: string; caption?: string; media_type?: string; like_count?: number; comments_count?: number; timestamp?: string }>> {
+  try {
+    const url = `${GRAPH_BASE_URL}/${igAccountId}/media?fields=id,caption,media_type,like_count,comments_count,timestamp&limit=${limit}&access_token=${encodeURIComponent(accessToken)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.data && Array.isArray(data.data)) {
+      return data.data;
+    }
+    return [];
+  } catch (err) {
+    console.warn('[Meta Graph API] Failed to fetch recent media:', err);
+    return [];
   }
 }

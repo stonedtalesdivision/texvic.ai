@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Archive, Film, Image as ImageIcon, Music2, Search, RefreshCw,
-  Tag, Clock3, BarChart3, HardDrive, ChevronDown
+  Tag, Clock3, BarChart3, HardDrive, ChevronDown, Trash2
 } from 'lucide-react';
 
 type AssetType = 'video' | 'image' | 'audio';
@@ -43,6 +43,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -59,6 +60,24 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
       setError(err?.message || 'Could not load the asset library.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteAsset = async (id: string, filename: string) => {
+    if (!window.confirm(`Permanently delete asset "${filename}"?`)) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setAssets(prev => prev.filter(a => a.id !== id));
+      } else {
+        alert(data.error || 'Failed to delete asset.');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Failed to delete asset.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -199,7 +218,18 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
                   <Icon className="w-3 h-3" />
                   {meta.label}
                 </span>
-                <span className="text-[10px] font-mono text-slate-500">{asset.id}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-slate-500">{asset.id}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteAsset(asset.id, asset.filename)}
+                    disabled={deletingId === asset.id}
+                    className="p-1 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    title="Delete Asset"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               <h3 className="mt-3 text-sm font-bold text-white truncate" title={asset.filename}>{asset.filename}</h3>

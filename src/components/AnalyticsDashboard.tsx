@@ -59,7 +59,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
             {analytics.metrics.impressions > 0 
               ? `Autonomous agent optimization has boosted non-follower explore reach by +${analytics.metrics.impressionsChange}% through beat-aligned 3s hooks.`
-              : 'Autonomous agent optimization is active for SARLX.Ai. Generate your first high-retention reel or carousel to begin driving Explore feed impressions.'}
+              : `Autonomous agent optimization is active for ${analytics.profile.name || 'TEXVIC.Ai'}. Generate your first high-retention reel or carousel to begin driving Explore feed impressions.`}
           </p>
         </div>
 

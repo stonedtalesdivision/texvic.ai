@@ -1,9 +1,392 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
 @layer base {
+  :root {
+    color-scheme: dark;
+    --app-bg: #0b0f17;
+    --app-fg: #f1f5f9;
+  }
+
+  html.light, [data-theme="light"], body.light {
+    color-scheme: light;
+    --app-bg: #f8fafc;
+    --app-fg: #0f172a;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
+}
+
+/* =========================================================================
+   LIGHT MODE & DAY/NIGHT THEME SYSTEM
+   Applies instantly whenever html.light, [data-theme="light"], or body.light
+   ========================================================================= */
+
+html.light,
+[data-theme="light"],
+body.light {
+  color-scheme: light;
+}
+
+/* Background canvas */
+html.light,
+html.light body,
+[data-theme="light"] body,
+html.light #root,
+[data-theme="light"] #root,
+html.light .min-h-screen,
+[data-theme="light"] .min-h-screen {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Headers & Sticky Navigation */
+html.light header,
+[data-theme="light"] header,
+html.light .bg-\[\#0d121d\],
+[data-theme="light"] .bg-\[\#0d121d\],
+html.light .bg-\[\#0d121d\]\/90,
+[data-theme="light"] .bg-\[\#0d121d\]\/90,
+html.light .bg-\[\#0d121d\]\/85,
+[data-theme="light"] .bg-\[\#0d121d\]\/85 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  color: #0f172a !important;
+}
+
+/* Main dark canvas classes */
+html.light .bg-\[\#0b0f17\],
+[data-theme="light"] .bg-\[\#0b0f17\] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Modals & Dialog Shells */
+html.light .bg-slate-950,
+[data-theme="light"] .bg-slate-950,
+html.light .bg-slate-950\/95,
+[data-theme="light"] .bg-slate-950\/95,
+html.light .bg-slate-950\/90,
+[data-theme="light"] .bg-slate-950\/90,
+html.light .bg-slate-950\/85,
+[data-theme="light"] .bg-slate-950\/85,
+html.light .bg-slate-950\/40,
+[data-theme="light"] .bg-slate-950\/40 {
+  background-color: #ffffff !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  color: #0f172a !important;
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Cards, Panels, & Diagnostic Sections */
+html.light .bg-slate-900,
+[data-theme="light"] .bg-slate-900,
+html.light .bg-slate-900\/90,
+[data-theme="light"] .bg-slate-900\/90,
+html.light .bg-slate-900\/85,
+[data-theme="light"] .bg-slate-900\/85,
+html.light .bg-slate-900\/80,
+[data-theme="light"] .bg-slate-900\/80,
+html.light .bg-slate-900\/75,
+[data-theme="light"] .bg-slate-900\/75,
+html.light .bg-slate-900\/60,
+[data-theme="light"] .bg-slate-900\/60,
+html.light .bg-slate-900\/40,
+[data-theme="light"] .bg-slate-900\/40 {
+  background-color: #ffffff !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  color: #0f172a !important;
+}
+
+/* Sub-cards, Metric Boxes, & Pills */
+html.light .bg-slate-800,
+[data-theme="light"] .bg-slate-800,
+html.light .bg-slate-800\/90,
+[data-theme="light"] .bg-slate-800\/90,
+html.light .bg-slate-800\/80,
+[data-theme="light"] .bg-slate-800\/80,
+html.light .bg-slate-800\/60,
+[data-theme="light"] .bg-slate-800\/60,
+html.light .bg-slate-800\/50,
+[data-theme="light"] .bg-slate-800\/50,
+html.light .bg-slate-800\/40,
+[data-theme="light"] .bg-slate-800\/40 {
+  background-color: #f1f5f9 !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  color: #1e293b !important;
+}
+
+/* Text Colors - High contrast for Day Mode */
+html.light,
+[data-theme="light"],
+body.light {
+  color: #0f172a !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-white,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-white {
+  color: #0f172a !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-slate-100,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-slate-100,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-slate-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-slate-200 {
+  color: #1e293b !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-slate-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-slate-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-slate-500,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Rich, high-contrast text accents for Day Mode (prevents faded/white pastel text) */
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-pink-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-pink-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-pink-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-pink-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-pink-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-pink-400 {
+  color: #be185d !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-purple-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-purple-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-purple-400,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-violet-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-violet-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-violet-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-purple-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-purple-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-purple-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-violet-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-violet-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-violet-400 {
+  color: #6d28d9 !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-rose-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-rose-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-rose-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-rose-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-rose-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-rose-400 {
+  color: #be123c !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-emerald-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-emerald-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-emerald-400,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-emerald-500,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-emerald-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-emerald-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-emerald-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-emerald-500 {
+  color: #047857 !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-sky-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-sky-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-sky-400,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-cyan-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-cyan-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-cyan-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-sky-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-sky-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-sky-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-cyan-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-cyan-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-cyan-400 {
+  color: #0284c7 !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-amber-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-amber-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-amber-400,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-amber-500,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-amber-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-amber-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-amber-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-amber-500 {
+  color: #b45309 !important;
+}
+
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-indigo-200,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-indigo-300,
+html.light :not(.preserve-dark):not(.preserve-dark *) .text-indigo-400,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-indigo-200,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-indigo-300,
+[data-theme="light"] :not(.preserve-dark):not(.preserve-dark *) .text-indigo-400 {
+  color: #4338ca !important;
+}
+
+/* Translucent pastel cards & pills in Day Mode - soft backgrounds, rich text */
+html.light .from-pink-500\/15,
+[data-theme="light"] .from-pink-500\/15 {
+  background: rgba(244, 114, 182, 0.12) !important;
+  border-color: rgba(244, 114, 182, 0.35) !important;
+}
+
+/* Solid CTA buttons only - keep crisp white text */
+html.light button.bg-gradient-to-r,
+html.light button.bg-gradient-to-r *,
+html.light button[class*="from-pink-600"],
+html.light button[class*="from-pink-600"] *,
+html.light button[class*="from-rose-600"],
+html.light button[class*="from-rose-600"] *,
+html.light button[class*="from-purple-600"],
+html.light button[class*="from-purple-600"] *,
+html.light button[class*="bg-pink-600"],
+html.light button[class*="bg-pink-600"] *,
+html.light button[class*="bg-rose-600"],
+html.light button[class*="bg-rose-600"] *,
+html.light button[class*="bg-emerald-600"],
+html.light button[class*="bg-emerald-600"] *,
+[data-theme="light"] button.bg-gradient-to-r,
+[data-theme="light"] button.bg-gradient-to-r *,
+[data-theme="light"] button[class*="from-pink-600"],
+[data-theme="light"] button[class*="from-pink-600"] *,
+[data-theme="light"] button[class*="from-rose-600"],
+[data-theme="light"] button[class*="from-rose-600"] *,
+[data-theme="light"] button[class*="from-purple-600"],
+[data-theme="light"] button[class*="from-purple-600"] *,
+[data-theme="light"] button[class*="bg-pink-600"],
+[data-theme="light"] button[class*="bg-pink-600"] *,
+[data-theme="light"] button[class*="bg-rose-600"],
+[data-theme="light"] button[class*="bg-rose-600"] *,
+[data-theme="light"] button[class*="bg-emerald-600"],
+[data-theme="light"] button[class*="bg-emerald-600"] * {
+  color: #ffffff !important;
+}
+
+/* Smartphone Phone Mockup OLED preservation in Day Mode */
+html.light .preserve-dark,
+[data-theme="light"] .preserve-dark {
+  background-color: #000000 !important;
+}
+
+html.light .preserve-dark *,
+[data-theme="light"] .preserve-dark * {
+  color: inherit;
+}
+
+html.light .preserve-dark .text-white,
+[data-theme="light"] .preserve-dark .text-white {
+  color: #ffffff !important;
+}
+
+/* Borders */
+html.light .border-slate-800,
+[data-theme="light"] .border-slate-800,
+html.light .border-slate-800\/80,
+[data-theme="light"] .border-slate-800\/80,
+html.light .border-slate-800\/50,
+[data-theme="light"] .border-slate-800\/50,
+html.light .border-slate-700,
+[data-theme="light"] .border-slate-700,
+html.light .border-slate-700\/80,
+[data-theme="light"] .border-slate-700\/80,
+html.light .border-slate-700\/60,
+[data-theme="light"] .border-slate-700\/60,
+html.light .border-white\/10,
+[data-theme="light"] .border-white\/10,
+html.light .border-white\/15,
+[data-theme="light"] .border-white\/15,
+html.light .border-white\/20,
+[data-theme="light"] .border-white\/20 {
+  border-color: rgba(203, 213, 225, 0.85) !important;
+}
+
+/* Modal Dimmer Backdrop */
+html.light .bg-black\/80,
+[data-theme="light"] .bg-black\/80 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* Inputs, Textareas, Selects */
+html.light input,
+[data-theme="light"] input,
+html.light textarea,
+[data-theme="light"] textarea,
+html.light select,
+[data-theme="light"] select {
+  background-color: #ffffff !important;
+  border-color: rgba(203, 213, 225, 0.9) !important;
+  color: #0f172a !important;
+}
+
+/* Glassmorphism primitives */
+.glass-panel-dark {
+  background: rgba(13, 18, 29, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+}
+
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 8px 32px 0 rgba(148, 163, 184, 0.18);
+}
+
+.glass-panel {
+  background: rgba(13, 18, 29, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+:is(.light, [data-theme="light"]) .glass-panel {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 8px 32px 0 rgba(148, 163, 184, 0.15);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:is(.light, [data-theme="light"]) .glass-card {
+  background: rgba(248, 250, 252, 0.88);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+/* Glassmorphism specular highlight glow */
+.glass-glow-subtle {
+  position: relative;
+}
+.glass-glow-subtle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.02) 60%, transparent 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
 /* Custom scrollbars */
@@ -15,9 +398,15 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 9999px;
 }
+:is(.light, [data-theme="light"]) ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.35);
+}
+:is(.light, [data-theme="light"]) ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
 }

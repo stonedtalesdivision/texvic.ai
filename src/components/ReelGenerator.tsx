@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Sparkles, Film, Music, Clock, Zap, Plus, RefreshCw, CheckCircle2, 
-  Layers, Sliders, Volume2, ArrowRight, Eye, Calendar, Bookmark, AlertCircle 
+  Layers, Sliders, Volume2, ArrowRight, Eye, Calendar, Bookmark, AlertCircle, X 
 } from 'lucide-react';
 import { ReelItem, TrendingAudio, ReelTemplate, ReelScene } from '../types';
 import { PRODUCTION_TEMPLATES, PRODUCTION_TRENDING_AUDIOS } from '../constants';
@@ -11,9 +11,10 @@ import { playTrendingAudioTrack, stopAudioTrack } from '../utils/audioSynth';
 interface ReelGeneratorProps {
   onSaveToGallery: (reel: ReelItem) => void;
   onScheduleReel: (reel: ReelItem) => void;
+  onPublishNow?: (reel: ReelItem) => void | Promise<void>;
 }
 
-export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, onScheduleReel }) => {
+export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, onScheduleReel, onPublishNow }) => {
   const [selectedTemplate, setSelectedTemplate] = useState<ReelTemplate>(PRODUCTION_TEMPLATES[0]);
   const [selectedAudio, setSelectedAudio] = useState<TrendingAudio>(PRODUCTION_TRENDING_AUDIOS[0]);
   const [niche, setNiche] = useState('AI & Content Scaling');
@@ -451,15 +452,27 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
                   <Eye className="w-4 h-4 text-emerald-400" />
                   Live 9:16 Video Simulation
                 </span>
-                <span className="text-[11px] font-mono text-pink-400">
-                  {activePreviewReel.duration}s Viral Concept
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-pink-400">
+                    {activePreviewReel.duration}s Viral Concept
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActivePreviewReel(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                    title="Close preview (Esc)"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               <ReelPlayer
                 reel={activePreviewReel}
                 onSave={handleSave}
                 onSchedule={onScheduleReel}
+                onPublishNow={onPublishNow}
+                onClose={() => setActivePreviewReel(null)}
               />
             </div>
           ) : (
