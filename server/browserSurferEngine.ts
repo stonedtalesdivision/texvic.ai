@@ -131,8 +131,8 @@ class BrowserSurferManager extends EventEmitter {
     usersFollowed: 0
   };
 
-  // Autonomous periodic session state governed by Agent Sentinel
-  private autonomousSessionsEnabled = false;
+  // Autonomous periodic session state governed by Agent Sentinel (24x7 always ON by default, pausing only for human circadian sleep)
+  private autonomousSessionsEnabled = true;
   private sessionState: 'idle' | 'surfing' | 'resting' | 'sleeping' = 'idle';
   private currentSessionNumber = 0;
   private nextSessionAt: string | null = null;
@@ -260,13 +260,15 @@ class BrowserSurferManager extends EventEmitter {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
         '--disable-blink-features=AutomationControlled',
         '--disable-infobars',
-        '--enable-gpu-rasterization',
-        '--enable-zero-copy',
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding'
+        '--disable-renderer-backgrounding',
+        '--window-size=1280,860'
       ]
     };
 
@@ -275,6 +277,20 @@ class BrowserSurferManager extends EventEmitter {
     }
 
     const context = await chromium.launchPersistentContext(BROWSER_USER_DATA_DIR, launchOptions);
+
+    // If storage state file exists with cookies, inject them immediately into context
+    if (fs.existsSync(STORAGE_STATE_PATH)) {
+      try {
+        const stateRaw = fs.readFileSync(STORAGE_STATE_PATH, 'utf-8');
+        const state = JSON.parse(stateRaw);
+        if (Array.isArray(state.cookies) && state.cookies.length > 0) {
+          await context.addCookies(state.cookies);
+          console.info(`[Browser Surfer] Loaded ${state.cookies.length} session cookies from storage state into context.`);
+        }
+      } catch (e) {
+        console.warn('[Browser Surfer] Failed to load storage state cookies:', e);
+      }
+    }
 
     // Apply stealth scripts
     await context.addInitScript(() => {
@@ -386,10 +402,19 @@ class BrowserSurferManager extends EventEmitter {
 
     if (!page) {
       page = await context.newPage();
+    }
+
+    // Never leave live stream on about:blank - ensure it navigates to Instagram
+    const currentUrl = page.url();
+    if (!currentUrl || currentUrl === 'about:blank' || !currentUrl.includes('instagram.com')) {
       try {
+        console.info('[Browser Surfer] Initializing live viewport on Instagram Reels feed...');
         await page.goto('https://www.instagram.com/reels/', { waitUntil: 'domcontentloaded', timeout: 35000 });
+        await page.waitForTimeout(2000);
       } catch {
-        await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 35000 });
+        try {
+          await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 35000 });
+        } catch {}
       }
     }
 
@@ -402,6 +427,11 @@ class BrowserSurferManager extends EventEmitter {
    */
   public async extractActiveReelInfo(page: Page): Promise<{ url: string; creator: string; caption: string }> {
     try {
+      const pageUrl = page.url();
+      if (pageUrl.includes('/accounts/login') || pageUrl.includes('/login')) {
+        return { url: pageUrl, creator: 'instagram_login_wall', caption: 'Please log in to Instagram' };
+      }
+
       return await page.evaluate(() => {
         const url = window.location.href;
         let creator = 'community_creator';
@@ -1762,7 +1792,66 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
   }
 
   /**
+   * Helper to get local time in the user's / app's configured timezone
+   */
+  private getLocalTime(): { date: Date; hour: number; minute: number } {
+    const tz = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+    try {
+      const now = new Date();
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(now);
+      const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+      const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+      return { date: now, hour, minute };
+    } catch {
+      const now = new Date();
+      return { date: now, hour: now.getHours(), minute: now.getMinutes() };
+    }
+  }
+
+  /**
+   * Human Circadian Sleep Window:
+   * Normal humans sleep ~8 hours at night (typically from ~11:00 PM to ~7:00 AM).
+   * Calculates whether the agent should be sleeping and when to wake up.
+   */
+  private isHumanSleepWindow(): { isSleeping: boolean; wakeUpDate: Date; sleepDurationMinutes: number } {
+    const { date, hour, minute } = this.getLocalTime();
+    // Normal human sleep window: 11:00 PM (23:00) to 7:00 AM (07:00) (~8 hours)
+    const isNight = hour >= 23 || hour < 7;
+    
+    // Calculate morning wake up time (~7:00 AM + randomized 0-25 mins jitter)
+    const wakeUp = new Date(date);
+    const wakeMinuteJitter = Math.floor(Math.random() * 25);
+    if (hour >= 23) {
+      // Bedtime tonight, wake up tomorrow morning
+      wakeUp.setDate(wakeUp.getDate() + 1);
+      wakeUp.setHours(7, wakeMinuteJitter, 0, 0);
+    } else if (hour < 7) {
+      // Currently early morning, wake up today at 7:xx AM
+      wakeUp.setHours(7, wakeMinuteJitter, 0, 0);
+    } else {
+      // Daytime: next bedtime tonight at ~11:00 PM
+      wakeUp.setHours(23, Math.floor(Math.random() * 20), 0, 0);
+    }
+
+    const diffMs = wakeUp.getTime() - date.getTime();
+    const sleepDurationMinutes = Math.max(15, Math.round(diffMs / (60 * 1000)));
+
+    return {
+      isSleeping: isNight,
+      wakeUpDate: wakeUp,
+      sleepDurationMinutes
+    };
+  }
+
+  /**
    * Background runner for periodic sessions governed by Sentinel
+   * Runs 24x7 with realistic daytime sessions & rests, pausing only for ~8 hours human circadian sleep
    */
   private async runAutonomousSessionLoop() {
     if (!this.autonomousSessionsEnabled) return;
@@ -1772,10 +1861,74 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
       return;
     }
 
+    // 1. Circadian Rhythm Check: Is it night time when a human normally sleeps for 8 hours?
+    const sleepCheck = this.isHumanSleepWindow();
+    if (sleepCheck.isSleeping) {
+      this.sessionState = 'sleeping';
+      this.nextSessionAt = sleepCheck.wakeUpDate.toISOString();
+      const sleepHours = (sleepCheck.sleepDurationMinutes / 60).toFixed(1);
+
+      console.info(`[Agent Sentinel] 🌙 Circadian sleep mode active. Human 8-hour night sleep until ${sleepCheck.wakeUpDate.toLocaleTimeString()} (~${sleepHours}h). Conserving VPS resources.`);
+
+      // Detach active screencast & close pages to conserve RAM/CPU while sleeping
+      await this.detachScreencast().catch(() => {});
+      if (this.activeContext) {
+        try {
+          const pages = this.activeContext.pages();
+          for (const p of pages) {
+            if (!p.isClosed()) await p.close().catch(() => {});
+          }
+        } catch {}
+      }
+
+      await this.recordStep(
+        'Circadian Rest Window (8h Human Sleep)',
+        'idle',
+        `Simulating realistic human sleep rhythm: resting for ~${sleepHours}h. Agent Surfer will wake up at ${sleepCheck.wakeUpDate.toLocaleTimeString()}.`,
+        {
+          updateActivity: {
+            action: `Sleeping until ${sleepCheck.wakeUpDate.toLocaleTimeString()}`,
+            stepNumber: 0,
+            totalSteps: 0
+          }
+        }
+      );
+
+      this.sessionTimer = setTimeout(() => {
+        console.info('[Agent Sentinel] ☀️ Good morning! 8-hour sleep complete. Waking up Agent Surfer to resume feed browsing...');
+        this.runAutonomousSessionLoop().catch(err => {
+          console.error('[Agent Sentinel] Error resuming after sleep:', err);
+        });
+      }, sleepCheck.sleepDurationMinutes * 60 * 1000);
+      return;
+    }
+
+    // 2. Pre-flight Authentication Check: Ensure Instagram session exists
+    const sessionRow = db.prepare('SELECT is_logged_in FROM browser_surfer_sessions WHERE id = ?').get('primary_surfer') as any;
+    if (!sessionRow?.is_logged_in && !fs.existsSync(STORAGE_STATE_PATH)) {
+      console.info('[Agent Sentinel] 🔒 Instagram Web session not verified yet. Standing by for login...');
+      await this.recordStep(
+        'Waiting for Instagram Login',
+        'auth',
+        'Standing by for session authentication. Please log in using "Login with Credentials" or paste session cookies in Dashboard.',
+        {
+          updateActivity: {
+            action: 'Standing by for login',
+            stepNumber: 0,
+            totalSteps: 0
+          }
+        }
+      );
+      this.sessionTimer = setTimeout(() => {
+        this.runAutonomousSessionLoop().catch(() => {});
+      }, 120000); // Check again in 2 minutes
+      return;
+    }
+
     this.currentSessionNumber++;
     this.sessionState = 'surfing';
 
-    // Pick random target reels within Sentinel safe bounds (e.g. 25, 40, 32...)
+    // Pick random target reels within Sentinel safe bounds (e.g. 20-45 reels)
     const targetReels = Math.floor(
       Math.random() * (this.sentinelConfig.maxReelsPerSession - this.sentinelConfig.minReelsPerSession + 1)
     ) + this.sentinelConfig.minReelsPerSession;
@@ -1801,7 +1954,38 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
       return;
     }
 
-    // Schedule natural cooldown / resting interval between sessions (e.g. 25-55 mins)
+    // 3. Post-session rest or sleep transition
+    const postSleep = this.isHumanSleepWindow();
+    if (postSleep.isSleeping) {
+      // Bedtime has arrived right after this session! Transition straight to 8-hour sleep
+      this.sessionState = 'sleeping';
+      this.nextSessionAt = postSleep.wakeUpDate.toISOString();
+      const sleepHours = (postSleep.sleepDurationMinutes / 60).toFixed(1);
+      console.info(`[Agent Sentinel] 🌙 Bedtime reached after session #${this.currentSessionNumber}. Sleeping for ~${sleepHours}h until ${postSleep.wakeUpDate.toLocaleTimeString()}.`);
+
+      await this.detachScreencast().catch(() => {});
+      await this.recordStep(
+        'Bedtime Reached (8h Sleep)',
+        'idle',
+        `Human day complete. Sleeping for ~${sleepHours}h until ${postSleep.wakeUpDate.toLocaleTimeString()}.`,
+        {
+          updateActivity: {
+            action: `Sleeping until ${postSleep.wakeUpDate.toLocaleTimeString()}`,
+            stepNumber: targetReels,
+            totalSteps: targetReels
+          }
+        }
+      );
+
+      this.sessionTimer = setTimeout(() => {
+        this.runAutonomousSessionLoop().catch(err => {
+          console.error('[Agent Sentinel] Error resuming after sleep:', err);
+        });
+      }, postSleep.sleepDurationMinutes * 60 * 1000);
+      return;
+    }
+
+    // Otherwise, normal daytime break (25-55 mins)
     this.sessionState = 'resting';
     const breakMinutes = Math.floor(
       Math.random() * (this.sentinelConfig.maxBreakMinutes - this.sentinelConfig.minBreakMinutes + 1)
@@ -1810,7 +1994,7 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
     const nextTime = new Date(Date.now() + breakMinutes * 60 * 1000);
     this.nextSessionAt = nextTime.toISOString();
 
-    console.info(`[Agent Sentinel] ⏸️ Session #${this.currentSessionNumber} complete. Resting for ${breakMinutes} minutes before next session (resume at ${nextTime.toLocaleTimeString()}).`);
+    console.info(`[Agent Sentinel] ⏸️ Session #${this.currentSessionNumber} complete. Resting for ${breakMinutes} minutes before next daytime session (resume at ${nextTime.toLocaleTimeString()}).`);
 
     notifySurferSessionFinished({
       sessionNumber: this.currentSessionNumber,
@@ -1895,7 +2079,7 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
 
       if (!page.url().includes('instagram.com/reels')) {
         await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 40000 });
-        await page.waitForTimeout(3500);
+        await page.waitForTimeout(3000);
       }
 
       // Handle common modal dialogs (Notifications, etc.)
@@ -1905,15 +2089,17 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
         await page.waitForTimeout(1000);
       }
 
-      // Check if logged in
-      const isLoginPrompt = await page.$('input[name="username"], input[name="email"], input[name="pass"], button:has-text("Log in")');
+      // Check if logged in or sitting at login wall
+      const isLoginWall = page.url().includes('/accounts/login') || page.url().includes('/login');
+      const isLoginPrompt = isLoginWall || await page.$('input[name="username"], input[name="email"], input[name="pass"], button:has-text("Log in"), button:has-text("Sign up")');
       if (isLoginPrompt) {
         await page.screenshot({ path: shotPath, type: 'jpeg', quality: 75 });
+        this.updateDbSession(false, null, shotPath);
         await this.recordStep(
           'Login Required',
           'auth',
-          'Instagram redirected to login wall. Session authentication required.',
-          { page, targetUrl: startUrl }
+          'Instagram redirected to login wall. Session authentication required. Please sign in via the dashboard.',
+          { page, targetUrl: page.url() }
         );
         throw new Error('Not logged in on Instagram Web. Please log in first using "Login with Credentials" or "Open Browser Login Window".');
       }
@@ -1926,6 +2112,18 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
         // Guarantee clean viewport on every reel iteration (dismiss any lingering drawers or popups)
         await this.ensureCleanReelViewport(page);
         await page.waitForTimeout(1000);
+
+        // Guard against mid-session login redirect or session expiration
+        if (page.url().includes('/accounts/login') || page.url().includes('/login')) {
+          console.warn('[Browser Surfer] 🔒 Instagram redirected to login wall mid-session. Halting loop.');
+          await this.recordStep(
+            'Session Authentication Required',
+            'auth',
+            'Instagram redirected to login wall mid-session. Session authentication required.',
+            { page, targetUrl: page.url() }
+          );
+          break;
+        }
 
         // Sentinel Safety Check: If Instagram ever shows a rate-limit prompt, halt immediately
         const rateLimitModal = await page.$('text="Try Again Later", text="Action Blocked", text="We limit how often you can do certain things", text="Confirm it\'s you"');
@@ -2311,6 +2509,8 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
     if (!this.isProcessing && !this.headedProcessRunning) {
       if (!isLoggedIn) {
         displayStep = '⚠️ Authentication Required — Browser is sitting at Instagram Login screen. Log in above to activate autonomous reels surfing.';
+      } else if (this.sessionState === 'sleeping' && this.nextSessionAt) {
+        displayStep = `🌙 8-Hour Circadian Night Sleep — Simulating realistic human sleep rhythm. Next session resumes at ${new Date(this.nextSessionAt).toLocaleTimeString()}.`;
       } else if (this.sessionState === 'resting' && this.nextSessionAt) {
         displayStep = `⏸️ Sentinel Resting — Session #${this.currentSessionNumber} finished. Next session scheduled at ${new Date(this.nextSessionAt).toLocaleTimeString()}.`;
       } else {

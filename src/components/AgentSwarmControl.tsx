@@ -1419,6 +1419,10 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
                   <span className="text-cyan-300 font-semibold">
                     Actively browsing feed (Session #{browserStatus.currentSessionNumber || 1})
                   </span>
+                ) : browserStatus?.sessionState === 'sleeping' && browserStatus?.nextSessionAt ? (
+                  <span className="text-indigo-300 font-semibold flex items-center gap-1.5">
+                    🌙 8-Hour Circadian Night Sleep — Simulating realistic human night rest rhythm. Next morning session at {new Date(browserStatus.nextSessionAt).toLocaleTimeString()}
+                  </span>
                 ) : browserStatus?.sessionState === 'resting' && browserStatus?.nextSessionAt ? (
                   <span className="text-amber-300 font-semibold">
                     Resting cooldown — Session #{browserStatus.currentSessionNumber} finished. Next session scheduled at {new Date(browserStatus.nextSessionAt).toLocaleTimeString()}
@@ -1430,6 +1434,9 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
             </div>
 
             <div className="flex items-center gap-3 text-[11px] text-slate-400">
+              <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                8h Circadian Night Sleep
+              </span>
               <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
                 Randomized 20–45 Reels
               </span>

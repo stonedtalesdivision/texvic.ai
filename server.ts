@@ -1267,84 +1267,8 @@ app.post("/api/instagram/reply-comment", async (req, res) => {
 // 3. REAL PUBLISHING & REELS VAULT
 // ==========================================
 
-// POST /api/reels/publish-now - Real 2-Step Reels Container Publishing to Meta
-app.post("/api/reels/publish-now", async (req, res) => {
-  const { reelId } = req.body;
+// Note: POST /api/reels/publish-now is defined below with full publishReelInternal pipeline integration.
 
-  const reelQuery = db.prepare('SELECT * FROM reels WHERE id = ?');
-  const reel = reelQuery.get(reelId) as any;
-
-  if (!reel) {
-    return res.status(404).json({ success: false, error: "Reel not found in database." });
-  }
-
-  const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
-  const account = accountQuery.get('instagram_primary') as any;
-
-  if (!account?.is_connected || !account?.access_token || !account?.account_id) {
-    return res.status(400).json({
-      success: false,
-      error: "Instagram account not connected. Please connect your Meta Instagram Account in Settings before publishing to live feeds."
-    });
-  }
-
-  let videoUrl = reel.video_url || "";
-  if (videoUrl) {
-    const match = videoUrl.match(/\/media\/reels\/([^?]+)/);
-    if (match) {
-      const diskPath = path.join(process.cwd(), 'data', 'media', 'reels', decodeURIComponent(match[1]));
-      if (!fs.existsSync(diskPath)) {
-        console.log(`[Publish Now] Cached video was deleted from disk (${match[1]}). Re-rendering...`);
-        videoUrl = "";
-      }
-    }
-  }
-  if (!videoUrl) {
-    try {
-      console.log(`[Publish Now] Reel ${reelId} has no video rendered yet. Rendering on-the-fly with Safe Zone layout & Studio Audio...`);
-      videoUrl = await renderReelVideo(reel);
-    } catch (renderErr: any) {
-      return res.status(500).json({
-        success: false,
-        error: `Could not render video for reel: ${renderErr?.message || String(renderErr)}`
-      });
-    }
-  } else {
-    videoUrl = normalizeVideoUrl(videoUrl);
-  }
-  const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
-    videoUrl,
-    caption: `${reel.caption}\n\n${(JSON.parse(reel.hashtags_json || '[]')).join(' ')}`
-  });
-
-  if (!pubResult.success) {
-    return res.status(500).json({ success: false, error: pubResult.error });
-  }
-
-  // Update SQLite reel status
-  db.prepare(`
-    UPDATE reels 
-    SET status = 'published', ig_media_id = ?, ig_container_id = ?, permalink = ?, publish_timestamp = ?, updated_at = ?
-    WHERE id = ?
-  `).run(
-    pubResult.mediaId || null,
-    pubResult.containerId || null,
-    pubResult.permalink || null,
-    new Date().toISOString(),
-    new Date().toISOString(),
-    reelId
-  );
-
-  // Recalculate feedback loop
-  computeStrategyFeedback();
-
-  res.json({
-    success: true,
-    mediaId: pubResult.mediaId,
-    permalink: pubResult.permalink,
-    message: `Reel published directly to Instagram! Media ID: ${pubResult.mediaId}`
-  });
-});
 
 // ==========================================
 // 4. REAL INSIGHTS INGESTION
@@ -4664,6 +4588,9 @@ async function setupServer() {
   startTunnelSupervisor().catch(err => {
     console.error("[Tunnel Supervisor] Error during tunnel startup:", err);
   });
+
+  // Start 24x7 Agent Surfer Autonomous Sessions with 8-Hour Human Circadian Sleep Scheduling
+  browserSurfer.startAutonomousSessions();
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Instagram AI Growth Agent Server running on http://0.0.0.0:${PORT}`);

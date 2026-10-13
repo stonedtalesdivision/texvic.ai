@@ -110,6 +110,11 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
     setPublishingId(reel.id);
     try {
       await onPublishReelNow(reel);
+    } catch (err: any) {
+      console.error("Failed to publish reel:", err);
+      if (onShowToast) {
+        onShowToast(err?.message || "Failed to publish reel to Instagram");
+      }
     } finally {
       setPublishingId(null);
     }
@@ -120,6 +125,11 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
     setPublishingId(post.id);
     try {
       await onPublishPostNow(post);
+    } catch (err: any) {
+      console.error("Failed to publish post:", err);
+      if (onShowToast) {
+        onShowToast(err?.message || "Failed to publish post to Instagram");
+      }
     } finally {
       setPublishingId(null);
     }
@@ -277,7 +287,10 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                       <button
                         type="button"
                         disabled={isPublishing}
-                        onClick={() => handlePublishReelClick(reel)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePublishReelClick(reel);
+                        }}
                         className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
                         title="Publish immediately to Instagram"
                       >
@@ -415,7 +428,10 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                       <button
                         type="button"
                         disabled={isPublishing}
-                        onClick={() => handlePublishPostClick(post)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePublishPostClick(post);
+                        }}
                         className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black shadow-md shadow-amber-500/20 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
                         title="Publish Carousel immediately to Instagram"
                       >
@@ -648,7 +664,10 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                         <button
                           type="button"
                           disabled={publishingId === activeModalPost.id}
-                          onClick={() => handlePublishPostClick(activeModalPost)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePublishPostClick(activeModalPost);
+                          }}
                           className="py-2 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-md shadow-amber-500/20 flex items-center gap-2 transition-all disabled:opacity-50"
                         >
                           {publishingId === activeModalPost.id ? (
