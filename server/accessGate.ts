@@ -41,6 +41,25 @@ function safeEqual(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+function constantTimeStringEqual(a: string, b: string): boolean {
+  const hashA = crypto.createHash("sha256").update(a).digest();
+  const hashB = crypto.createHash("sha256").update(b).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+
+function getClientIp(req: Request): string {
+  const cfIp = req.headers["cf-connecting-ip"];
+  if (typeof cfIp === "string" && cfIp.trim()) return cfIp.trim();
+  const xRealIp = req.headers["x-real-ip"];
+  if (typeof xRealIp === "string" && xRealIp.trim()) return xRealIp.trim();
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.trim()) {
+    const first = xff.split(",")[0].trim();
+    if (first) return first;
+  }
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
 function verifyPassword(password: string, encodedHash: string): boolean {
   const parts = encodedHash.split("$");
   if (parts.length !== 6 || parts[0] !== "scrypt") return false;
@@ -173,7 +192,11 @@ export function ownerAuthMiddleware(req: Request, res: Response, next: NextFunct
       if (process.env.APP_URL) {
         try { appUrlHost = new URL(process.env.APP_URL).host.toLowerCase(); } catch {}
       }
-      const isAllowedOrigin = originHost === currentHost || (appUrlHost && originHost === appUrlHost) || originHost.endsWith('texvic.tech');
+      const isAllowedOrigin =
+        originHost === currentHost ||
+        (appUrlHost && originHost === appUrlHost) ||
+        originHost === 'texvic.tech' ||
+        originHost.endsWith('.texvic.tech');
       if (!isAllowedOrigin) {
         res.status(403).json({ success: false, error: "Cross-origin request rejected." });
         return;
@@ -226,7 +249,7 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
   }
 
   if (req.method === "POST" && req.path === "/api/auth/owner/login") {
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const ip = getClientIp(req);
     const now = Date.now();
     const state = failedLogins.get(ip);
 
@@ -240,7 +263,7 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
     const plainPassword = process.env.TEXVIC_OWNER_PASSWORD || "";
 
     const isMatch = Boolean(
-      (plainPassword && safeEqual(Buffer.from(password), Buffer.from(plainPassword))) ||
+      (plainPassword && constantTimeStringEqual(password, plainPassword)) ||
       (passwordHash && verifyPassword(password, passwordHash))
     );
 

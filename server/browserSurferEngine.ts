@@ -2486,9 +2486,21 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
       }
 
       case 'navigate': {
-        const url = String(params.url || 'https://www.instagram.com/reels/');
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        return { success: true, message: `Navigated to ${url}`, details: { url } };
+        const rawUrl = String(params.url || 'https://www.instagram.com/reels/');
+        let parsed: URL;
+        try {
+          parsed = new URL(rawUrl);
+        } catch {
+          throw new Error('Invalid navigation URL format.');
+        }
+
+        const allowedHost = parsed.hostname === 'instagram.com' || parsed.hostname.endsWith('.instagram.com');
+        if (parsed.protocol !== 'https:' || !allowedHost) {
+          throw new Error('Navigation restricted to HTTPS Instagram domains only.');
+        }
+
+        await page.goto(parsed.toString(), { waitUntil: 'domcontentloaded', timeout: 30000 });
+        return { success: true, message: `Navigated to ${parsed.toString()}`, details: { url: parsed.toString() } };
       }
 
       default:

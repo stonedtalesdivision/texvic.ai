@@ -38,10 +38,24 @@ export function encryptSecret(value: string): string {
 export function decryptSecret(value: string): string {
   if (!value) return '';
   if (!value.startsWith(PREFIX)) return value; // legacy plaintext; callers should migrate it on write
-  const [, payload] = value.split(PREFIX);
-  const [ivB64, tagB64, encryptedB64] = payload.split('.');
-  if (!ivB64 || !tagB64 || !encryptedB64) throw new Error('Invalid encrypted secret format.');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), Buffer.from(ivB64, 'base64url'));
-  decipher.setAuthTag(Buffer.from(tagB64, 'base64url'));
-  return Buffer.concat([decipher.update(Buffer.from(encryptedB64, 'base64url')), decipher.final()]).toString('utf8');
+  try {
+    const payload = value.slice(PREFIX.length);
+    const parts = payload.split('.');
+    if (parts.length !== 3) throw new Error('Invalid encrypted secret format.');
+    const [ivB64, tagB64, encryptedB64] = parts;
+    const ivBuffer = Buffer.from(ivB64, 'base64url');
+    const tagBuffer = Buffer.from(tagB64, 'base64url');
+    const encBuffer = Buffer.from(encryptedB64, 'base64url');
+
+    if (ivBuffer.length !== 12 || tagBuffer.length !== 16) {
+      throw new Error('Invalid IV or auth tag length in encrypted secret.');
+    }
+
+    const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), ivBuffer);
+    decipher.setAuthTag(tagBuffer);
+    return Buffer.concat([decipher.update(encBuffer), decipher.final()]).toString('utf8');
+  } catch (err: any) {
+    console.error('[Token Vault] Decryption error:', err?.message || err);
+    throw new Error('Failed to decrypt secret.');
+  }
 }

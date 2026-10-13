@@ -154,22 +154,40 @@ app.get("/api/health", (_req, res) => {
 
 // Finished MP4s need to be fetchable by Instagram/Meta, but the dashboard remains owner-only.
 app.get("/media/reels/:filename", (req, res) => {
-  const filename = path.basename(String(req.params.filename || ""));
+  const rawFilename = path.basename(String(req.params.filename || ""));
+  const cleanFilename = rawFilename.replace(/[^a-zA-Z0-9_.-]/g, "");
   const token = String(req.query.token || "");
-  if (!verifyMediaSignature(filename, token)) {
+  if (!cleanFilename || cleanFilename.startsWith(".") || !verifyMediaSignature(cleanFilename, token)) {
     return res.status(403).send("Forbidden");
   }
-  res.sendFile(path.join(process.cwd(), "data", "media", "reels", filename));
+  const baseDir = path.resolve(process.cwd(), "data", "media", "reels");
+  const filePath = path.resolve(baseDir, cleanFilename);
+  if (!filePath.startsWith(baseDir + path.sep)) {
+    return res.status(400).send("Bad request");
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Media not found");
+  }
+  res.sendFile(filePath);
 });
 
 // Rendered Carousel slide JPGs need to be fetchable by Instagram/Meta
 app.get("/media/posts/:filename", (req, res) => {
-  const filename = path.basename(String(req.params.filename || ""));
+  const rawFilename = path.basename(String(req.params.filename || ""));
+  const cleanFilename = rawFilename.replace(/[^a-zA-Z0-9_.-]/g, "");
   const token = String(req.query.token || "");
-  if (!verifyMediaSignature(filename, token)) {
+  if (!cleanFilename || cleanFilename.startsWith(".") || !verifyMediaSignature(cleanFilename, token)) {
     return res.status(403).send("Forbidden");
   }
-  res.sendFile(path.join(process.cwd(), "data", "media", "posts", filename));
+  const baseDir = path.resolve(process.cwd(), "data", "media", "posts");
+  const filePath = path.resolve(baseDir, cleanFilename);
+  if (!filePath.startsWith(baseDir + path.sep)) {
+    return res.status(400).send("Bad request");
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Media not found");
+  }
+  res.sendFile(filePath);
 });
 
 // Initialize Gemini Client
@@ -845,14 +863,19 @@ app.get("/api/accounts", (req, res) => {
     persona: a.persona_json ? JSON.parse(a.persona_json) : null
   }));
   const active = getActiveAccount();
+  let safeActive = null;
+  if (active) {
+    const { access_token, ...rest } = active;
+    safeActive = {
+      ...rest,
+      persona: active.persona_json ? JSON.parse(active.persona_json) : null
+    };
+  }
   res.json({
     success: true,
     accounts,
     activeAccountId: active?.id || 'instagram_primary',
-    activeAccount: active ? {
-      ...active,
-      persona: active.persona_json ? JSON.parse(active.persona_json) : null
-    } : null
+    activeAccount: safeActive
   });
 });
 
@@ -862,13 +885,18 @@ app.post("/api/accounts/switch", (req, res) => {
   if (!accountId) return res.status(400).json({ success: false, error: "accountId is required." });
   const active = switchActiveAccount(accountId);
   const state = getDatabaseState();
+  let safeActive = null;
+  if (active) {
+    const { access_token, ...rest } = active;
+    safeActive = {
+      ...rest,
+      persona: active.persona_json ? JSON.parse(active.persona_json) : null
+    };
+  }
   res.json({
     success: true,
     activeAccountId: active?.id,
-    activeAccount: active ? {
-      ...active,
-      persona: active.persona_json ? JSON.parse(active.persona_json) : null
-    } : null,
+    activeAccount: safeActive,
     store: state
   });
 });
@@ -1091,7 +1119,7 @@ app.get("/api/account/status", async (req, res) => {
 // GET /api/webhooks/instagram - Meta Webhook Verification Challenge
 app.get("/api/webhooks/instagram", (req, res) => {
   const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
+  const token = typeof req.query["hub.verify_token"] === "string" ? req.query["hub.verify_token"] : "";
   const challenge = req.query["hub.challenge"];
 
   const expectedToken = process.env.META_VERIFY_TOKEN;
@@ -1100,7 +1128,15 @@ app.get("/api/webhooks/instagram", (req, res) => {
     return res.status(500).send("Webhook verification token not configured on server.");
   }
 
-  if (mode === "subscribe" && token === expectedToken) {
+  const tokenMatches = Boolean(
+    token &&
+    crypto.timingSafeEqual(
+      crypto.createHash("sha256").update(token).digest(),
+      crypto.createHash("sha256").update(expectedToken).digest()
+    )
+  );
+
+  if (mode === "subscribe" && tokenMatches) {
     console.log("[Meta Webhook] Successfully verified webhook endpoint with Meta challenge.");
     return res.status(200).send(challenge);
   }

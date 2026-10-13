@@ -61,8 +61,14 @@ function workerToken() {
 export function verifyVideoWorkerToken(value: string | undefined): boolean {
   if (!value) return false;
   const expected = process.env.VIDEO_WORKER_TOKEN || '';
-  if (expected.length < 32 || value.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(value), Buffer.from(expected));
+  if (expected.length < 32) return false;
+  try {
+    const valBuf = crypto.createHash('sha256').update(value).digest();
+    const expBuf = crypto.createHash('sha256').update(expected).digest();
+    return crypto.timingSafeEqual(valBuf, expBuf);
+  } catch {
+    return false;
+  }
 }
 
 export function createVideoJob(input: {
