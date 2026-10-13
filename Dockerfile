@@ -44,8 +44,13 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Install Playwright Chromium browser and OS deps
-RUN npx playwright install --with-deps chromium
+# Install Playwright Chromium browser accessible by all users
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p /ms-playwright /home/node/.cache && \
+    npx playwright install --with-deps chromium && \
+    chmod -R 777 /ms-playwright && \
+    cp -a /ms-playwright /home/node/.cache/ && \
+    chown -R node:node /home/node/.cache
 
 # Copy application source
 COPY . .
