@@ -81,6 +81,15 @@ import {
 
 dotenv.config();
 
+// Critical Process Persistence Guard: Never let unhandled background promises or exceptions crash the 24x7 daemon
+process.on("uncaughtException", (err: Error) => {
+  console.error("[CRITICAL PROCESS GUARD] Uncaught Exception intercepted (server protected from crash):", err?.stack || err);
+});
+
+process.on("unhandledRejection", (reason: any) => {
+  console.error("[CRITICAL PROCESS GUARD] Unhandled Promise Rejection intercepted (server protected from crash):", reason?.stack || reason);
+});
+
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const execFileAsync = promisify(execFile);

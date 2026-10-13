@@ -107,9 +107,21 @@ export function getTunnelStatus(): TunnelStatus {
 
 export async function restartTunnel(): Promise<void> {
   if (isRestarting) return;
+
+  // Rate-limit breaker: If 5 consecutive tunnel attempts fail, pause for 10 minutes to protect CPU and memory
+  if (restartCount >= 5) {
+    console.warn(`[Tunnel Supervisor] ⚠️ Cloudflare quick-tunnel has reached 5 consecutive retries. Backing off for 10 minutes to protect VPS resources. Direct access remains active on port 3100.`);
+    isHealthy = false;
+    setTimeout(() => {
+      restartCount = 0;
+      restartTunnel().catch(console.error);
+    }, 10 * 60 * 1000);
+    return;
+  }
+
   isRestarting = true;
   restartCount++;
-  console.log(`[Tunnel Supervisor] 🔄 Initiating self-healing tunnel restart (cycle #${restartCount})...`);
+  console.log(`[Tunnel Supervisor] 🔄 Initiating self-healing tunnel restart (attempt #${restartCount}/5)...`);
 
   if (tunnelProcess && tunnelProcess.pid) {
     await killProcessTree(tunnelProcess.pid);
@@ -166,6 +178,7 @@ function startTunnelInternal(): Promise<string> {
         urlResolved = true;
         currentUrl = detectedUrl;
         isHealthy = true;
+        restartCount = 0;
         lastError = null;
         updateEnvFile(detectedUrl);
         console.log(`[Tunnel Supervisor] 🌐 Cloudflare Tunnel Established: ${detectedUrl}`);
