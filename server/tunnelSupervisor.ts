@@ -159,7 +159,8 @@ function startTunnelInternal(): Promise<string> {
 
     const handleOutput = (chunk: Buffer) => {
       const text = chunk.toString();
-      const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/i);
+      // Ignore api.trycloudflare.com; match only assigned user subdomains
+      const match = text.match(/https:\/\/(?!api\.)([a-zA-Z0-9-]+)\.trycloudflare\.com/i);
       if (match && !urlResolved) {
         const detectedUrl = match[0].trim();
         urlResolved = true;
@@ -173,7 +174,13 @@ function startTunnelInternal(): Promise<string> {
     };
 
     tunnelProcess.stdout?.on('data', handleOutput);
-    tunnelProcess.stderr?.on('data', handleOutput);
+    tunnelProcess.stderr?.on('data', (chunk: Buffer) => {
+      handleOutput(chunk);
+      const text = chunk.toString().trim();
+      if (text.includes('ERR') || text.includes('error') || text.includes('failed') || text.includes('429')) {
+        console.warn(`[Tunnel Supervisor Cloudflared Log] ${text}`);
+      }
+    });
 
     tunnelProcess.on('error', (err) => {
       lastError = `Tunnel process error: ${err.message}`;
@@ -186,10 +193,12 @@ function startTunnelInternal(): Promise<string> {
       isHealthy = false;
       tunnelProcess = null;
       if (!isRestarting) {
-        // Auto recover on unexpected exit
+        // Exponential backoff to avoid hammering Cloudflare quick-tunnel endpoints
+        const delay = Math.min(60000, 5000 + (Math.min(restartCount, 12) * 5000));
+        console.log(`[Tunnel Supervisor] Backing off: next tunnel retry in ${Math.round(delay / 1000)}s...`);
         setTimeout(() => {
           restartTunnel().catch(console.error);
-        }, 3000);
+        }, delay);
       }
     });
 
