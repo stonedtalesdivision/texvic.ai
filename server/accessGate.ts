@@ -236,8 +236,14 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
 
     const password = typeof req.body?.password === "string" ? req.body.password : "";
     const passwordHash = process.env.TEXVIC_OWNER_PASSWORD_HASH || "";
+    const plainPassword = process.env.TEXVIC_OWNER_PASSWORD || "";
 
-    if (!passwordHash || !verifyPassword(password, passwordHash)) {
+    const isMatch = Boolean(
+      (plainPassword && safeEqual(Buffer.from(password), Buffer.from(plainPassword))) ||
+      (passwordHash && verifyPassword(password, passwordHash))
+    );
+
+    if (!isMatch) {
       const nextState = state && state.blockedUntil <= now
         ? { count: state.count + 1, blockedUntil: 0 }
         : { count: 1, blockedUntil: 0 };
