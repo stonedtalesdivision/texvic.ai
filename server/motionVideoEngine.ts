@@ -23,61 +23,59 @@ function hashKey(str: string): string {
  * Searches and downloads an authentic vertical 1080x1920 video from Pexels API.
  * Free tier provides 20,000 video requests/month with zero watermarks.
  */
-async function fetchPexelsVideo(query: string, cachePath: string): Promise<string | null> {
+async function fetchPexelsVideo(query: string, cachePath: string, customTerms?: string[]): Promise<string | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (!pexelsKey) return null;
 
-  try {
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(query)}&orientation=portrait&per_page=6`;
-    console.info(`[Motion Video Engine] Querying Pexels Video API for "${query.slice(0, 40)}"...`);
-    
-    const resp = await fetch(searchUrl, {
-      headers: { Authorization: pexelsKey },
-      signal: AbortSignal.timeout(10000)
-    });
+  const candidateQueries = extractSearchTerms(query, customTerms);
 
-    if (!resp.ok) {
-      console.warn(`[Motion Video Engine] Pexels returned status ${resp.status}`);
-      return null;
+  for (const q of candidateQueries.slice(0, 4)) {
+    try {
+      const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(q)}&orientation=portrait&per_page=6`;
+      console.info(`[Motion Video Engine] Querying Pexels Video API for "${q}"...`);
+      
+      const resp = await fetch(searchUrl, {
+        headers: { Authorization: pexelsKey },
+        signal: AbortSignal.timeout(10000)
+      });
+
+      if (!resp.ok) continue;
+
+      const data: any = await resp.json();
+      const videos = data?.videos || [];
+      if (!videos.length) continue;
+
+      // Pick a video from top results
+      const chosenVideo = videos[Math.floor(Math.random() * Math.min(videos.length, 4))];
+      const files: any[] = chosenVideo?.video_files || [];
+
+      // Filter for valid MP4s and sort by proximity to 1080x1920
+      const mp4Files = files.filter(f => f?.file_type === 'video/mp4' && f?.link);
+      if (!mp4Files.length) continue;
+
+      // Prefer exact 1080x1920 portrait or HD quality
+      const bestFile = mp4Files.find(f => f.width === 1080 && f.height === 1920) ||
+                       mp4Files.find(f => f.quality === 'hd') ||
+                       mp4Files.find(f => (f.height || 0) > (f.width || 0)) ||
+                       mp4Files[0];
+
+      if (!bestFile?.link) continue;
+
+      console.info(`[Motion Video Engine] Downloading Pexels video (${bestFile.width}x${bestFile.height}): ${bestFile.link.slice(0, 50)}...`);
+      const vidResp = await fetch(bestFile.link, { signal: AbortSignal.timeout(25000) });
+      if (!vidResp.ok) continue;
+
+      const arrayBuf = await vidResp.arrayBuffer();
+      if (arrayBuf.byteLength < 50000) continue;
+
+      await fs.writeFile(cachePath, Buffer.from(arrayBuf));
+      console.info(`[Motion Video Engine] Downloaded Pexels video (${arrayBuf.byteLength} bytes) for "${q}" -> ${path.basename(cachePath)}`);
+      return cachePath;
+    } catch (err: any) {
+      console.warn(`[Motion Video Engine] Pexels fetch for "${q}" failed: ${err?.message || err}`);
     }
-
-    const data: any = await resp.json();
-    const videos = data?.videos || [];
-    if (!videos.length) {
-      console.info(`[Motion Video Engine] No Pexels videos found for "${query.slice(0, 40)}"`);
-      return null;
-    }
-
-    // Pick a video from top results
-    const chosenVideo = videos[Math.floor(Math.random() * Math.min(videos.length, 4))];
-    const files: any[] = chosenVideo?.video_files || [];
-
-    // Filter for valid MP4s and sort by proximity to 1080x1920
-    const mp4Files = files.filter(f => f?.file_type === 'video/mp4' && f?.link);
-    if (!mp4Files.length) return null;
-
-    // Prefer exact 1080x1920 portrait or HD quality
-    const bestFile = mp4Files.find(f => f.width === 1080 && f.height === 1920) ||
-                     mp4Files.find(f => f.quality === 'hd') ||
-                     mp4Files.find(f => (f.height || 0) > (f.width || 0)) ||
-                     mp4Files[0];
-
-    if (!bestFile?.link) return null;
-
-    console.info(`[Motion Video Engine] Downloading Pexels video (${bestFile.width}x${bestFile.height}): ${bestFile.link.slice(0, 50)}...`);
-    const vidResp = await fetch(bestFile.link, { signal: AbortSignal.timeout(25000) });
-    if (!vidResp.ok) return null;
-
-    const arrayBuf = await vidResp.arrayBuffer();
-    if (arrayBuf.byteLength < 50000) return null;
-
-    await fs.writeFile(cachePath, Buffer.from(arrayBuf));
-    console.info(`[Motion Video Engine] Downloaded Pexels video (${arrayBuf.byteLength} bytes) -> ${path.basename(cachePath)}`);
-    return cachePath;
-  } catch (err: any) {
-    console.warn(`[Motion Video Engine] Pexels fetch failed: ${err?.message || err}`);
-    return null;
   }
+  return null;
 }
 
 /**
@@ -97,6 +95,17 @@ export function extractSearchTerms(rawQuery: string, customTerms?: string[]): st
   }
 
   const text = rawQuery.toLowerCase();
+
+  // Domain-specific keyword matching for Scary, Spooky & Horror themes
+  if (/scary|horror|spooky|creepy|ghost|haunted|monster|dark forest|cemetery|graveyard|shadow|demon|curse|paranormal/i.test(text)) {
+    terms.push('dark forest', 'foggy forest', 'abandoned dark', 'spooky shadows', 'cemetery');
+  }
+  if (/abandoned|asylum|hospital|ruins|decay|empty building/i.test(text)) {
+    terms.push('abandoned building', 'dark hallway', 'ruins decay');
+  }
+  if (/unsolved|disappeared|missing|incident|cold case|anomaly/i.test(text)) {
+    terms.push('fog atmospheric', 'dark moody', 'investigation', 'rain dark');
+  }
 
   // Domain-specific keyword matching for Untold World Mysteries & Events
   if (/canal|ship|cargo|vessel|panama|harbor|port|container/i.test(text)) terms.push('cargo ship', 'ocean port');
@@ -240,8 +249,8 @@ export async function fetchBestMotionVideo(
     }
   }
 
-  // 2. Query Pexels Video Search API
-  const pexelsResult = await fetchPexelsVideo(cleanedQuery, cachedVideoPath);
+  // 2. Query Pexels Video Search API with custom contextual keywords
+  const pexelsResult = await fetchPexelsVideo(cleanedQuery, cachedVideoPath, options.customKeywords);
   if (pexelsResult && fsSync.existsSync(pexelsResult)) {
     await fs.copyFile(pexelsResult, outputPath);
     return { source: 'pexels', videoPath: outputPath };

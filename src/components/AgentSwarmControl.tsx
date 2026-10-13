@@ -1597,7 +1597,7 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
               </div>
             )}
 
-            <div className="w-full h-64 sm:h-80 rounded-xl bg-black border border-slate-800 flex items-center justify-center overflow-hidden relative group">
+            <div className="w-full aspect-[9/16] sm:aspect-auto sm:h-80 md:h-[420px] max-w-sm sm:max-w-none mx-auto rounded-xl bg-black border border-slate-800 flex items-center justify-center overflow-hidden relative group">
               {streamMode === 'live' ? (
                 <div className="relative w-full h-full flex items-center justify-center bg-black">
                   <img 

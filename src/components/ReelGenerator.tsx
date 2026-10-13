@@ -91,6 +91,8 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
               durationSeconds: s1,
               hookText: 'Stop posting Reels without this 1 rule.',
               secondaryText: 'You lose 70% in frame 1.',
+              highlight: '#1 VIRAL RULE',
+              headline: 'Stop posting Reels without this 1 rule.',
               visualTheme: 'neon-cyber',
               accentColor: '#ec4899',
               pacingEffect: 'flash-cut'
@@ -100,6 +102,8 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
               durationSeconds: s2,
               hookText: topic.length > 42 ? topic.slice(0, 39) + '...' : topic,
               secondaryText: 'Sync your visual reveal with the audio drop.',
+              highlight: 'ALGORITHM SECRET',
+              headline: topic.length > 42 ? topic.slice(0, 39) + '...' : topic,
               visualTheme: 'electric-violet',
               accentColor: '#8b5cf6',
               pacingEffect: 'zoom-in'
@@ -109,6 +113,8 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
               durationSeconds: s3,
               hookText: 'Comment "GROWTH" for the cheat-sheet.',
               secondaryText: 'Sent directly to your DMs in 10s.',
+              highlight: 'FREE CHEAT-SHEET',
+              headline: 'Comment "GROWTH" for the cheat-sheet.',
               visualTheme: 'sunset-glow',
               accentColor: '#f59e0b',
               pacingEffect: 'subtle-drift'
@@ -129,6 +135,11 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
           durationSeconds: s.durationSeconds || Math.round(targetDuration / 3),
           hookText: s.hookText || 'Scene text',
           secondaryText: s.secondaryText || '',
+          headline: s.headline || s.hookText || '',
+          highlight: s.highlight || '',
+          subline: s.subline || s.secondaryText || '',
+          visualFormat: s.visualFormat,
+          interactiveWidget: s.interactiveWidget,
           visualTheme: s.visualTheme || 'neon-cyber',
           accentColor: s.accentColor || '#ec4899',
           pacingEffect: s.pacingEffect || 'flash-cut'
@@ -139,6 +150,8 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             durationSeconds: 2.2,
             hookText: 'Stop making this #1 Reel mistake.',
             secondaryText: 'You lose 80% in frame 1.',
+            highlight: 'STOP THIS MISTAKE',
+            headline: 'Stop making this #1 Reel mistake.',
             visualTheme: 'neon-cyber',
             accentColor: '#ec4899',
             pacingEffect: 'flash-cut'
@@ -149,6 +162,8 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             durationSeconds: 3.2,
             hookText: 'Sync your visual reveal with the audio drop.',
             secondaryText: 'Watch time skyrockets past 100%.',
+            highlight: 'WATCH TIME SECRET',
+            headline: 'Sync your visual reveal with the audio drop.',
             visualTheme: 'electric-violet',
             accentColor: '#8b5cf6',
             pacingEffect: 'zoom-in'
@@ -159,6 +174,8 @@ export const ReelGenerator: React.FC<ReelGeneratorProps> = ({ onSaveToGallery, o
             durationSeconds: 2.6,
             hookText: 'Comment "GROWTH" for the cheat-sheet.',
             secondaryText: 'Sent to your DMs in 10s.',
+            highlight: 'CLAIM YOUR CHEAT-SHEET',
+            headline: 'Comment "GROWTH" for the cheat-sheet.',
             visualTheme: 'sunset-glow',
             accentColor: '#f59e0b',
             pacingEffect: 'subtle-drift'

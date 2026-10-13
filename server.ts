@@ -40,7 +40,7 @@ import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset } from "
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, concatenateAudioTracks, CREATOR_VOICES, getAudioDuration } from "./server/ttsEngine.js";
+import { generateSpeech, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -452,7 +452,8 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     const narrationText = String(sc?.voiceScript || sc?.voiceText || sc?.subline || sc?.headline || '').trim();
     if (narrationText) {
       try {
-        const segPath = await generateSpeech(narrationText, undefined, { voice: CREATOR_VOICES.naturalCreatorMale });
+        const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
+        const segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
         const audioDur = await getAudioDuration(segPath);
         // Add 0.5s breathing padding so speech never cuts off abruptly at the transition
         const sceneDur = Math.max(audioDur + 0.5, 6.0);

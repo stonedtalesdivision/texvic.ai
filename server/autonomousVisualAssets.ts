@@ -176,14 +176,25 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
   if (!hasCustomImage) {
     try {
       const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
-      const customKeywords = Array.isArray(scene?.bRollKeywords) && scene.bRollKeywords.length > 0
+      let customKeywords = Array.isArray(scene?.bRollKeywords) && scene.bRollKeywords.length > 0
         ? scene.bRollKeywords
         : undefined;
+
+      if (!customKeywords && (scene?.highlight || rawHeadline || reel?.title)) {
+        const candidateWords = [scene?.highlight, rawHeadline, reel?.title].filter(Boolean)
+          .join(' ')
+          .replace(/[^\w\s]/g, ' ')
+          .split(/\s+/)
+          .filter(w => w.length >= 4 && !/^(this|that|with|from|have|will|your|about|what|when|where|scene|video|ultra|stop)$/i.test(w));
+        if (candidateWords.length > 0) {
+          customKeywords = candidateWords.slice(0, 4);
+        }
+      }
 
       const motionQuery = [
         rawHeadline,
         topic,
-        scene?.imagePrompt || scene?.visualTheme || 'cinematic documentary aerial footage'
+        scene?.imagePrompt || scene?.visualTheme || 'cinematic atmospheric footage'
       ].filter(Boolean).join(' ');
 
       console.info(`[Autonomous Visual Producer] Resolving real motion B-roll video (scene ${index + 1}): "${rawHeadline.slice(0, 50)}"...`);

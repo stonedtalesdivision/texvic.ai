@@ -16,6 +16,73 @@ interface ReelPlayerProps {
   onClose?: () => void;
 }
 
+const IMPACT_WORD_REGEX = /^(lost|doomsday|secret|secrets|stolen|heist|never|banned|truth|archive|warning|found|killed|disappeared|classified|hidden|conspiracy|unsolved|trillion|billion|million|cad|autocad|rhino|revit|bim|ai|pros|pro|shortcut|shortcuts|trick|tricks|hack|hacks|mistake|mistakes|blueprint|blueprints|rule|rules|workflow|workflows|drawing|drawings|render|rendering|speed|faster|fast|free|stop|destroys|destroy|illegal|power|powerful|ultimate|cheat|code|floorplan|3d|\$\d+.*|\d+[%a-z]*|#\d+)$/i;
+
+function renderHighlightedText(
+  text: string, 
+  highlight?: string, 
+  accentColor: string = '#fbbf24'
+) {
+  if (!text) return null;
+
+  const explicitTerms = new Set(
+    (highlight || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .map(w => w.replace(/[^a-z0-9$%#]/gi, ''))
+      .filter(w => w.length >= 2)
+  );
+
+  const boldChunks = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return boldChunks.map((chunk, chunkIdx) => {
+    if (chunk.startsWith('**') && chunk.endsWith('**')) {
+      const cleanBold = chunk.slice(2, -2);
+      return (
+        <mark
+          key={`bold-${chunkIdx}`}
+          className="inline-block px-1.5 py-0.5 mx-0.5 rounded-md font-black shadow-md border"
+          style={{
+            backgroundColor: `${accentColor}33`,
+            color: accentColor,
+            borderColor: `${accentColor}66`,
+            textShadow: `0 0 12px ${accentColor}80`,
+          }}
+        >
+          {cleanBold}
+        </mark>
+      );
+    }
+
+    const words = chunk.split(/(\s+)/);
+    return words.map((w, wIdx) => {
+      if (/^\s+$/.test(w)) return <span key={`sp-${chunkIdx}-${wIdx}`}>{w}</span>;
+      const cleanWord = w.replace(/[^a-zA-Z0-9$%#]/g, '').toLowerCase();
+      const isImpact = IMPACT_WORD_REGEX.test(cleanWord) || /^\d+[%a-z]*$/i.test(cleanWord);
+      const isExplicit = explicitTerms.has(cleanWord);
+
+      if (isImpact || isExplicit) {
+        return (
+          <mark
+            key={`w-${chunkIdx}-${wIdx}`}
+            className="inline-block px-1.5 py-0.5 mx-0.5 rounded-md font-black shadow-md border"
+            style={{
+              backgroundColor: `${accentColor}33`,
+              color: accentColor,
+              borderColor: `${accentColor}66`,
+              textShadow: `0 0 12px ${accentColor}80`,
+            }}
+          >
+            {w}
+          </mark>
+        );
+      }
+
+      return <span key={`w-${chunkIdx}-${wIdx}`}>{w}</span>;
+    });
+  });
+}
+
 export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave, onPublishNow, onDelete, onClose }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -203,7 +270,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       )}
 
       {/* 9:16 Smartphone Reel Container (Zoomed-out proportions, OLED dark canvas preserved in Day & Night modes) */}
-      <div className="preserve-dark relative w-[280px] sm:w-[310px] md:w-[325px] h-[520px] sm:h-[560px] md:h-[590px] bg-black rounded-[40px] p-2.5 sm:p-3 shadow-2xl shadow-purple-900/30 border-4 border-slate-700/80 select-none flex flex-col justify-between overflow-hidden ring-1 ring-white/15 shrink-0">
+      <div className="preserve-dark relative w-[270px] sm:w-[310px] md:w-[325px] h-[490px] sm:h-[560px] md:h-[590px] max-w-full bg-black rounded-[36px] sm:rounded-[40px] p-2 sm:p-3 shadow-2xl shadow-purple-900/30 border-4 border-slate-700/80 select-none flex flex-col justify-between overflow-hidden ring-1 ring-white/15 shrink-0">
         
         {/* Dynamic Canvas / Animated Video Background */}
         <div 
@@ -312,12 +379,36 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
               ) : (
                 /* Standard Kinetic Hook */
                 <div>
-                  <h2 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
-                    {activeScene?.hookText || reel.title}
+                  <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white leading-tight tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
+                    {renderHighlightedText(
+                      activeScene?.hookText || activeScene?.headline || reel.title,
+                      activeScene?.highlight,
+                      activeScene?.accentColor || '#fbbf24'
+                    )}
                   </h2>
+                  {activeScene?.highlight && (
+                    <div className="mt-2.5 flex justify-center">
+                      <span 
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl font-mono text-[10px] sm:text-xs font-black tracking-wider uppercase border shadow-lg backdrop-blur-md"
+                        style={{
+                          backgroundColor: `${activeScene.accentColor || '#fbbf24'}25`,
+                          borderColor: `${activeScene.accentColor || '#fbbf24'}77`,
+                          color: activeScene.accentColor || '#fbbf24',
+                          boxShadow: `0 0 15px ${activeScene.accentColor || '#fbbf24'}35`,
+                        }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full animate-ping" style={{ backgroundColor: activeScene.accentColor || '#fbbf24' }} />
+                        ⚡ {activeScene.highlight.replace(/\*\*/g, '')}
+                      </span>
+                    </div>
+                  )}
                   {activeScene?.secondaryText && (
-                    <p className="mt-3 text-sm sm:text-base font-semibold text-white/90 bg-black/40 px-3.5 py-1.5 rounded-xl backdrop-blur-sm border border-white/10 shadow-lg inline-block">
-                      {activeScene.secondaryText}
+                    <p className="mt-2.5 sm:mt-3 text-xs sm:text-sm md:text-base font-semibold text-white/90 bg-black/50 px-3 py-1.5 rounded-xl backdrop-blur-sm border border-white/10 shadow-lg inline-block">
+                      {renderHighlightedText(
+                        activeScene.secondaryText,
+                        activeScene?.highlight,
+                        activeScene?.accentColor || '#38bdf8'
+                      )}
                     </p>
                   )}
                 </div>

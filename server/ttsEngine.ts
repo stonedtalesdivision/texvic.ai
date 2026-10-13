@@ -10,17 +10,54 @@ const TTS_DIR = path.join(process.cwd(), 'data', 'media', 'tts');
 export interface TTSOptions {
   voice?: string;
   rate?: string;
+  pitch?: string;
   volume?: string;
 }
 
-// Top natural creator voices in Microsoft Edge Neural TTS
+// Top natural creator & cinematic documentary voices in Microsoft Edge Neural TTS
 export const CREATOR_VOICES = {
-  naturalCreatorMale: 'en-US-AndrewMultilingualNeural',   // Ultra-natural conversational creator delivery
-  casualPodcastMale: 'en-US-BrianMultilingualNeural',     // Friendly, dynamic tech YouTuber vibe
-  authorityMale: 'en-US-ChristopherNeural',               // Confident, crisp tech anchor
-  naturalCreatorFemale: 'en-US-AvaMultilingualNeural',    // Warm, authentic female creator delivery
-  expressiveFemale: 'en-US-EmmaMultilingualNeural',       // High-energy, articulate host
+  deepDocumentaryMale: 'en-US-ChristopherNeural',         // Deep, authoritative, mysterious narrator (Vox / Discovery / Untold Mysteries)
+  cinematicStorytellerMale: 'en-US-EricNeural',           // Rich, calm, cinematic storytelling tone
+  naturalCreatorMale: 'en-US-AndrewMultilingualNeural',   // Warm, highly expressive conversational voice
+  casualPodcastMale: 'en-US-BrianMultilingualNeural',     // Dynamic creator/YouTuber delivery
+  britishNarratorMale: 'en-GB-RyanNeural',                // Mysterious, sophisticated British documentary voice
+  authorityMale: 'en-US-ChristopherNeural',               // Deep, crisp dramatic anchor
+  naturalCreatorFemale: 'en-US-AvaMultilingualNeural',    // Warm, authentic female storyteller
+  expressiveFemale: 'en-US-EmmaMultilingualNeural',       // Articulate, captivating female narrator
+  mysteriousFemale: 'en-GB-SoniaNeural',                  // Chilling, atmospheric British storyteller
 };
+
+/**
+ * Automatically resolves the most human, atmospheric voice based on post topic and mood
+ */
+export function resolveBestVoiceForTopic(topicOrNiche = '', mood = ''): string {
+  const text = `${topicOrNiche} ${mood}`.toLowerCase();
+  if (/scary|spooky|horror|creepy|dark|unsolved|mystery|paranormal|conspiracy|crime|heist|dossier|classified|ancient|ruins|island|abyss|ocean/i.test(text)) {
+    return CREATOR_VOICES.deepDocumentaryMale;
+  }
+  if (/history|historical|civilization|documentary|archive|dossier/i.test(text)) {
+    return CREATOR_VOICES.cinematicStorytellerMale;
+  }
+  if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
+    return CREATOR_VOICES.naturalCreatorMale;
+  }
+  return CREATOR_VOICES.deepDocumentaryMale;
+}
+
+/**
+ * Normalizes text for natural human breathing rhythm and clean pronunciation
+ */
+function humanizeSpeechText(text: string): string {
+  return text
+    .replace(/[*#`[\]()]/g, '')
+    .replace(/\s*--\s*/g, ', ')
+    .replace(/\s*—\s*/g, ', ')
+    .replace(/\.{3,}/g, '... ')
+    .replace(/:\s+/g, '. ')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * Probe exact audio duration in seconds using ffprobe.
@@ -52,24 +89,28 @@ export async function generateSpeech(
 ): Promise<string> {
   await fs.mkdir(TTS_DIR, { recursive: true });
 
-  const cleanedText = text
-    .replace(/[\r\n]+/g, ' ')
-    .replace(/[*_#`[\]()]/g, '')
-    .trim();
+  const cleanedText = humanizeSpeechText(text);
 
   if (!cleanedText) {
     throw new Error('TTS text cannot be empty');
   }
 
-  const voice = options.voice || CREATOR_VOICES.naturalCreatorMale;
+  // Deep documentary male by default for cinematic realism, or user-selected voice
+  const voice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
   const targetPath = outputPath || path.join(TTS_DIR, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
+
+  // Natural human speech cadence is +0% to +3% speed (never robotic chipmunk +20%)
+  const rate = options.rate || '+2%';
+  // Slight pitch reduction adds chest resonance and dramatic gravity to narration
+  const pitch = options.pitch || '-2Hz';
 
   const args = [
     '-m', 'edge_tts',
     '--text', cleanedText,
     '--write-media', targetPath,
     '--voice', voice,
-    '--rate', options.rate || '+20%'
+    '--rate', rate,
+    '--pitch', pitch
   ];
 
   const pythonCmd = process.platform === 'win32'

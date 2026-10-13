@@ -176,12 +176,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-3 self-end md:self-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto justify-start sm:justify-end mt-1 md:mt-0">
           {onOpenPersonaModal && (
             <button
               type="button"
               onClick={onOpenPersonaModal}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-950/60 to-cyan-950/60 hover:from-purple-900/80 hover:to-cyan-900/80 text-cyan-200 border border-cyan-500/30 flex items-center gap-1.5 transition-all shadow-md shadow-cyan-500/10"
+              className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-purple-950/60 to-cyan-950/60 hover:from-purple-900/80 hover:to-cyan-900/80 text-cyan-200 border border-cyan-500/30 flex items-center gap-1.5 transition-all shadow-md shadow-cyan-500/10"
               title="Inspect or tune this account's learned Content DNA"
             >
               <Dna className="w-3.5 h-3.5 text-cyan-400" />
@@ -190,17 +190,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {onOpenAccountConnector && (
-            <button type="button" onClick={onOpenAccountConnector} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors">
+            <button type="button" onClick={onOpenAccountConnector} className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors">
               <Instagram className="w-3.5 h-3.5 text-pink-400" />
-              {instagramConnected ? 'Instagram Connected' : 'Connect Instagram'}
+              <span className="hidden xs:inline">{instagramConnected ? 'Instagram Connected' : 'Connect Instagram'}</span>
+              <span className="xs:hidden">{instagramConnected ? 'Connected' : 'Connect IG'}</span>
             </button>
           )}
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800">
+          <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800">
             <Bot className={`w-4 h-4 ${autonomousMode ? 'text-emerald-400 animate-pulse' : 'text-slate-500'}`} />
             <div className="text-left">
               <span className="block text-[11px] font-semibold text-slate-200">{autonomousMode ? 'AI Autopilot Active' : 'Manual Co-Pilot'}</span>
-              <span className="block text-[9px] text-slate-400">{autonomousMode ? 'Auto-replies & scheduling on' : 'Requires approval'}</span>
+              <span className="hidden sm:block text-[9px] text-slate-400">{autonomousMode ? 'Auto-replies & scheduling on' : 'Requires approval'}</span>
             </div>
             <button type="button" onClick={() => setAutonomousMode(prev => !prev)} className={`ml-2 relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${autonomousMode ? 'bg-emerald-500' : 'bg-slate-700'}`}>
               <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${autonomousMode ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -218,17 +219,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               type="button"
               onClick={onLogout}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-red-500/10 text-slate-300 hover:text-red-300 border border-slate-700 hover:border-red-500/40 flex items-center gap-1.5 transition-colors"
+              className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-red-500/10 text-slate-300 hover:text-red-300 border border-slate-700 hover:border-red-500/40 flex items-center gap-1.5 transition-colors"
               title="Lock TEXVIC and sign out"
             >
               <LogOut className="w-3.5 h-3.5" />
-              Logout
+              <span className="hidden sm:inline">Logout</span>
             </button>
           )}
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto mt-3 pt-2 border-t border-slate-800/50 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+      <div className="max-w-7xl mx-auto mt-3 pt-2 border-t border-slate-800/50 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth py-1 px-0.5 touch-pan-x">
         <button type="button" onClick={() => setActiveTab('autonomous')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'autonomous' ? 'bg-gradient-to-r from-emerald-500/25 via-teal-500/20 to-sky-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm' : 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'}`}>
           <Zap className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400/30" /><span>24/7 Autonomous Pipeline</span>
           {autonomous24x7Enabled ? <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span> : <span className="w-2 h-2 rounded-full bg-slate-600" />}

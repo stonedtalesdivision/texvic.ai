@@ -22,26 +22,58 @@ export interface StudioTrack {
 }
 
 export const STUDIO_TRACKS: StudioTrack[] = [
+  // --- EERIE, MYSTERIOUS & SPOOKY TRACKS (For Scary / Unsolved / Dark Posts) ---
   {
-    id: 'tech-live',
-    name: 'Tech Live',
+    id: 'the-dread',
+    name: 'The Dread',
     artist: 'Kevin MacLeod',
-    genre: 'tech-house',
-    moods: ['tech', 'energetic', 'futuristic', 'modern', 'electronic', 'ai', 'breakthrough'],
-    bpm: 128,
+    genre: 'dark-ambient-horror',
+    moods: ['spooky', 'scary', 'horror', 'creepy', 'chilling', 'dark', 'paranormal', 'unsolved', 'unexplained', 'ghost', 'anomaly', 'forbidden'],
+    bpm: 60,
+    startOffsetSec: 4,
+    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/The%20Dread.mp3'
+  },
+  {
+    id: 'echoes-of-time',
+    name: 'Echoes of Time',
+    artist: 'Kevin MacLeod',
+    genre: 'mysterious-ambient',
+    moods: ['mysterious', 'ancient', 'history', 'suspense', 'enigmatic', 'curious', 'ruins', 'deep', 'secret', 'documentary'],
+    bpm: 72,
     startOffsetSec: 8,
-    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Tech%20Live.mp3'
+    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Echoes%20of%20Time.mp3'
   },
   {
-    id: 'future-gladiator',
-    name: 'Future Gladiator',
+    id: 'classic-horror-1',
+    name: 'Classic Horror 1',
     artist: 'Kevin MacLeod',
-    genre: 'action-electronic',
-    moods: ['high-energy', 'cyber', 'action', 'punchy', 'future', 'breakthrough', 'powerful'],
-    bpm: 135,
-    startOffsetSec: 15,
-    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Future%20Gladiator.mp3'
+    genre: 'suspense-horror',
+    moods: ['horror', 'scary', 'spooky', 'creepy', 'ominous', 'tense', 'danger', 'haunted', 'dark'],
+    bpm: 65,
+    startOffsetSec: 6,
+    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Classic%20Horror%201.mp3'
   },
+  {
+    id: 'dark-walk',
+    name: 'Dark Walk',
+    artist: 'Kevin MacLeod',
+    genre: 'investigative-noir',
+    moods: ['investigation', 'noir', 'crime', 'heist', 'dossier', 'classified', 'conspiracy', 'stealth', 'cia', 'fbi'],
+    bpm: 85,
+    startOffsetSec: 6,
+    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Dark%20Walk.mp3'
+  },
+  {
+    id: 'giant-wyrm',
+    name: 'Giant Wyrm',
+    artist: 'Kevin MacLeod',
+    genre: 'dark-cinematic',
+    moods: ['abyss', 'deep-ocean', 'cavern', 'underground', 'borehole', 'ancient-power', 'monumental', 'dark'],
+    bpm: 70,
+    startOffsetSec: 10,
+    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Giant%20Wyrm.mp3'
+  },
+  // --- TECH & DYNAMIC ELECTRONIC TRACKS ---
   {
     id: 'volatile-reaction',
     name: 'Volatile Reaction',
@@ -53,16 +85,6 @@ export const STUDIO_TRACKS: StudioTrack[] = [
     url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Volatile%20Reaction.mp3'
   },
   {
-    id: 'rocket',
-    name: 'Rocket',
-    artist: 'Kevin MacLeod',
-    genre: 'driving-electronic',
-    moods: ['momentum', 'driving', 'uplifting', 'rhythmic', 'groove', 'tech'],
-    bpm: 125,
-    startOffsetSec: 12,
-    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Rocket.mp3'
-  },
-  {
     id: 'neon-laser-horizon',
     name: 'Neon Laser Horizon',
     artist: 'Kevin MacLeod',
@@ -71,6 +93,16 @@ export const STUDIO_TRACKS: StudioTrack[] = [
     bpm: 120,
     startOffsetSec: 6,
     url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Neon%20Laser%20Horizon.mp3'
+  },
+  {
+    id: 'tech-live',
+    name: 'Tech Live',
+    artist: 'Kevin MacLeod',
+    genre: 'tech-house',
+    moods: ['tech', 'energetic', 'futuristic', 'modern', 'electronic', 'ai', 'breakthrough'],
+    bpm: 128,
+    startOffsetSec: 8,
+    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Tech%20Live.mp3'
   }
 ];
 
@@ -100,29 +132,41 @@ async function ensureLibraryTrackCached(track: StudioTrack): Promise<string> {
 }
 
 function selectBestStudioTrack(reel: any): StudioTrack {
-  const reelMood = String(reel?.audio?.mood || reel?.niche || 'tech').toLowerCase();
+  const context = `${reel?.title || ''} ${reel?.niche || ''} ${reel?.audio?.mood || ''} ${reel?.caption || ''}`.toLowerCase();
   
+  // Heavily prioritize spooky / mysterious tracks if context contains eerie / scary keywords
+  const isSpooky = /spooky|scary|horror|creepy|chilling|haunted|monster|paranormal|ghost|dark|death|killed|demon|grave|curse/i.test(context);
+  const isMysterious = /mystery|unsolved|secret|classified|anomaly|forbidden|ancient|ruins|lost|dossier|abyss|ocean|island|bunker|cavern|underground/i.test(context);
+  const isInvestigative = /heist|crime|wire|cia|fbi|conspiracy|investigation|gold|bank|dossier/i.test(context);
+
+  if (isSpooky) {
+    const spookyTracks = STUDIO_TRACKS.filter(t => t.id === 'the-dread' || t.id === 'classic-horror-1');
+    return spookyTracks[Math.floor(Math.random() * spookyTracks.length)] || STUDIO_TRACKS[0];
+  }
+
+  if (isMysterious) {
+    const mysteryTracks = STUDIO_TRACKS.filter(t => t.id === 'echoes-of-time' || t.id === 'the-dread' || t.id === 'giant-wyrm');
+    return mysteryTracks[Math.floor(Math.random() * mysteryTracks.length)] || STUDIO_TRACKS[1];
+  }
+
+  if (isInvestigative) {
+    const inv = STUDIO_TRACKS.find(t => t.id === 'dark-walk');
+    if (inv) return inv;
+  }
+
   // Score tracks based on mood keyword matches
-  let bestTrack = STUDIO_TRACKS[0];
+  let bestTrack = STUDIO_TRACKS[1]; // default to Echoes of Time for documentary feel
   let bestScore = -1;
 
   for (const track of STUDIO_TRACKS) {
     let score = 0;
     for (const mood of track.moods) {
-      if (reelMood.includes(mood)) score += 3;
+      if (context.includes(mood)) score += 3;
     }
     if (score > bestScore) {
       bestScore = score;
       bestTrack = track;
     }
-  }
-
-  // If no specific mood match, pick based on pseudo-random hash of reel ID to vary audio
-  if (bestScore <= 0) {
-    const hash = String(reel?.id || '')
-      .split('')
-      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    bestTrack = STUDIO_TRACKS[hash % STUDIO_TRACKS.length];
   }
 
   return bestTrack;
@@ -161,8 +205,8 @@ export async function ensureAutonomousAudioAsset(reel: any): Promise<MediaAsset 
   const filename = `studio-${track.id}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp3`;
   const outputPath = path.join(GENERATED_DIR, filename);
 
-  // Extract beat-synced high-energy section with smooth in/out fades and broadcast loudness
-  const audioFilter = `volume=1.22,afade=t=in:ss=0:d=0.35,afade=t=out:st=${Math.max(1, duration - 1.5)}:d=1.5`;
+  // Extract atmospheric bed with smooth fades and gentle background loudness
+  const audioFilter = `volume=0.35,afade=t=in:ss=0:d=0.35,afade=t=out:st=${Math.max(1, duration - 1.5)}:d=1.5`;
 
   try {
     await execFileAsync('ffmpeg', [

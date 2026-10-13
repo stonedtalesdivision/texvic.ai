@@ -725,7 +725,7 @@ export default function App() {
             animate={{ opacity: 1, backdropFilter: 'blur(16px)' }}
             exit={{ opacity: 0, backdropFilter: 'blur(0px)' }}
             transition={{ duration: 0.22 }}
-            className="fixed inset-0 z-50 bg-black/80 flex items-start sm:items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto"
+            className="fixed inset-0 z-50 bg-black/80 flex items-start sm:items-center justify-center p-1 sm:p-4 md:p-6 overflow-y-auto"
             onClick={() => setPreviewReel(null)}
           >
             <motion.div
@@ -734,7 +734,7 @@ export default function App() {
               exit={{ scale: 0.94, opacity: 0, y: 16 }}
               transition={{ type: 'spring', damping: 26, stiffness: 340 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative max-w-5xl w-full my-auto max-h-[95vh] flex flex-col bg-slate-950/95 dark:bg-slate-950/95 bg-white border border-white/15 dark:border-white/15 border-slate-200 rounded-3xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] overflow-hidden"
+              className="relative max-w-5xl w-full my-auto max-h-[96vh] flex flex-col bg-slate-950/95 dark:bg-slate-950/95 bg-white border border-white/15 dark:border-white/15 border-slate-200 rounded-2xl sm:rounded-3xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] overflow-hidden"
             >
               {/* Sticky Top Glass Header with Close Window Controls & Theme Switch */}
               <div className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-6 py-3 bg-slate-900/90 dark:bg-slate-900/90 bg-slate-50/95 backdrop-blur-xl border-b border-white/10 dark:border-white/10 border-slate-200 select-none">
@@ -776,7 +776,7 @@ export default function App() {
               </div>
 
               {/* Scrollable Modal Content */}
-              <div className="overflow-y-auto p-3 sm:p-5 no-scrollbar flex-1 flex flex-col items-center justify-center">
+              <div className="overflow-y-auto p-1.5 sm:p-5 no-scrollbar flex-1 flex flex-col items-center justify-center">
                 <div className="w-full">
                   <ReelPlayer reel={previewReel} onClose={() => setPreviewReel(null)} />
                 </div>

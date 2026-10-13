@@ -6,7 +6,7 @@ import { ensureAutonomousAudioAsset } from './autonomousAudio.js';
 import { composeReel } from './reelComposer.js';
 import dotenv from 'dotenv';
 import { createVideoJob, saveVideoOutput, createMediaSignature } from './videoEngine.js';
-import { generateSpeech, CREATOR_VOICES, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
+import { generateSpeech, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
 
 export function normalizeVideoUrl(videoUrl: string): string {
   if (!videoUrl) return '';
@@ -48,7 +48,8 @@ export async function prepareReelSceneAssets(reel: any): Promise<{ scenes: any[]
     const narrationText = String(sc?.voiceScript || sc?.voiceText || sc?.subline || sc?.headline || '').trim();
     if (narrationText) {
       try {
-        const segPath = await generateSpeech(narrationText, undefined, { voice: CREATOR_VOICES.naturalCreatorMale });
+        const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
+        const segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
         const audioDur = await getAudioDuration(segPath);
         const sceneDur = Math.max(audioDur + 0.5, 6.0);
         voiceSegments.push(segPath);

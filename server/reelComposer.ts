@@ -122,13 +122,12 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     } else {
       let mix: string;
       if (input.voicePath && input.musicPath) {
-        // Professional creator audio ducking: Spoken voiceover at 100%, background music ducked to 16% (-16dB)
-        // Layered with 0.0s cinematic sub-bass whoosh impact [sfx] for pattern-interrupt retention
-        mix = "aevalsrc='sin(2*PI*(85-55*t)*t)*exp(-3.5*t)*0.85':d=1.2[sfx];[1:a]volume=1.0[voice];[2:a]volume=0.16[bgm];[voice][bgm][sfx]amix=inputs=3:duration=first:dropout_transition=2[a]";
+        // Broadcast audio mastering: Voiceover normalized and elevated, BGM low-passed and ducked to gentle ambient bed (-22dB)
+        mix = "[1:a]volume=1.25,dynaudnorm=f=150:g=15[voice];[2:a]volume=0.08,lowpass=f=4200[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[a]";
       } else if (input.voicePath) {
-        mix = "aevalsrc='sin(2*PI*(85-55*t)*t)*exp(-3.5*t)*0.85':d=1.2[sfx];[1:a]volume=1.0[voice];[voice][sfx]amix=inputs=2:duration=first:dropout_transition=2[a]";
+        mix = "[1:a]volume=1.25,dynaudnorm=f=150:g=15[a]";
       } else {
-        mix = '[1:a]aresample=async=1[a]';
+        mix = '[1:a]volume=0.18,lowpass=f=4500,aresample=async=1[a]';
       }
       await run('ffmpeg', [
         ...inputs,

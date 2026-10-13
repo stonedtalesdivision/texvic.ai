@@ -58,13 +58,24 @@ function escapeXml(unsafe: string): string {
 
 const IMPACT_WORD_PATTERN = /^(lost|doomsday|secret|secrets|stolen|heist|never|banned|truth|archive|warning|found|killed|disappeared|classified|hidden|conspiracy|unsolved|trillion|billion|million|cad|autocad|rhino|revit|bim|ai|pros|pro|shortcut|shortcuts|trick|tricks|hack|hacks|mistake|mistakes|blueprint|blueprints|rule|rules|workflow|workflows|drawing|drawings|render|rendering|speed|faster|fast|free|stop|destroys|destroy|illegal|power|powerful|ultimate|cheat|code|floorplan|3d|\$\d+.*|\d+[%a-z]*)$/i;
 
-export function formatKaraokeWords(line: string, accentColor: string): string {
+export function formatKaraokeWords(line: string, accentColor: string, explicitHighlight?: string): string {
   const words = line.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return '';
 
+  const explicitTerms = new Set(
+    (explicitHighlight || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .map(w => w.replace(/[^a-z0-9$%#]/gi, ''))
+      .filter(w => w.length >= 2)
+  );
+
   const impactMatches = words.map(w => {
-    const clean = w.replace(/[^a-zA-Z0-9$%]/g, '');
-    return IMPACT_WORD_PATTERN.test(clean) || /^\d+/.test(clean);
+    // Check if word has markdown bold markers like **word**
+    const hasMarkdownBold = /^\*\*.*\*\*$/.test(w) || w.includes('**');
+    const clean = w.replace(/[^a-zA-Z0-9$%#]/g, '').toLowerCase();
+    const isExplicit = explicitTerms.has(clean);
+    return hasMarkdownBold || isExplicit || IMPACT_WORD_PATTERN.test(clean) || /^\d+/.test(clean);
   });
 
   const hasAnyImpact = impactMatches.some(Boolean);
@@ -83,7 +94,8 @@ export function formatKaraokeWords(line: string, accentColor: string): string {
 
   return words.map((w, idx) => {
     const isImpact = impactMatches[idx] || (idx === fallbackHighlightIdx);
-    const escaped = escapeXml(w);
+    const cleanDisplay = w.replace(/\*\*/g, '');
+    const escaped = escapeXml(cleanDisplay);
     const trailingSpace = idx < words.length - 1 ? ' ' : '';
     if (isImpact) {
       return `<tspan fill="${accentColor}" font-weight="900">${escaped}${trailingSpace}</tspan>`;
@@ -153,7 +165,7 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
     const headlineElements = headlineLines.map((line, idx) => {
       const y = textY + idx * 58;
-      return `<text xml:space="preserve" x="140" y="${y}" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent)}</text>`;
+      return `<text xml:space="preserve" x="140" y="${y}" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
     }).join('\n');
     textY += headlineLines.length * 58 + 14;
 
@@ -222,13 +234,17 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
     const headlineElements = headlineLines.map((line, idx) => {
       const y = currentY + idx * 56;
-      return `<text xml:space="preserve" x="140" y="${y}" font-family="'Segoe UI', 'Impact', sans-serif" font-size="50" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#38bdf8')}</text>`;
+      return `<text xml:space="preserve" x="140" y="${y}" font-family="'Segoe UI', 'Impact', sans-serif" font-size="50" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#38bdf8', rawHighlight)}</text>`;
     }).join('\n');
     currentY += headlineLines.length * 56 + 14;
 
     const highlightElements = highlightLines.map((line, idx) => {
       const y = currentY + idx * 48;
-      return `<text x="140" y="${y}" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="#38bdf8" letter-spacing="1" filter="url(#glow)">${line}</text>`;
+      return `
+        <!-- High-Contrast Cyan Highlighter Backplate -->
+        <rect x="135" y="${y - 36}" width="780" height="44" rx="6" fill="rgba(56, 189, 248, 0.22)" stroke="#38bdf8" stroke-width="1.2" />
+        <text x="140" y="${y}" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="#38bdf8" letter-spacing="1" filter="url(#glow)">${line}</text>
+      `;
     }).join('\n');
     if (highlightLines.length > 0) currentY += highlightLines.length * 48 + 14;
 
@@ -295,12 +311,18 @@ export function buildSceneSvg(opts: OverlayOptions): string {
     const topStartY = 280;
     const headlineElements = headlineLines.map((line, idx) => {
       const y = topStartY + idx * 56;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent)}</text>`;
+      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
     }).join('\n');
 
     const highlightElements = highlightLines.map((line, idx) => {
       const y = 1440 + idx * 48;
-      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="${accent}" letter-spacing="1" filter="url(#glow)">${line}</text>`;
+      const textWidth = Math.min(840, Math.max(280, line.length * 26));
+      const textX = 540 - textWidth / 2;
+      return `
+        <!-- High-Contrast Fluorescent Highlighter Pill -->
+        <rect x="${textX}" y="${y - 36}" width="${textWidth}" height="44" rx="8" fill="rgba(251, 191, 36, 0.25)" stroke="${accent}" stroke-width="1.2" />
+        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="${accent}" letter-spacing="1" filter="url(#glow)">${line}</text>
+      `;
     }).join('\n');
 
     const sublineElements = sublineLines.map((line, idx) => {
@@ -368,7 +390,7 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
     const challengeElements = challengeHeadline.map((line, idx) => {
       const y = 620 + idx * 56;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="50" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#f87171')}</text>`;
+      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="50" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#f87171', rawHighlight)}</text>`;
     }).join('\n');
 
     mainContentSvg = `
@@ -465,13 +487,19 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
     const headlineElements = headlineLines.map((line, idx) => {
       const y = currentY + idx * 62;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="54" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent)}</text>`;
+      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="54" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
     }).join('\n');
     currentY += headlineLines.length * 62 + 14;
 
     const highlightElements = highlightLines.map((line, idx) => {
-      const y = currentY + idx * 52;
-      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="900" fill="${accent}" letter-spacing="1" filter="url(#glow)">${line}</text>`;
+      const y = currentY + idx * 54;
+      const textWidth = Math.min(880, Math.max(300, line.length * 28));
+      const textX = 540 - textWidth / 2;
+      return `
+        <!-- Fluorescent Highlighter Pen Capsule -->
+        <rect x="${textX}" y="${y - 42}" width="${textWidth}" height="52" rx="12" fill="rgba(251, 191, 36, 0.28)" stroke="${accent}" stroke-width="1.5" filter="url(#glow)" />
+        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="900" fill="${accent}" letter-spacing="1">${line}</text>
+      `;
     }).join('\n');
     if (highlightLines.length > 0) currentY += highlightLines.length * 52 + 16;
 
