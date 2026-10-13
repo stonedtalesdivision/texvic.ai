@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
+    libgtk-3-0 \
     fonts-liberation \
     xdg-utils \
     && pip install --no-cache-dir --break-system-packages edge-tts \
