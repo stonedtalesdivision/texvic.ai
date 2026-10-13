@@ -112,12 +112,35 @@ app.use((req, res, next) => {
 
 // Health check endpoint for uptime and deployment monitoring
 app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "healthy",
-    version: "1.0.1",
-    uptimeSeconds: Math.floor(process.uptime()),
-    timestamp: new Date().toISOString()
-  });
+  try {
+    const account = db.prepare('SELECT username, account_id, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+    const config = db.prepare('SELECT enabled, interval_minutes, current_stage, next_run, last_run FROM autonomous_config WHERE id = ?').get('default_config') as any;
+    const recentReels = db.prepare('SELECT id, title, status, ig_media_id, created_at FROM reels ORDER BY created_at DESC LIMIT 3').all();
+    const lastLog = db.prepare('SELECT timestamp, topic_researched, status FROM autonomous_logs ORDER BY timestamp DESC LIMIT 1').get() as any;
+
+    res.json({
+      status: "healthy",
+      version: "1.0.1",
+      uptimeSeconds: Math.floor(process.uptime()),
+      pipeline: {
+        instagram: {
+          connected: Boolean(account?.is_connected),
+          username: account?.username || null,
+          accountId: account?.account_id ? `${String(account.account_id).slice(0, 5)}...` : null
+        },
+        autonomous: config || null,
+        recentReels,
+        lastLog: lastLog || null
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    res.json({
+      status: "degraded",
+      error: err?.message || String(err),
+      uptimeSeconds: Math.floor(process.uptime())
+    });
+  }
 });
 
 // Finished MP4s need to be fetchable by Instagram/Meta, but the dashboard remains owner-only.
