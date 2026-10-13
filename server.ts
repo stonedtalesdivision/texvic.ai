@@ -110,6 +110,16 @@ app.use((req, res, next) => {
   ownerAuthMiddleware(req, res, next);
 });
 
+// Health check endpoint for uptime and deployment monitoring
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "healthy",
+    version: "1.0.1",
+    uptimeSeconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Finished MP4s need to be fetchable by Instagram/Meta, but the dashboard remains owner-only.
 app.get("/media/reels/:filename", (req, res) => {
   const filename = path.basename(String(req.params.filename || ""));

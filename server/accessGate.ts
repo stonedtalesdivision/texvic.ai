@@ -23,6 +23,7 @@ const PUBLIC_PATHS = new Set([
   "/api/webhooks/instagram",
   "/api/video-worker/claim",
   "/api/video-worker/jobs/",
+  "/api/health",
 ]);
 
 function parseCookies(header: string | undefined): Record<string, string> {
