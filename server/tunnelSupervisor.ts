@@ -126,9 +126,12 @@ function startTunnelInternal(): Promise<string> {
   return new Promise((resolve) => {
     const binPath = findCloudflaredBinary();
     const port = Number(process.env.PORT) || 3100;
-    const args = ['tunnel', '--url', `http://localhost:${port}`];
+    const tunnelToken = (process.env.CLOUDFLARE_TUNNEL_TOKEN || '').trim();
+    const args = tunnelToken
+      ? ['tunnel', 'run', '--token', tunnelToken]
+      : ['tunnel', '--url', `http://localhost:${port}`];
 
-    console.log(`[Tunnel Supervisor] 🚀 Spawning Cloudflare Tunnel via: ${binPath} ${args.join(' ')}`);
+    console.log(`[Tunnel Supervisor] 🚀 Spawning Cloudflare Tunnel via: ${binPath} ${tunnelToken ? 'tunnel run --token [MASKED]' : args.join(' ')}`);
 
     try {
       tunnelProcess = spawn(binPath, args, {
@@ -139,6 +142,16 @@ function startTunnelInternal(): Promise<string> {
       lastError = `Failed to spawn cloudflared: ${err?.message || err}`;
       console.error(`[Tunnel Supervisor] ❌ ${lastError}`);
       resolve('');
+      return;
+    }
+
+    if (tunnelToken) {
+      const configuredUrl = (process.env.APP_URL || '').trim();
+      currentUrl = configuredUrl;
+      isHealthy = true;
+      lastError = null;
+      console.log(`[Tunnel Supervisor] 🌐 Permanent Cloudflare Tunnel Active: ${configuredUrl || 'Running via token'}`);
+      resolve(configuredUrl);
       return;
     }
 
