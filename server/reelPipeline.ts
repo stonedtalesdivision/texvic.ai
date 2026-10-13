@@ -6,7 +6,7 @@ import { ensureAutonomousAudioAsset } from './autonomousAudio.js';
 import { composeReel } from './reelComposer.js';
 import dotenv from 'dotenv';
 import { createVideoJob, saveVideoOutput, createMediaSignature } from './videoEngine.js';
-import { generateSpeech, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
+import { generateSpeech, generateSilentAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
 
 export function normalizeVideoUrl(videoUrl: string): string {
   if (!videoUrl) return '';
@@ -46,21 +46,41 @@ export async function prepareReelSceneAssets(reel: any): Promise<{ scenes: any[]
   for (let i = 0; i < rawScenes.length; i++) {
     const sc = rawScenes[i];
     const narrationText = String(sc?.voiceScript || sc?.voiceText || sc?.subline || sc?.headline || '').trim();
+    let segPath: string | null = null;
+    let audioDur = 0;
+
     if (narrationText) {
       try {
         const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        const segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
-        const audioDur = await getAudioDuration(segPath);
-        const sceneDur = Math.max(audioDur + 0.5, 6.0);
-        voiceSegments.push(segPath);
-        sceneDurations.push(sceneDur);
-        console.log(`[Reel Video Pipeline] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s audio -> Scene duration calibrated to ${sceneDur.toFixed(1)}s.`);
+        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
+        audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
-        console.warn(`[Reel Video Pipeline] Voice synthesis failed for scene ${i + 1}:`, segErr);
-        sceneDurations.push(Number(sc?.durationSeconds || 8.0));
+        console.warn(`[Reel Video Pipeline] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
+        const headline = String(sc?.headline || sc?.hookText || '').trim();
+        if (headline) {
+          try {
+            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale });
+            audioDur = await getAudioDuration(segPath);
+          } catch (headErr) {
+            console.error(`[Reel Video Pipeline] Headline fallback also failed for scene ${i + 1}:`, headErr);
+          }
+        }
       }
+    }
+
+    // If speech was produced, calibrate scene duration to speech plus breathing buffer
+    if (segPath && audioDur > 0) {
+      const sceneDur = Math.max(audioDur + 0.5, 6.0);
+      voiceSegments.push(segPath);
+      sceneDurations.push(sceneDur);
+      console.log(`[Reel Video Pipeline] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech -> Scene calibrated to ${sceneDur.toFixed(1)}s.`);
     } else {
-      sceneDurations.push(Number(sc?.durationSeconds || 8.0));
+      // Create a synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
+      const fallbackDur = Math.max(Number(sc?.durationSeconds || 8.0), 6.0);
+      const silentSeg = await generateSilentAudioSegment(fallbackDur);
+      voiceSegments.push(silentSeg);
+      sceneDurations.push(fallbackDur);
+      console.warn(`[Reel Video Pipeline] Scene ${i + 1} generated silent sync bed (${fallbackDur}s).`);
     }
   }
 

@@ -73,22 +73,12 @@ export const STUDIO_TRACKS: StudioTrack[] = [
     startOffsetSec: 10,
     url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Giant%20Wyrm.mp3'
   },
-  // --- TECH & DYNAMIC ELECTRONIC TRACKS ---
-  {
-    id: 'volatile-reaction',
-    name: 'Volatile Reaction',
-    artist: 'Kevin MacLeod',
-    genre: 'dark-electronic',
-    moods: ['dark', 'synthwave', 'fast', 'intense', 'cyberpunk', 'heavy', 'momentum'],
-    bpm: 140,
-    startOffsetSec: 10,
-    url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Volatile%20Reaction.mp3'
-  },
+  // --- TECH & SUBTLE AMBIENT TRACKS ---
   {
     id: 'neon-laser-horizon',
     name: 'Neon Laser Horizon',
     artist: 'Kevin MacLeod',
-    genre: 'retrowave',
+    genre: 'retrowave-ambient',
     moods: ['retrowave', 'synthwave', 'neon', 'chill', 'cinematic', 'sleek', 'deep'],
     bpm: 120,
     startOffsetSec: 6,
@@ -98,8 +88,8 @@ export const STUDIO_TRACKS: StudioTrack[] = [
     id: 'tech-live',
     name: 'Tech Live',
     artist: 'Kevin MacLeod',
-    genre: 'tech-house',
-    moods: ['tech', 'energetic', 'futuristic', 'modern', 'electronic', 'ai', 'breakthrough'],
+    genre: 'tech-ambient',
+    moods: ['tech', 'futuristic', 'modern', 'electronic', 'ai', 'breakthrough', 'quantum', 'code'],
     bpm: 128,
     startOffsetSec: 8,
     url: 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/Tech%20Live.mp3'
@@ -131,63 +121,68 @@ async function ensureLibraryTrackCached(track: StudioTrack): Promise<string> {
   return trackPath;
 }
 
-function selectBestStudioTrack(reel: any): StudioTrack {
-  const context = `${reel?.title || ''} ${reel?.niche || ''} ${reel?.audio?.mood || ''} ${reel?.caption || ''}`.toLowerCase();
+export function selectBestStudioTrack(reel: any): StudioTrack {
+  const sceneTexts = Array.isArray(reel?.scenes)
+    ? reel.scenes.map((s: any) => `${s.headline || ''} ${s.subline || ''} ${s.voiceScript || ''}`).join(' ')
+    : '';
+  const context = `${reel?.title || ''} ${reel?.niche || ''} ${reel?.audio?.mood || ''} ${reel?.caption || ''} ${sceneTexts}`.toLowerCase();
   
-  // Heavily prioritize spooky / mysterious tracks if context contains eerie / scary keywords
-  const isSpooky = /spooky|scary|horror|creepy|chilling|haunted|monster|paranormal|ghost|dark|death|killed|demon|grave|curse/i.test(context);
-  const isMysterious = /mystery|unsolved|secret|classified|anomaly|forbidden|ancient|ruins|lost|dossier|abyss|ocean|island|bunker|cavern|underground/i.test(context);
-  const isInvestigative = /heist|crime|wire|cia|fbi|conspiracy|investigation|gold|bank|dossier/i.test(context);
-
+  // 1. Spooky / Scary / Chilling / Horror / Creepy / Paranormal
+  const isSpooky = /spooky|scary|horror|creepy|chilling|haunted|monster|paranormal|ghost|demon|grave|curse|blood|slasher|nightmare|terrif|fear|death|corpse|cryptid|macabre|evil|abyss|alien|ufo|abduction/i.test(context);
   if (isSpooky) {
     const spookyTracks = STUDIO_TRACKS.filter(t => t.id === 'the-dread' || t.id === 'classic-horror-1');
     return spookyTracks[Math.floor(Math.random() * spookyTracks.length)] || STUDIO_TRACKS[0];
   }
 
-  if (isMysterious) {
-    const mysteryTracks = STUDIO_TRACKS.filter(t => t.id === 'echoes-of-time' || t.id === 'the-dread' || t.id === 'giant-wyrm');
-    return mysteryTracks[Math.floor(Math.random() * mysteryTracks.length)] || STUDIO_TRACKS[1];
-  }
-
+  // 2. Investigative / Dossier / Noir / Heist / Conspiracy / FBI / CIA / Whistleblower
+  const isInvestigative = /heist|crime|wire|cia|fbi|conspiracy|investigation|gold|bank|leaked|document|whistleblower|dossier|classified/i.test(context);
   if (isInvestigative) {
     const inv = STUDIO_TRACKS.find(t => t.id === 'dark-walk');
     if (inv) return inv;
   }
 
-  // Score tracks based on mood keyword matches
-  let bestTrack = STUDIO_TRACKS[1]; // default to Echoes of Time for documentary feel
-  let bestScore = -1;
-
-  for (const track of STUDIO_TRACKS) {
-    let score = 0;
-    for (const mood of track.moods) {
-      if (context.includes(mood)) score += 3;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestTrack = track;
-    }
+  // 3. Mystery / Ancient / History / Deep Ocean / Ruins / Unsolved / Secrets / Archive
+  const isMysterious = /mystery|unsolved|secret|classified|anomaly|forbidden|ancient|ruins|lost|voynich|pyramid|atlantis|monolith|deep|untold|civilization|history|archive/i.test(context);
+  if (isMysterious) {
+    const mysteryTracks = STUDIO_TRACKS.filter(t => t.id === 'echoes-of-time' || t.id === 'giant-wyrm' || t.id === 'the-dread');
+    return mysteryTracks[Math.floor(Math.random() * mysteryTracks.length)] || STUDIO_TRACKS[1];
   }
 
-  return bestTrack;
+  // 4. Tech / AI / Modern Breakthroughs
+  const isTech = /tech|ai|software|future|breakthrough|productivity|quantum|cyber|code|machine/i.test(context);
+  if (isTech) {
+    const techTracks = STUDIO_TRACKS.filter(t => t.id === 'tech-live' || t.id === 'neon-laser-horizon');
+    return techTracks[Math.floor(Math.random() * techTracks.length)] || STUDIO_TRACKS[5];
+  }
+
+  // Default to cinematic documentary mystery atmosphere (Echoes of Time)
+  const defaultTrack = STUDIO_TRACKS.find(t => t.id === 'echoes-of-time') || STUDIO_TRACKS[0];
+  return defaultTrack;
 }
 
 export async function ensureAutonomousAudioAsset(reel: any): Promise<MediaAsset | null> {
-  // First, check if a freshly registered studio track is already available and under-used
-  const existing = selectAssets({
-    type: 'audio',
-    tags: ['studio-audio'],
-    limit: 5,
-    avoidRecentlyUsedDays: 2
-  });
-  if (existing[0] && existing[0].source === 'studio-royalty-free-library') {
-    return existing[0];
-  }
-
   await fs.mkdir(GENERATED_DIR, { recursive: true });
+  await fs.mkdir(AUDIO_LIBRARY_DIR, { recursive: true });
 
   const track = selectBestStudioTrack(reel);
   console.info(`[Autonomous Studio Audio] Selected authentic studio track: "${track.name}" (${track.genre}, ${track.bpm} BPM)`);
+
+  // ONLY reuse an asset if it matches the EXACT selected track and is physically present on disk
+  const existing = selectAssets({
+    type: 'audio',
+    tags: [track.id, 'studio-audio'],
+    limit: 5,
+    avoidRecentlyUsedDays: 1
+  });
+  const matchedExisting = existing.find(a => 
+    a.source === 'studio-royalty-free-library' && 
+    (a.metadata?.trackId === track.id || a.tags.includes(track.id)) &&
+    fsSync.existsSync(a.file_path)
+  );
+  if (matchedExisting) {
+    console.info(`[Autonomous Studio Audio] Re-using cached clip for "${track.name}".`);
+    return matchedExisting;
+  }
 
   let masterPath: string;
   try {
@@ -205,8 +200,8 @@ export async function ensureAutonomousAudioAsset(reel: any): Promise<MediaAsset 
   const filename = `studio-${track.id}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp3`;
   const outputPath = path.join(GENERATED_DIR, filename);
 
-  // Extract atmospheric bed with smooth fades and gentle background loudness
-  const audioFilter = `volume=0.35,afade=t=in:ss=0:d=0.35,afade=t=out:st=${Math.max(1, duration - 1.5)}:d=1.5`;
+  // Background music volume reduced by 50% (from 0.35 down to 0.17) with smooth breathing fades
+  const audioFilter = `volume=0.17,afade=t=in:ss=0:d=0.5,afade=t=out:st=${Math.max(1, duration - 1.5)}:d=1.5`;
 
   try {
     await execFileAsync('ffmpeg', [
@@ -224,7 +219,7 @@ export async function ensureAutonomousAudioAsset(reel: any): Promise<MediaAsset 
       type: 'audio',
       sourcePath: outputPath,
       category: 'studio-music',
-      tags: ['autonomous', 'music', 'studio-audio', 'electronic', 'high-energy', track.genre],
+      tags: ['autonomous', 'music', 'studio-audio', track.id, track.genre],
       duration,
       source: 'studio-royalty-free-library',
       prompt: `${track.name} by ${track.artist}`,

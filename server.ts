@@ -40,7 +40,7 @@ import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset } from "
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
+import { generateSpeech, generateSilentAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -450,22 +450,41 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     const sc = rawScenes[i];
     // Prioritize rich voiceScript / voiceText over brief headlines
     const narrationText = String(sc?.voiceScript || sc?.voiceText || sc?.subline || sc?.headline || '').trim();
+    let segPath: string | null = null;
+    let audioDur = 0;
+
     if (narrationText) {
       try {
         const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        const segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
-        const audioDur = await getAudioDuration(segPath);
-        // Add 0.5s breathing padding so speech never cuts off abruptly at the transition
-        const sceneDur = Math.max(audioDur + 0.5, 6.0);
-        voiceSegments.push(segPath);
-        sceneDurations.push(sceneDur);
-        console.log(`[Autonomous 24x7 Engine] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s audio -> Scene duration calibrated to ${sceneDur.toFixed(1)}s.`);
+        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
+        audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
-        console.warn(`[Autonomous 24x7 Engine] Voice synthesis failed for scene ${i + 1}:`, segErr);
-        sceneDurations.push(Number(sc?.durationSeconds || 8.0));
+        console.warn(`[Autonomous 24x7 Engine] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
+        const headline = String(sc?.headline || sc?.hookText || '').trim();
+        if (headline) {
+          try {
+            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale });
+            audioDur = await getAudioDuration(segPath);
+          } catch (headErr) {
+            console.error(`[Autonomous 24x7 Engine] Headline fallback also failed for scene ${i + 1}:`, headErr);
+          }
+        }
       }
+    }
+
+    // If speech was produced, calibrate scene duration to speech plus breathing buffer
+    if (segPath && audioDur > 0) {
+      const sceneDur = Math.max(audioDur + 0.5, 6.0);
+      voiceSegments.push(segPath);
+      sceneDurations.push(sceneDur);
+      console.log(`[Autonomous 24x7 Engine] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s audio -> Scene calibrated to ${sceneDur.toFixed(1)}s.`);
     } else {
-      sceneDurations.push(Number(sc?.durationSeconds || 8.0));
+      // Create a synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
+      const fallbackDur = Math.max(Number(sc?.durationSeconds || 8.0), 6.0);
+      const silentSeg = await generateSilentAudioSegment(fallbackDur);
+      voiceSegments.push(silentSeg);
+      sceneDurations.push(fallbackDur);
+      console.warn(`[Autonomous 24x7 Engine] Scene ${i + 1} generated silent sync bed (${fallbackDur}s).`);
     }
   }
 

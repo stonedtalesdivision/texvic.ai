@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     xdg-utils \
     && pip install --no-cache-dir --break-system-packages edge-tts \
+    && chmod 755 /usr/local/bin/edge-tts \
+    && ln -sf /usr/local/bin/edge-tts /usr/bin/edge-tts \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cloudflared for automatic HTTPS web tunnel supervisor

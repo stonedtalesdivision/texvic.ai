@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
+import crypto from 'node:crypto';
 
 const execFileAsync = promisify(execFile);
 const TTS_DIR = path.join(process.cwd(), 'data', 'media', 'tts');
@@ -45,13 +46,22 @@ export function resolveBestVoiceForTopic(topicOrNiche = '', mood = ''): string {
 }
 
 /**
- * Normalizes text for natural human breathing rhythm and clean pronunciation
+ * Normalizes text for natural human breathing rhythm and clean pronunciation.
+ * Strips emojis, formatting, and XML-breaking entities that crash edge-tts SSML parsing.
  */
-function humanizeSpeechText(text: string): string {
+export function humanizeSpeechText(text: string): string {
   return text
-    .replace(/[*#`[\]()]/g, '')
+    // Strip markdown formatting & brackets
+    .replace(/[*#`[\]()_~]/g, ' ')
+    // Strip emojis and non-standard unicode symbols that crash SSML
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '')
+    // Normalize quotes & dashes
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
     .replace(/\s*--\s*/g, ', ')
     .replace(/\s*—\s*/g, ', ')
+    .replace(/&/g, ' and ')
+    .replace(/[<>]/g, '')
     .replace(/\.{3,}/g, '... ')
     .replace(/:\s+/g, '. ')
     .replace(/[\r\n]+/g, ' ')
@@ -79,8 +89,67 @@ export async function getAudioDuration(filePath: string): Promise<number> {
 }
 
 /**
+ * Executes edge-tts trying all available CLI entrypoints across Windows & Linux Docker
+ */
+async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ stdout: string; stderr: string }> {
+  const candidates: { cmd: string; prefix: string[] }[] = [];
+
+  if (process.platform === 'win32') {
+    candidates.push({ cmd: 'python', prefix: ['-m', 'edge_tts'] });
+    candidates.push({ cmd: 'edge-tts', prefix: [] });
+  } else {
+    // Linux / Docker environment
+    candidates.push({ cmd: 'edge-tts', prefix: [] });
+    candidates.push({ cmd: '/usr/local/bin/edge-tts', prefix: [] });
+    candidates.push({ cmd: '/usr/bin/edge-tts', prefix: [] });
+    candidates.push({ cmd: 'python3', prefix: ['-m', 'edge_tts'] });
+    candidates.push({ cmd: 'python', prefix: ['-m', 'edge_tts'] });
+  }
+
+  let lastError: any = null;
+  for (const candidate of candidates) {
+    try {
+      const fullArgs = [...candidate.prefix, ...cliArgs];
+      return await execFileAsync(candidate.cmd, fullArgs, { timeout: timeoutMs });
+    } catch (err: any) {
+      lastError = err;
+      if (err?.code === 'ENOENT') {
+        // Binary or python executable not found, try next candidate
+        continue;
+      }
+      // If edge-tts threw an execution error (e.g. connection refused, network timeout), keep error and try next
+    }
+  }
+
+  throw lastError || new Error('No working edge-tts execution candidate found.');
+}
+
+/**
+ * Synthesizes a clean silent audio segment of exact duration using ffmpeg.
+ * Used as a zero-dropout sync fallback so scenes never lose alignment.
+ */
+export async function generateSilentAudioSegment(durationSec: number, outputPath?: string): Promise<string> {
+  await fs.mkdir(TTS_DIR, { recursive: true });
+  const target = outputPath || path.join(TTS_DIR, `silence-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+  const safeDur = Math.max(0.5, durationSec);
+
+  await execFileAsync('ffmpeg', [
+    '-y',
+    '-f', 'lavfi',
+    '-i', 'anullsrc=r=24000:cl=mono',
+    '-t', String(safeDur),
+    '-c:a', 'libmp3lame',
+    '-b:a', '48k',
+    target
+  ]);
+
+  return target;
+}
+
+/**
  * Generate human-like neural audio voiceover from script text.
  * Completely free, zero API key required, low latency (~1.5s).
+ * Features multi-voice fallback, temp-file argument passing, and backoff retries.
  */
 export async function generateSpeech(
   text: string,
@@ -95,8 +164,7 @@ export async function generateSpeech(
     throw new Error('TTS text cannot be empty');
   }
 
-  // Deep documentary male by default for cinematic realism, or user-selected voice
-  const voice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
+  const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
   const targetPath = outputPath || path.join(TTS_DIR, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
 
   // Natural human speech cadence is +0% to +3% speed (never robotic chipmunk +20%)
@@ -104,32 +172,56 @@ export async function generateSpeech(
   // Slight pitch reduction adds chest resonance and dramatic gravity to narration
   const pitch = options.pitch || '-2Hz';
 
-  const args = [
-    '-m', 'edge_tts',
-    '--text', cleanedText,
-    '--write-media', targetPath,
-    '--voice', voice,
-    '--rate', rate,
-    '--pitch', pitch
-  ];
+  // Write text to a temporary UTF-8 text file to eliminate command-line encoding & length bugs
+  const tempTextFile = path.join(TTS_DIR, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
+  await fs.writeFile(tempTextFile, cleanedText, 'utf8');
 
-  const pythonCmd = process.platform === 'win32'
-    ? 'python'
-    : (fsSync.existsSync('/usr/bin/python3') && !fsSync.existsSync('/usr/bin/python') ? 'python3' : 'python');
+  // Fallback voice candidates if primary voice encounters a service glitch
+  const candidateVoices = [
+    primaryVoice,
+    CREATOR_VOICES.deepDocumentaryMale,
+    CREATOR_VOICES.cinematicStorytellerMale,
+    CREATOR_VOICES.naturalCreatorMale,
+    'en-US-GuyNeural'
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   try {
-    await execFileAsync(pythonCmd, args, { timeout: 45000 });
-    
-    // Verify audio file was produced
-    const stat = await fs.stat(targetPath);
-    if (stat.size < 500) {
-      throw new Error(`TTS output file too small (${stat.size} bytes)`);
+    let lastError: any = null;
+
+    for (let attempt = 0; attempt < candidateVoices.length; attempt++) {
+      const voiceToUse = candidateVoices[attempt];
+      const args = [
+        '--file', tempTextFile,
+        '--write-media', targetPath,
+        '--voice', voiceToUse,
+        '--rate', rate,
+        '--pitch', pitch
+      ];
+
+      try {
+        await executeEdgeTTS(args, 45000);
+
+        // Verify audio file was produced and has valid data
+        if (fsSync.existsSync(targetPath)) {
+          const stat = await fs.stat(targetPath);
+          if (stat.size >= 500) {
+            return targetPath;
+          }
+          // File too small or 0 bytes - delete and retry
+          try { await fs.unlink(targetPath); } catch {}
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[TTS Engine] Attempt ${attempt + 1} with voice "${voiceToUse}" failed:`, err?.message || err);
+        try { if (fsSync.existsSync(targetPath)) await fs.unlink(targetPath); } catch {}
+        // Small backoff before retrying with fallback voice
+        await new Promise(r => setTimeout(r, 800));
+      }
     }
 
-    return targetPath;
-  } catch (err: any) {
-    console.error(`[TTS Engine] Edge-TTS error for text "${cleanedText.slice(0, 40)}...":`, err?.message || err);
-    throw err;
+    throw lastError || new Error(`TTS synthesis failed for text: "${cleanedText.slice(0, 50)}..."`);
+  } finally {
+    try { await fs.unlink(tempTextFile); } catch {}
   }
 }
 
