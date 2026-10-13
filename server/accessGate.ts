@@ -173,7 +173,7 @@ export function ownerAuthMiddleware(req: Request, res: Response, next: NextFunct
       if (process.env.APP_URL) {
         try { appUrlHost = new URL(process.env.APP_URL).host.toLowerCase(); } catch {}
       }
-      const isAllowedOrigin = originHost === currentHost || (appUrlHost && originHost === appUrlHost);
+      const isAllowedOrigin = originHost === currentHost || (appUrlHost && originHost === appUrlHost) || originHost.endsWith('texvic.tech');
       if (!isAllowedOrigin) {
         res.status(403).json({ success: false, error: "Cross-origin request rejected." });
         return;

@@ -2,7 +2,7 @@
 import json, os, time, urllib.error, urllib.parse, urllib.request, uuid
 from pathlib import Path
 
-TEXVIC_URL = os.environ.get("TEXVIC_URL", "https://api.texvic.tech").rstrip("/")
+TEXVIC_URL = os.environ.get("TEXVIC_URL", "https://app.texvic.tech").rstrip("/")
 WORKER_TOKEN = os.environ.get("VIDEO_WORKER_TOKEN", "")
 VIDEO_PROVIDER = os.environ.get("VIDEO_PROVIDER", "ltx23-hf").strip().lower()
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")

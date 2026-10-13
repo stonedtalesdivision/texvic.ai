@@ -20,7 +20,7 @@ pip install -r requirements.txt
 Environment:
 
 ```bash
-TEXVIC_URL=https://api.texvic.tech
+TEXVIC_URL=https://app.texvic.tech
 VIDEO_WORKER_TOKEN=...
 VIDEO_PROVIDER=ltx23-hf
 LTX_SPACE=Lightricks/LTX-2-3

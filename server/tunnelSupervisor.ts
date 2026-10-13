@@ -44,6 +44,13 @@ function updateEnvFile(newAppUrl: string): void {
     const envPath = path.join(process.cwd(), '.env');
     if (!fs.existsSync(envPath)) return;
 
+    const configured = (process.env.APP_URL || '').trim();
+    // If user already has a custom domain configured (not temporary trycloudflare), never overwrite it
+    if (configured && !configured.includes('trycloudflare.com')) {
+      console.log(`[Tunnel Supervisor] 🔒 Preserving configured permanent domain: ${configured}`);
+      return;
+    }
+
     let content = fs.readFileSync(envPath, 'utf8');
     if (/^APP_URL=.*$/m.test(content)) {
       content = content.replace(/^APP_URL=.*$/m, `APP_URL=${newAppUrl}`);
@@ -239,23 +246,46 @@ function startWatchdog(): void {
       isHealthy = true;
       lastError = null;
     } else {
-      console.warn(`[Tunnel Supervisor] ⚠️ Cloudflare tunnel ${url} failed health check. Triggering self-healing recovery...`);
-      isHealthy = false;
-      lastError = 'Health check probe failed (tunnel down or expired)';
-      await restartTunnel();
+      const isQuickTunnel = url.includes('trycloudflare.com');
+      const tunnelToken = (process.env.CLOUDFLARE_TUNNEL_TOKEN || '').trim();
+
+      if (isQuickTunnel || tunnelToken) {
+        console.warn(`[Tunnel Supervisor] ⚠️ Cloudflare tunnel ${url} failed health check. Triggering self-healing recovery...`);
+        isHealthy = false;
+        lastError = 'Health check probe failed (tunnel down or expired)';
+        await restartTunnel();
+      } else {
+        // Custom domain (e.g. https://app.texvic.tech) managed via Cloudflare Zero Trust / Nginx
+        console.warn(`[Tunnel Supervisor] ⚠️ Custom domain probe ping failed for ${url}. Custom ingress is externally managed.`);
+        isHealthy = true; // Retain active state so pipeline doesn't block
+      }
     }
   }, 45000);
 }
 
 export async function startTunnelSupervisor(): Promise<string> {
   const isAutoTunnelEnabled = process.env.CLOUDFLARE_AUTO_TUNNEL !== 'false';
-  if (!isAutoTunnelEnabled) {
-    console.log('[Tunnel Supervisor] Cloudflare auto-tunnel disabled via CLOUDFLARE_AUTO_TUNNEL=false.');
-    return process.env.APP_URL || '';
+  const existingUrl = (process.env.APP_URL || '').trim();
+  const isCustomDomain = existingUrl && !existingUrl.includes('trycloudflare.com');
+  const tunnelToken = (process.env.CLOUDFLARE_TUNNEL_TOKEN || '').trim();
+
+  // If user configured a permanent custom domain (e.g. https://app.texvic.tech) and no internal token-tunnel is needed
+  if (isCustomDomain && !tunnelToken) {
+    console.log(`[Tunnel Supervisor] 🌐 Permanent custom domain active: ${existingUrl}`);
+    currentUrl = existingUrl;
+    isHealthy = true;
+    startWatchdog();
+    return existingUrl;
   }
 
-  // Check if current APP_URL is already online and healthy
-  const existingUrl = (process.env.APP_URL || '').trim();
+  if (!isAutoTunnelEnabled) {
+    console.log('[Tunnel Supervisor] Cloudflare auto-tunnel disabled via CLOUDFLARE_AUTO_TUNNEL=false.');
+    currentUrl = existingUrl;
+    isHealthy = true;
+    return existingUrl;
+  }
+
+  // Check if current trycloudflare tunnel is already online and healthy
   if (existingUrl && existingUrl.includes('trycloudflare.com')) {
     const alreadyHealthy = await verifyTunnelReachability(existingUrl);
     if (alreadyHealthy) {
