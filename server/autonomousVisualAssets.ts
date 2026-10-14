@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { GoogleGenAI } from '@google/genai';
 import { promisify } from 'node:util';
-import { registerAsset, selectAssets, type MediaAsset } from './assetLibrary.js';
+import { registerAsset, selectAssets, resolveAssetDiskPath, markAssetUsed, type MediaAsset } from './assetLibrary.js';
 import { renderOverlayToPng } from './vectorOverlayEngine.js';
 import { fetchBestFreeVisual } from './freeStockAssets.js';
 import { fetchBestMotionVideo } from './motionVideoEngine.js';
@@ -172,8 +172,35 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
     }
   }
 
+  // 1.5. User-Uploaded VPS Background Video Priority Check!
+  // If user uploaded custom background videos in the Asset Library, prioritize them!
+  if (!hasCustomImage && !hasMotionVideo) {
+    try {
+      const customBackgrounds = selectAssets({ type: 'video', category: 'custom-background', limit: 10 });
+      const userVideos = customBackgrounds.length > 0
+        ? customBackgrounds
+        : selectAssets({ type: 'video', tags: ['user-upload'], limit: 10 });
+
+      if (userVideos.length > 0) {
+        const chosen = userVideos[index % userVideos.length];
+        const diskPath = resolveAssetDiskPath(chosen);
+        if (diskPath && fsSync.existsSync(diskPath)) {
+          await fs.copyFile(diskPath, motionVideoPath);
+          const vStats = await fs.stat(motionVideoPath);
+          if (vStats.size > 20000) {
+            hasMotionVideo = true;
+            markAssetUsed(chosen.id, reel?.id || 'reel', index + 1);
+            console.info(`[Autonomous Visual Producer] 🎬 Scene ${index + 1}: Prioritizing user-uploaded VPS background video "${chosen.filename}".`);
+          }
+        }
+      }
+    } catch (userVidErr: any) {
+      console.warn(`[Autonomous Visual Producer] User video selection fallback:`, userVidErr?.message || userVidErr);
+    }
+  }
+
   // 2. Authentic Motion Video Footage: Pexels Video API, Pixabay, or Local Vault
-  if (!hasCustomImage) {
+  if (!hasCustomImage && !hasMotionVideo) {
     try {
       const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
       let customKeywords = Array.isArray(scene?.bRollKeywords) && scene.bRollKeywords.length > 0

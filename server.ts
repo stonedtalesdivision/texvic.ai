@@ -36,7 +36,8 @@ import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
 import { THEME_PAGE_PROFILE, getActivePersona, buildThemeResearchContext, selectDynamicVertical, CONTENT_VERTICALS, type ContentVertical } from "./server/themePage.js";
 import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract, verifyMediaSignature } from "./server/videoEngine.js";
-import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset, syncAssetsFromDisk, getStorageStats } from "./server/assetLibrary.js";
+import multer from "multer";
+import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset, syncAssetsFromDisk, getStorageStats, saveUploadedAsset } from "./server/assetLibrary.js";
 import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageManager.js";
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
@@ -97,6 +98,20 @@ const execFileAsync = promisify(execFile);
 
 const oauthStates = new Map<string, number>();
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+// Disk storage uploader for audio/video assets from laptop to VPS
+const uploadTempDir = path.join(process.cwd(), "data", "temp_uploads");
+if (!fs.existsSync(uploadTempDir)) {
+  fs.mkdirSync(uploadTempDir, { recursive: true });
+}
+
+const assetUploader = multer({
+  dest: uploadTempDir,
+  limits: {
+    fileSize: 500 * 1024 * 1024, // 500MB max per asset file
+    files: 10
+  }
+});
 
 app.use(express.json({
   verify: (req: any, _res, buf) => {
@@ -648,6 +663,37 @@ app.get("/api/assets/select", (req, res) => {
     avoidRecentlyUsedDays: Number(req.query.avoidDays) || 3,
     limit
   }) });
+});
+
+// Upload Video/Audio/Image Assets Directly from Laptop to VPS
+app.post("/api/assets/upload", assetUploader.array("files", 10), async (req: any, res: any) => {
+  try {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, error: "No files provided for upload." });
+    }
+
+    const category = String(req.body.category || 'custom-background');
+    const rawTags = String(req.body.tags || '');
+    const tags = rawTags.split(',').map((t: string) => t.trim()).filter(Boolean);
+    const mood = req.body.mood ? String(req.body.mood) : undefined;
+
+    const savedAssets = [];
+    for (const file of files) {
+      const asset = await saveUploadedAsset(file, { category, tags, mood });
+      if (asset) savedAssets.push(asset);
+    }
+
+    res.json({
+      success: true,
+      count: savedAssets.length,
+      assets: savedAssets,
+      message: `Successfully uploaded ${savedAssets.length} asset(s) to VPS storage.`
+    });
+  } catch (err: any) {
+    console.error("[Upload Asset] Failed to process uploaded asset:", err);
+    res.status(500).json({ success: false, error: err?.message || "Failed to upload asset." });
+  }
 });
 
 app.post("/api/assets/register", async (req, res) => {

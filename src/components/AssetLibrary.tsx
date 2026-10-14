@@ -3,7 +3,8 @@ import {
   Archive, Film, Image as ImageIcon, Music2, Search, RefreshCw,
   Tag, Clock3, BarChart3, HardDrive, ChevronDown, Trash2,
   Play, Pause, Eye, X, Sparkles, ShieldCheck, CheckCircle2,
-  AlertTriangle, Volume2, ArrowUpDown
+  AlertTriangle, Volume2, ArrowUpDown, UploadCloud, Plus,
+  FileVideo, FileAudio, FileUp, Loader2, File
 } from 'lucide-react';
 
 type AssetType = 'video' | 'image' | 'audio';
@@ -74,6 +75,17 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [cleanMessage, setCleanMessage] = useState<string | null>(null);
+
+  // Upload modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<globalThis.File[]>([]);
+  const [uploadCategory, setUploadCategory] = useState('custom-background');
+  const [uploadTags, setUploadTags] = useState('background, footage');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadAssets = async () => {
     setLoading(true);
@@ -153,6 +165,71 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files);
+      setSelectedFiles(prev => [...prev, ...filesArray]);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const filesArray = Array.from(e.dataTransfer.files);
+      setSelectedFiles(prev => [...prev, ...filesArray]);
+    }
+  };
+
+  const handleRemoveSelectedFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFiles.length) {
+      setUploadError('Please select at least one video, audio, or image file to upload.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    setUploadProgress(15);
+
+    const formData = new FormData();
+    selectedFiles.forEach(file => {
+      formData.append('files', file);
+    });
+    formData.append('category', uploadCategory);
+    formData.append('tags', uploadTags);
+
+    try {
+      setUploadProgress(45);
+      const res = await fetch('/api/assets/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      setUploadProgress(85);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to upload asset to VPS.');
+      }
+
+      setUploadProgress(100);
+      setCleanMessage(`Successfully uploaded ${data.count} asset(s) to VPS storage!`);
+      setSelectedFiles([]);
+      setShowUploadModal(false);
+      await loadAssets();
+      await loadStorageStats();
+      setTimeout(() => setCleanMessage(null), 5000);
+    } catch (err: any) {
+      setUploadError(err?.message || 'Failed to upload asset to VPS.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   useEffect(() => {
     loadAssets();
     loadStorageStats();
@@ -218,37 +295,46 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
             </div>
             <h1 className="text-2xl font-black text-white tracking-tight">VPS Storage & Media Inventory</h1>
             <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-              Preview visual footage, audio tracks, and stock assets stored on your VPS. Deleting an asset removes it both from Texvic AI and VPS disk storage to guarantee your VPS never runs out of space.
+              Upload video footage and audio from your laptop directly to VPS storage to use as custom backgrounds in reels. Preview media and delete unused assets anytime to keep VPS storage lean.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-center">
+            {/* Primary Action: Upload Assets to VPS */}
+            <button
+              type="button"
+              onClick={() => { setShowUploadModal(true); setUploadError(null); }}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-600/30 flex items-center gap-2 transition-all active:scale-95"
+            >
+              <UploadCloud className="w-4 h-4" />
+              Upload Assets to VPS
+            </button>
+
             <button
               type="button"
               onClick={handleRunStorageCleanup}
               disabled={cleaning}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white shadow-lg shadow-violet-500/20 flex items-center gap-2 disabled:opacity-50 transition-all active:scale-95"
+              className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-slate-900/90 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-2 disabled:opacity-50 transition-all active:scale-95"
               title="Immediately purge published reels older than 24 hours to reclaim VPS disk space"
             >
               <Sparkles className={`w-3.5 h-3.5 ${cleaning ? 'animate-spin' : ''}`} />
-              {cleaning ? 'Cleaning Storage...' : 'Clean Storage Now'}
+              {cleaning ? 'Cleaning...' : 'Clean Storage'}
             </button>
             <button
               type="button"
               onClick={() => { loadAssets(); loadStorageStats(); }}
               disabled={loading}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-2 disabled:opacity-50 transition-colors"
+              className="px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
             </button>
           </div>
         </div>
 
         {cleanMessage && (
-          <div className="mt-4 px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-fadeIn">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{cleanMessage}</span>
+          <div className="mt-4 px-3.5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span className="font-medium">{cleanMessage}</span>
           </div>
         )}
 
@@ -385,8 +471,16 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
           <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
             {assets.length
               ? 'Try adjusting your search query, type filter, or category selector.'
-              : 'As Texvic AI autonomously produces video reels and audio tracks, assets are automatically registered and saved to VPS disk storage.'}
+              : 'Upload video footage or audio tracks from your laptop to get started.'}
           </p>
+          <button
+            type="button"
+            onClick={() => { setShowUploadModal(true); setUploadError(null); }}
+            className="mt-4 px-4 py-2 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white inline-flex items-center gap-1.5 shadow"
+          >
+            <UploadCloud className="w-4 h-4" />
+            Upload Your First Asset
+          </button>
         </div>
       )}
 
@@ -544,6 +638,200 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
           );
         })}
       </div>
+
+      {/* Upload Modal (Laptop to VPS) */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Upload Assets to VPS</h3>
+                  <p className="text-xs text-slate-400">Save custom video footage or audio to use in reel backgrounds</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { if (!isUploading) setShowUploadModal(false); }}
+                disabled={isUploading}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleUploadSubmit} className="p-6 space-y-4">
+              {/* Drag and Drop Box */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
+                  isDragging
+                    ? 'border-violet-500 bg-violet-500/10 scale-[1.01]'
+                    : 'border-slate-700 hover:border-violet-500/50 bg-slate-950/40 hover:bg-slate-950/70'
+                }`}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileSelect}
+                  multiple
+                  accept="video/*,audio/*,image/*"
+                  className="hidden"
+                />
+                <div className="w-12 h-12 mx-auto rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center mb-3">
+                  <FileUp className="w-6 h-6" />
+                </div>
+                <p className="text-sm font-bold text-white">
+                  Click to browse or drag & drop files here
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Supports MP4, MOV, WebM videos, MP3, WAV audio, and JPG, PNG images (up to 500MB)
+                </p>
+              </div>
+
+              {/* Selected Files List */}
+              {selectedFiles.length > 0 && (
+                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                  <div className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                    <span>Selected Files ({selectedFiles.length})</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFiles([])}
+                      className="text-[11px] text-red-400 hover:underline"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  {selectedFiles.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs"
+                    >
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        {file.type.startsWith('video') ? (
+                          <Film className="w-4 h-4 text-pink-400 shrink-0" />
+                        ) : file.type.startsWith('audio') ? (
+                          <Music2 className="w-4 h-4 text-amber-400 shrink-0" />
+                        ) : (
+                          <ImageIcon className="w-4 h-4 text-sky-400 shrink-0" />
+                        )}
+                        <span className="text-slate-200 truncate font-medium">{file.name}</span>
+                        <span className="text-[10px] text-slate-500 shrink-0 font-mono">
+                          ({formatBytes(file.size)})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSelectedFile(idx)}
+                        className="p-1 text-slate-500 hover:text-red-400 transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Category Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Category & Use Case
+                </label>
+                <select
+                  value={uploadCategory}
+                  onChange={e => setUploadCategory(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white outline-none focus:border-violet-500/50"
+                >
+                  <option value="custom-background">⭐ Reel Background (Prioritized for Video/Audio Backgrounds)</option>
+                  <option value="b-roll">B-Roll Footage</option>
+                  <option value="ambient-audio">Ambient Soundtrack / Music</option>
+                  <option value="general">General Asset</option>
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Assets tagged as "Reel Background" will automatically be used as real moving backgrounds when generating reels.
+                </p>
+              </div>
+
+              {/* Tags Field */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Search Tags (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={uploadTags}
+                  onChange={e => setUploadTags(e.target.value)}
+                  placeholder="e.g. drone, mystery, neon, dark, cinematic"
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder:text-slate-600 outline-none focus:border-violet-500/50"
+                />
+              </div>
+
+              {/* Upload Progress Bar */}
+              {isUploading && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between text-xs text-slate-300">
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-400" />
+                      Uploading to VPS storage...
+                    </span>
+                    <span className="font-mono">{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-violet-600 to-fuchsia-600 transition-all duration-300 rounded-full"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {uploadError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
+              {/* Modal Actions */}
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  disabled={isUploading}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploading || selectedFiles.length === 0}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-lg shadow-violet-600/30 flex items-center gap-2 disabled:opacity-50 transition-all active:scale-95"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-4 h-4" />
+                      Upload {selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''} to VPS
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen Media Preview Modal */}
       {previewAsset && (

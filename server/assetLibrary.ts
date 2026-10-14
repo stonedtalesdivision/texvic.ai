@@ -2,7 +2,11 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { db } from './database.js';
+
+const execFileAsync = promisify(execFile);
 
 export type AssetType = 'video' | 'image' | 'audio';
 
@@ -37,6 +41,107 @@ export async function ensureAssetDirectories() {
   await fs.mkdir(path.join(ASSET_DIR, 'video'), { recursive: true });
   await fs.mkdir(path.join(ASSET_DIR, 'image'), { recursive: true });
   await fs.mkdir(path.join(ASSET_DIR, 'audio'), { recursive: true });
+}
+
+/**
+ * Probes video and audio dimensions and duration using ffprobe
+ */
+export async function probeMediaMetadata(filePath: string, type: AssetType): Promise<{
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+}> {
+  try {
+    if (type === 'video') {
+      const { stdout } = await execFileAsync('ffprobe', [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=width,height,duration',
+        '-show_entries', 'format=duration',
+        '-of', 'json',
+        filePath
+      ]);
+      const data = JSON.parse(stdout);
+      const stream = data.streams?.[0] || {};
+      const duration = parseFloat(stream.duration || data.format?.duration || '0') || null;
+      const width = parseInt(stream.width, 10) || null;
+      const height = parseInt(stream.height, 10) || null;
+      return { duration, width, height };
+    } else if (type === 'audio') {
+      const { stdout } = await execFileAsync('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        filePath
+      ]);
+      const duration = parseFloat(stdout.trim()) || null;
+      return { duration, width: null, height: null };
+    }
+  } catch (err) {
+    console.warn(`[AssetLibrary] ffprobe could not probe ${filePath}:`, err);
+  }
+  return { duration: null, width: type === 'video' ? 1080 : null, height: type === 'video' ? 1920 : null };
+}
+
+/**
+ * Processes an uploaded file from laptop/browser, moves to VPS storage, and registers in SQLite
+ */
+export async function saveUploadedAsset(file: {
+  path: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}, options: {
+  category?: string;
+  tags?: string[];
+  mood?: string;
+}): Promise<MediaAsset> {
+  await ensureAssetDirectories();
+
+  const ext = path.extname(file.originalname).toLowerCase();
+  let type: AssetType = 'image';
+  if (/video|mp4|mov|webm|mkv|avi|m4v/i.test(file.mimetype) || /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(ext)) {
+    type = 'video';
+  } else if (/audio|mp3|wav|m4a|aac|ogg|flac/i.test(file.mimetype) || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(ext)) {
+    type = 'audio';
+  } else if (/image|jpeg|jpg|png|webp|gif/i.test(file.mimetype) || /\.(jpg|jpeg|png|webp|gif)$/i.test(ext)) {
+    type = 'image';
+  }
+
+  const id = `asset-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+  const cleanOriginalName = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const filename = `${id}-${cleanOriginalName}`;
+  const targetPath = path.join(ASSET_DIR, type, filename);
+
+  await fs.copyFile(file.path, targetPath);
+  await fs.unlink(file.path).catch(() => {});
+
+  const probed = await probeMediaMetadata(targetPath, type);
+
+  const createdAt = now();
+  const category = options.category || 'custom-background';
+  const userTags = Array.isArray(options.tags) ? options.tags : [];
+  const tags = [...new Set(['user-upload', type, category, ...userTags])];
+
+  db.prepare(`
+    INSERT INTO media_assets
+      (id,type,filename,file_path,category,tags_json,duration,width,height,source,prompt,mood,camera,metadata_json,created_at,last_used_at,usage_count)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,0)
+  `).run(
+    id, type, filename, targetPath, category, JSON.stringify(tags),
+    probed.duration, probed.width, probed.height, 'user-upload',
+    options.category || 'Uploaded Background Asset', options.mood || null, null,
+    JSON.stringify({
+      sizeBytes: file.size,
+      originalFilename: file.originalname,
+      uploadedAt: createdAt,
+      mimeType: file.mimetype
+    }),
+    createdAt
+  );
+
+  console.log(`[AssetLibrary] ✅ Saved uploaded ${type} asset to VPS: "${filename}" (${file.size} bytes).`);
+  return getAsset(id)!;
 }
 
 /**

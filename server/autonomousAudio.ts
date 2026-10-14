@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { registerAsset, selectAssets, type MediaAsset } from './assetLibrary.js';
+import { registerAsset, selectAssets, resolveAssetDiskPath, markAssetUsed, type MediaAsset } from './assetLibrary.js';
 
 const execFileAsync = promisify(execFile);
 const GENERATED_DIR = path.join(process.cwd(), 'data', 'media', 'generated-audio');
@@ -163,6 +163,23 @@ export function selectBestStudioTrack(reel: any): StudioTrack {
 export async function ensureAutonomousAudioAsset(reel: any): Promise<MediaAsset | null> {
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   await fs.mkdir(AUDIO_LIBRARY_DIR, { recursive: true });
+
+  // 0. User-Uploaded Background Audio Priority Check!
+  // If user uploaded custom background music tracks, prioritize them!
+  const userMusic = selectAssets({ type: 'audio', category: 'custom-background', limit: 5 });
+  const anyUserAudio = userMusic.length > 0
+    ? userMusic
+    : selectAssets({ type: 'audio', tags: ['user-upload'], limit: 5 });
+
+  if (anyUserAudio.length > 0) {
+    const chosenTrack = anyUserAudio[Math.floor(Math.random() * anyUserAudio.length)];
+    const audioDiskPath = resolveAssetDiskPath(chosenTrack);
+    if (audioDiskPath && fsSync.existsSync(audioDiskPath)) {
+      markAssetUsed(chosenTrack.id, String(reel?.id || 'reel'), 1);
+      console.info(`[Autonomous Studio Audio] 🎵 Prioritizing user-uploaded VPS background audio: "${chosenTrack.filename}".`);
+      return chosenTrack;
+    }
+  }
 
   const track = selectBestStudioTrack(reel);
   console.info(`[Autonomous Studio Audio] Selected authentic studio track: "${track.name}" (${track.genre}, ${track.bpm} BPM)`);
