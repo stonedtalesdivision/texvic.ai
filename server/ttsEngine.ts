@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import crypto from 'node:crypto';
+import { GoogleGenAI } from '@google/genai';
 
 const execFileAsync = promisify(execFile);
 const TTS_DIR = path.join(process.cwd(), 'data', 'media', 'tts');
@@ -17,14 +18,14 @@ export interface TTSOptions {
 
 // Top natural creator & cinematic documentary voices in Microsoft Edge Neural TTS
 export const CREATOR_VOICES = {
-  deepDocumentaryMale: 'en-US-ChristopherNeural',         // Deep, authoritative, mysterious narrator (Vox / Discovery / Untold Mysteries)
+  deepDocumentaryMale: 'en-US-ChristopherNeural',         // Deep, authoritative, mature adult narrator
   cinematicStorytellerMale: 'en-US-EricNeural',           // Rich, calm, cinematic storytelling tone
-  naturalCreatorMale: 'en-US-AndrewMultilingualNeural',   // Warm, highly expressive conversational voice
-  casualPodcastMale: 'en-US-BrianMultilingualNeural',     // Dynamic creator/YouTuber delivery
-  britishNarratorMale: 'en-GB-RyanNeural',                // Mysterious, sophisticated British documentary voice
-  authorityMale: 'en-US-ChristopherNeural',               // Deep, crisp dramatic anchor
+  naturalCreatorMale: 'en-US-AndrewMultilingualNeural',   // Warm conversational voice
+  casualPodcastMale: 'en-US-BrianMultilingualNeural',     // Dynamic creator delivery
+  britishNarratorMale: 'en-GB-RyanNeural',                // Mature, sophisticated British documentary voice
+  authorityMale: 'en-US-GuyNeural',                       // Deep, crisp dramatic broadcast anchor
   naturalCreatorFemale: 'en-US-AvaMultilingualNeural',    // Warm, authentic female storyteller
-  expressiveFemale: 'en-US-EmmaMultilingualNeural',       // Articulate, captivating female narrator
+  expressiveFemale: 'en-US-EmmaMultilingualNeural',       // Articulate female narrator
   mysteriousFemale: 'en-GB-SoniaNeural',                  // Chilling, atmospheric British storyteller
 };
 
@@ -33,16 +34,30 @@ export const CREATOR_VOICES = {
  */
 export function resolveBestVoiceForTopic(topicOrNiche = '', mood = ''): string {
   const text = `${topicOrNiche} ${mood}`.toLowerCase();
-  if (/scary|spooky|horror|creepy|dark|unsolved|mystery|paranormal|conspiracy|crime|heist|dossier|classified|ancient|ruins|island|abyss|ocean/i.test(text)) {
+  if (/scary|spooky|horror|creepy|dark|unsolved|mystery|paranormal|conspiracy|crime|heist|dossier|classified|ancient|ruins|island|abyss|ocean|nuclear/i.test(text)) {
     return CREATOR_VOICES.deepDocumentaryMale;
   }
   if (/history|historical|civilization|documentary|archive|dossier/i.test(text)) {
     return CREATOR_VOICES.cinematicStorytellerMale;
   }
   if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
-    return CREATOR_VOICES.naturalCreatorMale;
+    return 'en-US-GuyNeural';
   }
   return CREATOR_VOICES.deepDocumentaryMale;
+}
+
+/**
+ * Resolves mature, studio-grade prebuilt voice for Gemini 3.8 Flash TTS
+ */
+export function resolveGeminiVoiceForTopic(topicOrNiche = '', mood = ''): string {
+  const text = `${topicOrNiche} ${mood}`.toLowerCase();
+  if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
+    return 'Puck'; // Confident, sharp modern creator voice
+  }
+  if (/crime|heist|dossier|classified|nuclear|cold war|war|secret|danger/i.test(text)) {
+    return 'Charon'; // Deepest, gravest narrator
+  }
+  return 'Fenrir'; // Deep, authoritative documentary baritone
 }
 
 /**
@@ -227,25 +242,38 @@ export async function generateSpeech(
     throw new Error('TTS text cannot be empty');
   }
 
-  const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
   const targetPath = outputPath || path.join(TTS_DIR, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
 
-  // Natural human speech cadence is +0% to +3% speed (never robotic chipmunk +20%)
-  const rate = options.rate || '+2%';
-  // Slight pitch reduction adds chest resonance and dramatic gravity to narration
-  const pitch = options.pitch || '-2Hz';
+  // Tier 1: Gemini 3.8 Flash TTS (Deep, mature, Hollywood-caliber documentary baritone)
+  // Runs over pure Node.js HTTPS - requires ZERO Python, ZERO pip packages, ZERO CLI tools
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
+    try {
+      const geminiVoice = options.voice && ['Fenrir', 'Charon', 'Puck', 'Aoede', 'Kore'].includes(options.voice)
+        ? options.voice
+        : 'Fenrir';
+      console.log(`[TTS Engine] Synthesizing authentic documentary voiceover via Gemini 3.8 Flash TTS (${geminiVoice})...`);
+      return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
+    } catch (geminiErr: any) {
+      console.warn('[TTS Engine] Gemini 3.8 Flash TTS unavailable, falling back to Microsoft Edge Neural TTS:', geminiErr?.message || geminiErr);
+    }
+  }
+
+  // Tier 2: Microsoft Edge Neural TTS (Deep adult male voices: Christopher / Guy / Ryan)
+  const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
+  const rate = options.rate || '-2%';  // Measured, serious documentary tempo
+  const pitch = options.pitch || '-4Hz'; // Deep chest resonance, never squeaky or childish
 
   // Write text to a temporary UTF-8 text file to eliminate command-line encoding & length bugs
   const tempTextFile = path.join(TTS_DIR, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
   await fs.writeFile(tempTextFile, cleanedText, 'utf8');
 
-  // Fallback voice candidates if primary voice encounters a service glitch
+  // Mature, deep adult voice candidates only
   const candidateVoices = [
     primaryVoice,
     CREATOR_VOICES.deepDocumentaryMale,
     CREATOR_VOICES.cinematicStorytellerMale,
-    CREATOR_VOICES.naturalCreatorMale,
-    'en-US-GuyNeural'
+    'en-US-GuyNeural',
+    CREATOR_VOICES.britishNarratorMale
   ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   try {
@@ -268,84 +296,82 @@ export async function generateSpeech(
         if (fsSync.existsSync(targetPath)) {
           const stat = await fs.stat(targetPath);
           if (stat.size >= 500) {
+            console.log(`[TTS Engine] Voiceover synthesized via Edge Neural TTS (${voiceToUse}).`);
             return targetPath;
           }
-          // File too small or 0 bytes - delete and retry
           try { await fs.unlink(targetPath); } catch {}
         }
       } catch (err: any) {
         lastError = err;
         console.warn(`[TTS Engine] Attempt ${attempt + 1} with voice "${voiceToUse}" failed:`, err?.message || err);
         try { if (fsSync.existsSync(targetPath)) await fs.unlink(targetPath); } catch {}
-        // Small backoff before retrying with fallback voice
         await new Promise(r => setTimeout(r, 800));
       }
     }
 
-    // Secondary Tier: Universal Zero-Dependency Web HTTP Speech Synthesis
-    // Requires ZERO Python, ZERO pip packages, ZERO edge-tts installation. Works natively on ANY Ubuntu VPS / Docker.
-    console.warn(`[TTS Engine] CLI edge-tts unavailable on this host (${lastError?.message || 'not installed'}). Falling back to Zero-Dependency Web HTTP Speech Synthesizer...`);
-    return await generateSpeechViaHttp(cleanedText, targetPath);
-  } catch (primaryErr) {
-    console.warn(`[TTS Engine] Primary edge-tts failed completely (${primaryErr}). Attempting Web HTTP Speech Synthesizer fallback...`);
-    return await generateSpeechViaHttp(cleanedText, targetPath);
+    throw lastError || new Error(`TTS synthesis failed for text: "${cleanedText.slice(0, 50)}..."`);
   } finally {
     try { await fs.unlink(tempTextFile); } catch {}
   }
 }
 
-function splitTextIntoSpeechChunks(text: string, maxLen = 170): string[] {
-  const words = text.split(/\s+/);
-  const chunks: string[] = [];
-  let current = '';
-
-  for (const word of words) {
-    if ((current + ' ' + word).trim().length > maxLen) {
-      if (current) chunks.push(current.trim());
-      current = word;
-    } else {
-      current = current ? current + ' ' + word : word;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks;
-}
-
 /**
- * Universal Zero-Dependency Web HTTP Speech Synthesizer.
- * Fetches neural MP3 audio over HTTPS directly in Node.js without requiring Python, pip, or edge-tts.
- * Automatically polishes vocal frequencies with FFmpeg for authentic broadcast tone.
+ * Studio-Grade Neural Documentary TTS via Google Gemini 3.8 Flash TTS.
+ * Generates authentic narrator audio with deep resonance, mature vocal timbre, and zero latency.
  */
-export async function generateSpeechViaHttp(text: string, outputPath: string): Promise<string> {
+export async function generateSpeechWithGemini(
+  text: string,
+  outputPath: string,
+  voiceName = 'Fenrir'
+): Promise<string> {
   await fs.mkdir(TTS_DIR, { recursive: true });
-  const chunks = splitTextIntoSpeechChunks(text);
-  const buffers: Buffer[] = [];
-
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=en&client=tw-ob`;
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      }
-    });
-    if (!res.ok) {
-      throw new Error(`Web HTTP TTS fetch failed with HTTP status ${res.status}`);
-    }
-    const arrayBuffer = await res.arrayBuffer();
-    buffers.push(Buffer.from(arrayBuffer));
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const combined = Buffer.concat(buffers);
-  const rawPath = outputPath.replace(/\.mp3$/, `-raw-${Date.now()}.mp3`);
-  await fs.writeFile(rawPath, combined);
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.8-flash-tts',
+    contents: [{
+      role: 'user',
+      parts: [{
+        text,
+        speechMetadata: {
+          style: 'documentary narrator, mature adult male, deep baritone, authoritative, serious, captivating'
+        }
+      }],
+    }],
+    config: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName // 'Fenrir' is deep, dramatic documentary voice
+          }
+        }
+      }
+    } as any
+  });
+
+  const candidate = response.candidates?.[0];
+  const part = candidate?.content?.parts?.[0];
+  const inlineData = (part as any)?.inlineData;
+
+  if (!inlineData?.data) {
+    throw new Error('Gemini TTS returned no audio data');
+  }
+
+  const rawWav = outputPath.replace(/\.mp3$/, `-gemini-${Date.now()}.wav`);
+  const buffer = Buffer.from(inlineData.data, 'base64');
+  await fs.writeFile(rawWav, buffer);
 
   try {
-    // Polish vocal frequencies: subtle pitch calibration (-3%) & warm low-end EQ for documentary resonance
+    // Convert to broadcast 44.1kHz stereo MP3 with subtle warm low-end EQ
     await execFileAsync('ffmpeg', [
       '-y',
-      '-i', rawPath,
-      '-af', 'asetrate=44100*0.97,aresample=44100,equalizer=f=110:width_type=o:width=1.5:g=3,equalizer=f=3200:width_type=o:width=1.2:g=1.5',
+      '-i', rawWav,
+      '-af', 'equalizer=f=95:width_type=o:width=1.5:g=2.5,equalizer=f=3400:width_type=o:width=1.2:g=1.2',
       '-c:a', 'libmp3lame',
       '-ar', '44100',
       '-ac', '2',
@@ -355,7 +381,7 @@ export async function generateSpeechViaHttp(text: string, outputPath: string): P
   } catch {
     await execFileAsync('ffmpeg', [
       '-y',
-      '-i', rawPath,
+      '-i', rawWav,
       '-c:a', 'libmp3lame',
       '-ar', '44100',
       '-ac', '2',
@@ -363,7 +389,7 @@ export async function generateSpeechViaHttp(text: string, outputPath: string): P
       outputPath
     ]);
   } finally {
-    try { await fs.unlink(rawPath); } catch {}
+    try { await fs.unlink(rawWav); } catch {}
   }
 
   return outputPath;

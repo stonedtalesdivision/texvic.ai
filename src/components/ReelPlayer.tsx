@@ -195,8 +195,20 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     if (narration) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(narration);
-      utterance.rate = 1.05;
-      utterance.pitch = 0.95;
+      
+      // Select the best available natural, mature adult narrator voice
+      const voices = window.speechSynthesis.getVoices();
+      const matureVoice = voices.find(v => 
+        /guy|christopher|ryan|andrew|eric|daniel|oliver|arthur|david|george|natural/i.test(v.name) &&
+        !/female|child|zira|samantha|victoria|karen/i.test(v.name) &&
+        v.lang.startsWith('en')
+      ) || voices.find(v => v.lang.startsWith('en') && !/female|child|zira/i.test(v.name)) || voices[0];
+      
+      if (matureVoice) {
+        utterance.voice = matureVoice;
+      }
+      utterance.rate = 0.96; // Measured, cinematic documentary pacing
+      utterance.pitch = 0.85; // Deep chest resonance, never squeaky or childish
       window.speechSynthesis.speak(utterance);
     }
 
