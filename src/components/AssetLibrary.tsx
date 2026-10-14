@@ -425,7 +425,16 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({ onRefresh }) => {
           />
         </label>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <button
+            type="button"
+            onClick={() => { setShowUploadModal(true); setUploadError(null); }}
+            className="px-3.5 py-2.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white flex items-center gap-1.5 shadow-md shadow-violet-600/20 whitespace-nowrap active:scale-95 transition-all"
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            Upload to VPS
+          </button>
+
           <label className="relative">
             <select
               value={category}
