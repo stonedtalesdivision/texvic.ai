@@ -59,14 +59,21 @@ function hueToHex(hue: number, saturation: number, lightness: number): string {
 }
 
 function themePalette(scene: any, index: number): { bg: string; accent: string } {
+  // Curated documentary palette for @theuntoldarch: dark charcoal, archival black, antique gold, telemetry cyan
+  const archivalBackgrounds = ['#08080a', '#0d0e12', '#111216'];
+  const documentaryAccents = ['#d4af37', '#e2d9cc', '#0284c7', '#c25a3f', '#64748b'];
+
   const seed = hashNumber(JSON.stringify({ theme: scene?.visualTheme || '', hook: scene?.hookText || '', index }));
-  const hue = seed % 360;
-  const accentHue = (hue + 42 + index * 17) % 360;
-  return { bg: hueToHex(hue, 55, 8), accent: hueToHex(accentHue, 85, 62) };
+  const bg = archivalBackgrounds[seed % archivalBackgrounds.length];
+  const accent = documentaryAccents[(seed + index) % documentaryAccents.length];
+
+  return { bg, accent };
 }
 
 function sceneTitle(scene: any): string {
-  return String(scene?.hookText || scene?.secondaryText || scene?.visualTheme || 'SARLX.AI').trim().slice(0, 72);
+  const persona = getActivePersona();
+  const defaultBrand = persona.brand || 'THE UNTOLD ARCHIVE';
+  return String(scene?.hookText || scene?.secondaryText || scene?.visualTheme || defaultBrand).trim().slice(0, 72);
 }
 
 function wrapText(text: string, maxCharsPerLine = 22): string {
@@ -104,7 +111,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
   const imagePath = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.png`);
   const overlayPng = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}-overlay.png`);
 
-  const rawHeadline = String(scene?.headline || scene?.hookText || sceneTitle(scene) || 'SARLX.AI').trim().slice(0, 72);
+  const rawHeadline = String(scene?.headline || scene?.hookText || sceneTitle(scene)).trim().slice(0, 72);
   const rawHighlight = String(scene?.highlight || '').trim().slice(0, 64);
   const rawSubline = String(scene?.subline || scene?.secondaryText || '').trim().slice(0, 140);
 

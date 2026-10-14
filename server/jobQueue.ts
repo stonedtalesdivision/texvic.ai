@@ -63,13 +63,23 @@ export function computeStrategyFeedback(): StrategyFeedback {
   `);
   const publishedReels = reelsQuery.all() as any[];
 
+  const persona = getActivePersona();
+  const defaultKeywords = [
+    "Declassified Archives",
+    "Documented History",
+    "Forbidden Geography",
+    "Scientific Discoveries",
+    "Cold War Intelligence",
+    "Hidden Infrastructure"
+  ];
+
   if (publishedReels.length === 0) {
     return {
-      topHookPattern: "3-Second Visual Contrarian Hook",
-      optimalPacing: "Micro-cut transitions every 1.8s - 2.4s",
-      highRetentionAudioTempo: "128-138 BPM Peak Beat Drop at 3.2s",
+      topHookPattern: "Concrete Entity & Documented Anomaly Pattern-Interrupt",
+      optimalPacing: "Cinematic push-in with documentary rhythmic cuts (2.2-2.5 words/sec)",
+      highRetentionAudioTempo: "115-125 BPM Atmospheric Documentary Baritone",
       bestPostingHourUtc: 19,
-      recommendedNicheKeywords: ["Autonomous AI", "Zero API Cost", "Open-Source Models", "Agent Automation"],
+      recommendedNicheKeywords: defaultKeywords,
       totalPostsAnalyzed: 0,
       avgReachPerPost: 0,
       engagementConversionRate: 0,
@@ -80,14 +90,19 @@ export function computeStrategyFeedback(): StrategyFeedback {
   let totalReach = 0;
   let totalComments = 0;
   let totalLikes = 0;
+  let validReachPostsCount = 0;
 
   for (const r of publishedReels) {
-    totalReach += Number(r.reach || 0);
+    const reach = Number(r.reach || 0);
+    if (reach > 0) {
+      totalReach += reach;
+      validReachPostsCount++;
+    }
     totalComments += Number(r.comments_count || 0);
     totalLikes += Number(r.likes || 0);
   }
 
-  const avgReach = Math.round(totalReach / publishedReels.length);
+  const avgReach = validReachPostsCount > 0 ? Math.round(totalReach / validReachPostsCount) : 0;
   const conversionRate = totalReach > 0 ? Number(((totalComments / totalReach) * 100).toFixed(2)) : 0;
 
   // Derive optimal posting hour based on posts with highest reach
@@ -103,11 +118,11 @@ export function computeStrategyFeedback(): StrategyFeedback {
   }
 
   const feedback: StrategyFeedback = {
-    topHookPattern: topReel ? `Pattern-interrupt grounded on: ${topReel.caption?.slice(0, 40) || 'Contrarian question'}` : "Direct Problem Pattern-Interrupt",
-    optimalPacing: "High-retention rhythmic cuts under 2.5s with text reveal",
-    highRetentionAudioTempo: "132 BPM Synth / Deep House audio drop synchronized at 3.2s",
+    topHookPattern: topReel ? `Documented specific premise: "${topReel.title?.slice(0, 36) || topReel.caption?.slice(0, 36) || 'Historical record'}"` : "Concrete Entity & Documented Anomaly Pattern-Interrupt",
+    optimalPacing: "Cinematic push-in with documentary rhythmic cuts (2.2-2.5 words/sec)",
+    highRetentionAudioTempo: "118 BPM Deep Male Documentary Baritone with Punchy Sub-Bass",
     bestPostingHourUtc: optimalHour,
-    recommendedNicheKeywords: ["Autonomous Agent", "AI Infrastructure", "High Retention Reel", "Explore Algorithm"],
+    recommendedNicheKeywords: defaultKeywords,
     totalPostsAnalyzed: publishedReels.length,
     avgReachPerPost: avgReach,
     engagementConversionRate: conversionRate,
