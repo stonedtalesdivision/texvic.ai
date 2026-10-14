@@ -88,6 +88,14 @@ export async function getAudioDuration(filePath: string): Promise<number> {
   }
 }
 
+// Ensure user-installed python bin directories (e.g. /home/node/.local/bin) are in PATH
+if (process.platform !== 'win32') {
+  const nodeLocalBin = '/home/node/.local/bin';
+  if (!process.env.PATH?.includes(nodeLocalBin)) {
+    process.env.PATH = `${nodeLocalBin}:${process.env.PATH || ''}`;
+  }
+}
+
 let hasAttemptedUpgrade = false;
 
 /**
@@ -107,6 +115,9 @@ async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ s
     }
   } else {
     // Linux / Docker environment
+    const home = process.env.HOME || '/home/node';
+    candidates.push({ cmd: path.join(home, '.local', 'bin', 'edge-tts'), prefix: [] });
+    candidates.push({ cmd: '/home/node/.local/bin/edge-tts', prefix: [] });
     candidates.push({ cmd: 'edge-tts', prefix: [] });
     candidates.push({ cmd: '/usr/local/bin/edge-tts', prefix: [] });
     candidates.push({ cmd: '/usr/bin/edge-tts', prefix: [] });

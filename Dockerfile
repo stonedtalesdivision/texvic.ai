@@ -75,6 +75,9 @@ EXPOSE 3100
 # Persistent volumes should be mounted to /app/data
 VOLUME ["/app/data"]
 
+# Ensure user-level pip bin directory is on PATH
+ENV PATH="/home/node/.local/bin:${PATH}"
+
 # Run as non-root user
 USER node
 
