@@ -5,11 +5,15 @@ import crypto from 'node:crypto';
 import { db } from './database.js';
 
 export type AssetType = 'video' | 'image' | 'audio';
+
 export interface MediaAsset {
   id: string;
   type: AssetType;
   filename: string;
   file_path: string;
+  url: string;
+  previewUrl: string;
+  sizeBytes: number;
   category: string;
   tags: string[];
   duration: number | null;
@@ -33,6 +37,28 @@ export async function ensureAssetDirectories() {
   await fs.mkdir(path.join(ASSET_DIR, 'video'), { recursive: true });
   await fs.mkdir(path.join(ASSET_DIR, 'image'), { recursive: true });
   await fs.mkdir(path.join(ASSET_DIR, 'audio'), { recursive: true });
+}
+
+/**
+ * Robust cross-platform path resolver for media assets.
+ * Handles migration between Windows host and Linux VPS/Docker containers.
+ */
+export function resolveAssetDiskPath(row: { type: string; filename: string; file_path?: string }): string | null {
+  // 1. Direct path check
+  if (row.file_path && fsSync.existsSync(row.file_path)) {
+    return row.file_path;
+  }
+  // 2. Relative to current process working directory (standard in Docker/VPS: /app/data/media/assets/...)
+  const relativeTarget = path.join(process.cwd(), 'data', 'media', 'assets', row.type, row.filename);
+  if (fsSync.existsSync(relativeTarget)) {
+    return relativeTarget;
+  }
+  // 3. Basename in ASSET_DIR
+  const assetDirTarget = path.join(ASSET_DIR, row.type, row.filename);
+  if (fsSync.existsSync(assetDirTarget)) {
+    return assetDirTarget;
+  }
+  return null;
 }
 
 export async function registerAsset(input: {
@@ -72,30 +98,95 @@ export async function registerAsset(input: {
 export function getAsset(id: string): MediaAsset | null {
   const row = db.prepare('SELECT * FROM media_assets WHERE id = ?').get(id) as any;
   if (!row) return null;
-  if (row.file_path && !fsSync.existsSync(row.file_path)) {
-    // Disk file was removed, auto-prune
+
+  const validPath = resolveAssetDiskPath(row);
+  if (!validPath) {
+    // Disk file was genuinely removed
     try {
       db.prepare('DELETE FROM asset_usage WHERE asset_id = ?').run(id);
       db.prepare('DELETE FROM media_assets WHERE id = ?').run(id);
     } catch {}
     return null;
   }
+
+  if (row.file_path !== validPath) {
+    try {
+      db.prepare('UPDATE media_assets SET file_path = ? WHERE id = ?').run(validPath, id);
+      row.file_path = validPath;
+    } catch {}
+  }
+
   return normalizeAsset(row);
 }
 
 export async function deleteAsset(id: string): Promise<boolean> {
   const row = db.prepare('SELECT * FROM media_assets WHERE id = ?').get(id) as any;
   if (!row) return false;
-  if (row.file_path && fsSync.existsSync(row.file_path)) {
+
+  const validPath = resolveAssetDiskPath(row);
+  if (validPath && fsSync.existsSync(validPath)) {
     try {
-      await fs.unlink(row.file_path);
+      await fs.unlink(validPath);
+      console.log(`[AssetLibrary] 🗑️ Deleted asset file from VPS storage: ${validPath}`);
     } catch (e) {
-      console.warn(`[AssetLibrary] Could not remove file ${row.file_path}:`, e);
+      console.warn(`[AssetLibrary] Could not remove file ${validPath}:`, e);
     }
   }
+
   db.prepare('DELETE FROM asset_usage WHERE asset_id = ?').run(id);
   db.prepare('DELETE FROM media_assets WHERE id = ?').run(id);
   return true;
+}
+
+/**
+ * Scans VPS disk storage directories and synchronizes any discovered media assets into SQLite
+ */
+export async function syncAssetsFromDisk(): Promise<{ synced: number; pruned: number }> {
+  await ensureAssetDirectories();
+  const types: AssetType[] = ['video', 'image', 'audio'];
+  let synced = 0;
+
+  for (const type of types) {
+    const dir = path.join(ASSET_DIR, type);
+    try {
+      const files = await fs.readdir(dir);
+      for (const file of files) {
+        if (file.startsWith('.')) continue;
+        const filePath = path.join(dir, file);
+        const stat = await fs.stat(filePath).catch(() => null);
+        if (!stat || !stat.isFile()) continue;
+
+        const existing = db.prepare('SELECT id FROM media_assets WHERE filename = ?').get(file) as any;
+        if (!existing) {
+          const id = file.replace(/\.[^/.]+$/, '');
+          const createdAt = stat.birthtime ? stat.birthtime.toISOString() : now();
+          const ext = path.extname(file).toLowerCase();
+          const isPortrait = ext === '.mp4';
+          
+          db.prepare(`
+            INSERT INTO media_assets
+              (id,type,filename,file_path,category,tags_json,duration,width,height,source,prompt,mood,camera,metadata_json,created_at,last_used_at,usage_count)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,0)
+          `).run(
+            id, type, file, filePath, 'autonomous-engine',
+            JSON.stringify([type, 'autonomous-visual', 'reusable']),
+            type === 'video' ? 8.0 : null,
+            isPortrait ? 1080 : null,
+            isPortrait ? 1920 : null,
+            'autonomous-asset-generator',
+            null, null, null,
+            JSON.stringify({ sizeBytes: stat.size, originalFilename: file }),
+            createdAt
+          );
+          synced++;
+        }
+      }
+    } catch (err) {
+      console.warn(`[AssetLibrary] Sync disk scan failed for ${type}:`, err);
+    }
+  }
+
+  return { synced, pruned: 0 };
 }
 
 export function listAssets(options: {
@@ -113,14 +204,20 @@ export function listAssets(options: {
   args.push(limit);
   const rows = db.prepare(sql).all(...args) as any[];
 
-  // Auto-prune ghost assets if file was deleted from disk in Windows Explorer
   const validAssets: MediaAsset[] = [];
   const pruneIds: string[] = [];
 
   for (const row of rows) {
-    if (row.file_path && !fsSync.existsSync(row.file_path)) {
+    const validPath = resolveAssetDiskPath(row);
+    if (!validPath) {
       pruneIds.push(row.id);
     } else {
+      if (row.file_path !== validPath) {
+        try {
+          db.prepare('UPDATE media_assets SET file_path = ? WHERE id = ?').run(validPath, row.id);
+          row.file_path = validPath;
+        } catch {}
+      }
       validAssets.push(normalizeAsset(row));
     }
   }
@@ -130,7 +227,7 @@ export function listAssets(options: {
       const placeholders = pruneIds.map(() => '?').join(',');
       db.prepare(`DELETE FROM asset_usage WHERE asset_id IN (${placeholders})`).run(...pruneIds);
       db.prepare(`DELETE FROM media_assets WHERE id IN (${placeholders})`).run(...pruneIds);
-      console.log(`[AssetLibrary] Auto-pruned ${pruneIds.length} orphaned asset record(s) whose files were deleted from disk.`);
+      console.log(`[AssetLibrary] Auto-pruned ${pruneIds.length} missing asset record(s) from DB.`);
     } catch (e) {
       console.warn('[AssetLibrary] Failed to prune missing assets from DB:', e);
     }
@@ -169,11 +266,79 @@ export function markAssetUsed(assetId: string, reelId: string, sceneNumber: numb
   `).run(`usage-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`, assetId, reelId, sceneNumber, JSON.stringify(transform), timestamp);
 }
 
+export async function getStorageStats() {
+  const assets = listAssets({ limit: 500 });
+  let totalAssetBytes = 0;
+  let videoBytes = 0;
+  let imageBytes = 0;
+  let audioBytes = 0;
+
+  for (const asset of assets) {
+    totalAssetBytes += asset.sizeBytes;
+    if (asset.type === 'video') videoBytes += asset.sizeBytes;
+    else if (asset.type === 'image') imageBytes += asset.sizeBytes;
+    else if (asset.type === 'audio') audioBytes += asset.sizeBytes;
+  }
+
+  // Calculate reel storage
+  const reelsDir = path.join(process.cwd(), 'data', 'media', 'reels');
+  let totalReelsBytes = 0;
+  let reelsFileCount = 0;
+  try {
+    if (fsSync.existsSync(reelsDir)) {
+      const files = await fs.readdir(reelsDir);
+      for (const f of files) {
+        const stat = await fs.stat(path.join(reelsDir, f)).catch(() => null);
+        if (stat) {
+          totalReelsBytes += stat.size;
+          reelsFileCount++;
+        }
+      }
+    }
+  } catch {}
+
+  const publishedRow = db.prepare("SELECT count(*) as c FROM reels WHERE status = 'published'").get() as any;
+  const publishedReelsCount = publishedRow?.c || 0;
+
+  return {
+    totalAssetCount: assets.length,
+    totalAssetBytes,
+    videoBytes,
+    imageBytes,
+    audioBytes,
+    totalReelsBytes,
+    reelsFileCount,
+    publishedReelsCount,
+    totalStorageBytes: totalAssetBytes + totalReelsBytes
+  };
+}
+
 function normalizeAsset(row: any): MediaAsset {
+  const url = `/media/assets/${row.type}/${row.filename}`;
+  let sizeBytes = 0;
+  
+  if (row.file_path && fsSync.existsSync(row.file_path)) {
+    try {
+      sizeBytes = fsSync.statSync(row.file_path).size;
+    } catch {}
+  }
+
+  let metadata: Record<string, unknown> = {};
+  try {
+    metadata = JSON.parse(row.metadata_json || '{}');
+  } catch {}
+
+  if (!sizeBytes && typeof metadata.sizeBytes === 'number') {
+    sizeBytes = metadata.sizeBytes;
+  }
+
   return {
     ...row,
+    url,
+    previewUrl: url,
+    sizeBytes,
     tags: JSON.parse(row.tags_json || '[]'),
-    metadata: JSON.parse(row.metadata_json || '{}'),
+    metadata,
   };
 }
 

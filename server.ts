@@ -36,7 +36,8 @@ import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
 import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
 import { THEME_PAGE_PROFILE, getActivePersona, buildThemeResearchContext, selectDynamicVertical, CONTENT_VERTICALS, type ContentVertical } from "./server/themePage.js";
 import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract, verifyMediaSignature } from "./server/videoEngine.js";
-import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset } from "./server/assetLibrary.js";
+import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset, syncAssetsFromDisk, getStorageStats } from "./server/assetLibrary.js";
+import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageManager.js";
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
@@ -188,6 +189,51 @@ app.get("/media/posts/:filename", (req, res) => {
     return res.status(404).send("Media not found");
   }
   res.sendFile(filePath);
+});
+
+// Reusable Media Assets (Videos, Images, Audio) Preview & Streaming Endpoint
+app.get("/media/assets/:type/:filename", (req, res) => {
+  const rawType = String(req.params.type || "");
+  const rawFilename = path.basename(String(req.params.filename || ""));
+  const cleanFilename = rawFilename.replace(/[^a-zA-Z0-9_.-]/g, "");
+
+  if (!['video', 'image', 'audio'].includes(rawType) || !cleanFilename || cleanFilename.startsWith(".")) {
+    return res.status(400).send("Bad request");
+  }
+
+  const baseDir = path.resolve(process.cwd(), "data", "media", "assets", rawType);
+  const filePath = path.resolve(baseDir, cleanFilename);
+
+  if (!filePath.startsWith(baseDir + path.sep)) {
+    return res.status(400).send("Bad request");
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Asset not found");
+  }
+
+  // Handle byte range streaming for fast video & audio scrubbing in browser
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range && (rawType === 'video' || rawType === 'audio')) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    const file = fs.createReadStream(filePath, { start, end });
+    const mimeType = rawType === 'video' ? 'video/mp4' : 'audio/mpeg';
+    const head = {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': mimeType,
+    };
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    res.sendFile(filePath);
+  }
 });
 
 // Initialize Gemini Client
@@ -537,15 +583,41 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
 // REUSABLE ASSET + REEL COMPOSER ENGINE
 // ==========================================
 
-app.get("/api/assets", (req, res) => {
-  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500);
-  const tags = String(req.query.tags || "").split(",").map(v => v.trim()).filter(Boolean);
-  res.json({ success: true, assets: listAssets({
-    type: req.query.type ? String(req.query.type) as any : undefined,
-    category: req.query.category ? String(req.query.category) : undefined,
-    tags,
-    limit
-  }) });
+app.get("/api/assets", async (req, res) => {
+  try {
+    await syncAssetsFromDisk();
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500);
+    const tags = String(req.query.tags || "").split(",").map(v => v.trim()).filter(Boolean);
+    const assets = listAssets({
+      type: req.query.type ? String(req.query.type) as any : undefined,
+      category: req.query.category ? String(req.query.category) : undefined,
+      tags,
+      limit
+    });
+    res.json({ success: true, assets });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to list assets" });
+  }
+});
+
+// VPS Storage Analytics & Live Stats
+app.get("/api/storage/stats", async (_req, res) => {
+  try {
+    const stats = await getStorageStats();
+    res.json({ success: true, ...stats });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to fetch storage stats" });
+  }
+});
+
+// Immediate Storage Sweep (Prunes published reels older than 24h & orphaned media)
+app.post("/api/storage/clean", async (_req, res) => {
+  try {
+    const result = await runStorageSweep();
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Failed to run storage cleanup" });
+  }
 });
 
 app.get("/api/assets/:id", (req, res) => {
@@ -4447,11 +4519,15 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
 
 // Background Daemon for 24x7 Autonomous Engine
 let autonomousDaemonTimer: NodeJS.Timeout | null = null;
+let lastStorageSweepMs = 0;
 
 function initAutonomousDaemon() {
   if (autonomousDaemonTimer) {
     clearInterval(autonomousDaemonTimer);
   }
+
+  // Run immediate storage retention sweep on startup (prunes published reels older than 24h)
+  runStorageSweep().catch(e => console.warn('[Storage Retention] Initial storage sweep failed:', e));
 
   const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
   const reelCount = Number((db.prepare('SELECT COUNT(*) as count FROM reels').get() as any)?.count || 0);
@@ -4464,6 +4540,12 @@ function initAutonomousDaemon() {
   console.log("[Autonomous 24x7 Daemon] Initialized SQLite background worker (checking every 30s)...");
   autonomousDaemonTimer = setInterval(async () => {
     try {
+      // Periodically prune published reels older than 24h (every 15 minutes) to protect VPS disk storage
+      if (Date.now() - lastStorageSweepMs > 15 * 60 * 1000) {
+        lastStorageSweepMs = Date.now();
+        runStorageSweep().catch(e => console.warn('[Storage Retention] Periodic storage sweep failed:', e));
+      }
+
       const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
       if (!configRow || !configRow.enabled) {
         return;
