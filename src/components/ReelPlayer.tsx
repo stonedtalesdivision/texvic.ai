@@ -673,7 +673,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
                           {isPlaying ? 'Narration Sync' : 'Voiceover Preview'}
                         </div>
                         <div className="text-xs sm:text-sm font-black leading-snug flex flex-wrap items-center justify-center gap-x-1">
-                          {visiblePhraseWords.map((word, localIdx) => {
+                          {visiblePhraseWords.map((word: string, localIdx: number) => {
                             const globalIdx = phraseStart + localIdx;
                             const isCurrentWord = isPlaying ? globalIdx === activeWordIndex : localIdx === 0;
 
@@ -776,7 +776,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
                           {isPlaying ? 'Narration Sync' : 'Voiceover Preview'}
                         </div>
                         <div className="text-xs sm:text-sm font-black leading-snug flex flex-wrap items-center justify-center gap-x-1">
-                          {visiblePhraseWords.map((word, localIdx) => {
+                          {visiblePhraseWords.map((word: string, localIdx: number) => {
                             const globalIdx = phraseStart + localIdx;
                             const isCurrentWord = isPlaying ? globalIdx === activeWordIndex : localIdx === 0;
 
@@ -843,7 +843,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
                         {isPlaying ? 'Narration' : 'Voiceover Preview'}
                       </div>
                       <div className="text-sm sm:text-base font-black leading-snug flex flex-wrap items-center justify-center">
-                        {visiblePhraseWords.map((word, localIdx) => {
+                        {visiblePhraseWords.map((word: string, localIdx: number) => {
                           const globalIdx = phraseStart + localIdx;
                           const isCurrentWord = isPlaying ? globalIdx === activeWordIndex : localIdx === 0;
 

@@ -3,24 +3,44 @@
 !.env.example
 
 # Ignore runtime databases, browser cookies, and local session profile
+data
 data/
+data/**
+**/data/**
 *.db
 *.db-*
 *.sqlite*
 
 # Ignore scratch files and local test media
+scratch
 scratch/
+scratch/**
 temp_test.*
 test_*.jpg
 test_*.txt
+*.mp3
+*.mp4
 
-# Ignore Git directory and logs
+# Ignore Agent, Git, and temporary directories
+.git
 .git/
+.github
 .github/
+.agent
+.agent/
+.agents
+.agents/
+.gsd
+.gsd/
 *.log
 
-# Ignore Node.js build cache & dependencies (installed inside container via npm ci)
+# Ignore Node.js build cache & dependencies
+node_modules
 node_modules/
+node_modules/**
+dist
 dist/
+dist/**
+coverage
 coverage/
 .DS_Store

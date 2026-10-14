@@ -36,6 +36,8 @@ export interface ReelScene {
   highlight?: string;
   subline?: string;
   voiceScript?: string;
+  voiceText?: string;
+  text?: string;
   visualTheme: 'neon-cyber' | 'sunset-glow' | 'minimal-dark' | 'electric-violet' | 'emerald-flux' | 'monochrome-bold';
   accentColor: string;
   pacingEffect: 'pulse' | 'zoom-in' | 'flash-cut' | 'slide-up' | 'subtle-drift';

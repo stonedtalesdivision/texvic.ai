@@ -24,11 +24,17 @@ jobs:
           script: |
             set -e
             echo "🚀 Connecting to Texvic AI repository..."
-            cd ~/texvic.ai/texvic.ai
+            if [ -d "$HOME/texvic.ai" ]; then
+              cd "$HOME/texvic.ai"
+            elif [ -d "$HOME/texvic.ai/texvic.ai" ]; then
+              cd "$HOME/texvic.ai/texvic.ai"
+            else
+              echo "Repository directory not found!" && exit 1
+            fi
             echo "📥 Pulling latest commits from GitHub..."
             git pull origin main
             echo "🔨 Rebuilding & launching updated container..."
-            docker compose up -d --build
+            sudo docker compose up -d --build
             echo "🧹 Cleaning unused Docker cache..."
-            docker image prune -f
+            sudo docker system prune -f
             echo "✅ Deployment completed successfully!"

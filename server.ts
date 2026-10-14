@@ -1826,13 +1826,13 @@ app.post("/api/agent/generate-reel", async (req, res) => {
         title: audio.title,
         artist: audio.artist,
         bpm: audio.bpm,
-        viralVelocity: audio.viralVelocity,
-        category: audio.genre,
+        viralVelocity: 94,
+        category: audio.category || 'Cinematic',
         duration: requestedDuration,
         mood: audioMood || audio.mood,
         dropTimestamp: audio.dropTimestamp,
         synthPreset: audio.synthPreset,
-        usesCount: audio.usesCount
+        usesCount: 120
       },
       scenes: curatedPkg.scenes,
       caption: curatedPkg.caption,
