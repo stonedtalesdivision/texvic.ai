@@ -122,13 +122,13 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     } else {
       let mix: string;
       if (input.voicePath && input.musicPath) {
-        // Broadcast audio mastering: Narration elevated & prominent, BGM reduced by 50% into a subtle, low-passed ambient bed
-        mix = '[1:a]volume=1.35,aformat=sample_rates=44100:channel_layouts=stereo[voice];[2:a]volume=0.04,lowpass=f=3800,aformat=sample_rates=44100:channel_layouts=stereo[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0:weights=1 0.15[a]';
+        // Broadcast audio mastering: Narration elevated & prominent, BGM ducked smoothly to an audible, warm bed (-14dB)
+        mix = '[1:a]volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo[voice];[2:a]volume=0.22,lowpass=f=4500,aformat=sample_rates=44100:channel_layouts=stereo[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0:weights=1 0.35[a]';
       } else if (input.voicePath) {
-        mix = '[1:a]volume=1.35,aformat=sample_rates=44100:channel_layouts=stereo[a]';
+        mix = '[1:a]volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo[a]';
       } else {
-        console.warn(`[Reel Composer] WARNING: Reel "${input.reelId}" is composing without voiceover track (BGM solo).`);
-        mix = '[1:a]volume=0.09,lowpass=f=4200,aresample=async=1,aformat=sample_rates=44100:channel_layouts=stereo[a]';
+        console.warn(`[Reel Composer] Reel "${input.reelId}" is composing without voiceover track (BGM solo at full ambient volume).`);
+        mix = '[1:a]volume=0.75,aresample=async=1,aformat=sample_rates=44100:channel_layouts=stereo[a]';
       }
       await run('ffmpeg', [
         ...inputs,

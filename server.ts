@@ -507,6 +507,7 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
   const voiceSegments: string[] = [];
   const sceneDurations: number[] = [];
 
+  let realSpeechCount = 0;
   for (let i = 0; i < rawScenes.length; i++) {
     const sc = rawScenes[i];
     const narrationText = extractSceneNarration(sc, i, rawScenes.length, reel);
@@ -534,6 +535,7 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
 
     // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
+      realSpeechCount++;
       const sceneDur = Math.max(audioDur + 0.8, 6.0);
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
@@ -549,10 +551,12 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     }
   }
 
-  if (voiceSegments.length > 0) {
+  if (voiceSegments.length > 0 && realSpeechCount > 0) {
     const masterPath = path.join(process.cwd(), 'data', 'media', 'tts', `master-${reel.id || Date.now()}.mp3`);
     masterVoicePath = await concatenateAudioTracks(voiceSegments, masterPath);
-    console.log(`[Autonomous 24x7 Engine] Master voiceover ready: ${voiceSegments.length} scene(s), total spoken narration synchronized.`);
+    console.log(`[Autonomous 24x7 Engine] Master voiceover ready: ${voiceSegments.length} scene(s) concatenated (${realSpeechCount} active voice segments).`);
+  } else {
+    console.warn(`[Autonomous 24x7 Engine] No active spoken voiceover produced across scenes. Composing with background music solo at full ambient volume.`);
   }
 
   // 2. Assemble scenes with DYNAMICALLY CALIBRATED DURATIONS based on the TTS audio!

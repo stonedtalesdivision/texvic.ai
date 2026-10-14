@@ -309,9 +309,142 @@ export async function generateSpeech(
       }
     }
 
-    throw lastError || new Error(`TTS synthesis failed for text: "${cleanedText.slice(0, 50)}..."`);
+    // Tier 3: Zero-Dependency Pure HTTPS Web TTS Fallback
+    // Guaranteed to work on any VPS, inside Docker, with zero Python and zero API keys!
+    console.warn('[TTS Engine] Microsoft Edge Neural TTS candidates exhausted. Invoking Tier 3 HTTPS Web TTS fallback...');
+    return await generateSpeechViaHttp(cleanedText, targetPath);
+  } catch (tier2Err: any) {
+    try {
+      console.warn('[TTS Engine] Invoking Tier 3 HTTPS Web TTS fallback after error:', tier2Err?.message || tier2Err);
+      return await generateSpeechViaHttp(cleanedText, targetPath);
+    } catch (tier3Err: any) {
+      throw tier3Err || tier2Err;
+    }
   } finally {
     try { await fs.unlink(tempTextFile); } catch {}
+  }
+}
+
+/**
+ * Tier 3: Zero-dependency, pure Node.js HTTPS Web TTS fallback.
+ * Uses standard HTTPS requests with zero API keys and zero Python dependencies.
+ * Chunks long text at natural punctuation boundaries, downloads audio, and normalizes with ffmpeg.
+ */
+export async function generateSpeechViaHttp(
+  text: string,
+  outputPath: string
+): Promise<string> {
+  await fs.mkdir(TTS_DIR, { recursive: true });
+
+  // Split into natural phrases (max ~140 chars per chunk for web TTS)
+  const sentences = text
+    .replace(/([.!?])\s+/g, "$1|")
+    .split("|")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let current = "";
+  for (const s of sentences) {
+    if ((current + " " + s).trim().length <= 140) {
+      current = (current + " " + s).trim();
+    } else {
+      if (current) chunks.push(current);
+      if (s.length > 140) {
+        const words = s.split(" ");
+        let sub = "";
+        for (const w of words) {
+          if ((sub + " " + w).trim().length <= 140) {
+            sub = (sub + " " + w).trim();
+          } else {
+            if (sub) chunks.push(sub);
+            sub = w;
+          }
+        }
+        if (sub) chunks.push(sub);
+        current = "";
+      } else {
+        current = s;
+      }
+    }
+  }
+  if (current) chunks.push(current);
+
+  if (chunks.length === 0) {
+    chunks.push(text.slice(0, 140));
+  }
+
+  const chunkFiles: string[] = [];
+  const tempBase = path.join(TTS_DIR, `http-chunk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const encoded = encodeURIComponent(chunk);
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=en-us&client=tw-ob`;
+
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP TTS responded with status ${response.status}`);
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length < 500) {
+        throw new Error('HTTP TTS returned empty audio buffer');
+      }
+
+      const chunkPath = `${tempBase}-${i}.mp3`;
+      await fs.writeFile(chunkPath, buffer);
+      chunkFiles.push(chunkPath);
+    }
+
+    if (chunkFiles.length === 1) {
+      // Standardize to broadcast 44.1kHz stereo MP3 with subtle warm EQ (clean adult voice, NO pitch distortion)
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-i', chunkFiles[0],
+        '-af', 'equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
+        '-c:a', 'libmp3lame',
+        '-ar', '44100',
+        '-ac', '2',
+        '-b:a', '192k',
+        outputPath
+      ]);
+    } else {
+      // Concatenate all chunks and normalize
+      const concatList = `${tempBase}-list.txt`;
+      const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
+      await fs.writeFile(concatList, listContent, 'utf8');
+
+      try {
+        await execFileAsync('ffmpeg', [
+          '-y',
+          '-f', 'concat',
+          '-safe', '0',
+          '-i', concatList,
+          '-af', 'equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
+          '-c:a', 'libmp3lame',
+          '-ar', '44100',
+          '-ac', '2',
+          '-b:a', '192k',
+          outputPath
+        ]);
+      } finally {
+        await fs.unlink(concatList).catch(() => {});
+      }
+    }
+
+    console.log(`[TTS Engine] Voiceover synthesized via Tier 3 HTTPS Web TTS (${chunkFiles.length} chunk(s)).`);
+    return outputPath;
+  } finally {
+    for (const f of chunkFiles) {
+      await fs.unlink(f).catch(() => {});
+    }
   }
 }
 
