@@ -165,67 +165,77 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
   if (template === 'classified-dossier') {
     // =========================================================================
-    // TEMPLATE 1: CLASSIFIED DOSSIER / DECLASSIFIED INVESTIGATION
+    // TEMPLATE 1: CLASSIFIED DOSSIER / DECLASSIFIED INVESTIGATION (Slide 2 Box)
     // =========================================================================
-    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 20);
+    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 18);
     const highlightLines = rawHighlight ? wrapSvgText(rawHighlight.toUpperCase(), 22).map(escapeXml) : [];
-    const sublineLines = rawSubline ? wrapSvgText(rawSubline, 32).map(escapeXml) : [];
+    const sublineLines = rawSubline ? wrapSvgText(rawSubline, 34).map(escapeXml) : [];
 
-    const cardY = 620;
-    let textY = cardY + 160;
+    const headlineHeight = headlineLines.length * 52;
+    const highlightHeight = highlightLines.length > 0 ? (highlightLines.length * 46 + 14) : 0;
+    const sublineHeight = sublineLines.length * 34;
+    const totalContentHeight = headlineHeight + highlightHeight + sublineHeight;
+
+    // Card height dynamically fits content + header (130px) + footer action pill & padding (90px)
+    const cardHeight = Math.max(660, 130 + totalContentHeight + 90);
+    // Center the card vertically on the 1080x1920 canvas within Instagram Reels safe zone
+    const cardY = Math.max(340, Math.min(640, Math.round((1920 - cardHeight) / 2)));
+    let textY = cardY + 150;
 
     const headlineElements = headlineLines.map((line, idx) => {
-      const y = textY + idx * 58;
-      return `<text xml:space="preserve" x="140" y="${y}" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
+      const y = textY + idx * 52;
+      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="44" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
     }).join('\n');
-    textY += headlineLines.length * 58 + 14;
+    textY += headlineHeight + 14;
 
     const highlightElements = highlightLines.map((line, idx) => {
-      const y = textY + idx * 50;
+      const y = textY + idx * 46;
+      const pillWidth = Math.min(780, Math.max(260, line.length * 22 + 40));
+      const pillX = 540 - pillWidth / 2;
       return `
-        <!-- Fluorescent Highlighter Stroke Behind Text -->
-        <rect x="135" y="${y - 36}" width="780" height="44" rx="4" fill="rgba(251, 191, 36, 0.28)" />
-        <text x="140" y="${y}" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="${accent}" letter-spacing="0.5" filter="url(#glow)">${line}</text>
+        <!-- High-Contrast Fluorescent Highlighter Pill strictly inside box -->
+        <rect x="${pillX}" y="${y - 34}" width="${pillWidth}" height="42" rx="10" fill="rgba(251, 191, 36, 0.24)" stroke="${accent}" stroke-width="1.2" />
+        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="900" fill="${accent}" letter-spacing="0.8" filter="url(#glow)">${line}</text>
       `;
     }).join('\n');
-    if (highlightLines.length > 0) textY += highlightLines.length * 50 + 16;
+    if (highlightLines.length > 0) textY += highlightHeight;
 
     const sublineElements = sublineLines.map((line, idx) => {
-      const y = textY + idx * 36;
-      return `<text x="140" y="${y}" font-family="'Courier New', Courier, monospace" font-size="25" font-weight="600" fill="#cbd5e1">${line}</text>`;
+      const y = textY + idx * 34;
+      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" fill="#cbd5e1" filter="url(#shadow)">${line}</text>`;
     }).join('\n');
 
     mainContentSvg = `
       <g>
-        <!-- Declassified Dossier Folder Card -->
+        <!-- Declassified Dossier Folder Card Box -->
         <g transform="translate(100, ${cardY})">
-          <rect width="880" height="640" rx="28" fill="rgba(8, 12, 22, 0.88)" stroke="rgba(251, 191, 36, 0.35)" stroke-width="1.8" filter="url(#shadow)" />
+          <rect width="880" height="${cardHeight}" rx="28" fill="rgba(8, 12, 22, 0.90)" stroke="${accent}" stroke-width="2" filter="url(#shadow)" />
           
           <!-- Confidential Intelligence Tag -->
-          <g transform="translate(40, 36)">
-            <rect width="320" height="42" rx="6" fill="rgba(239, 68, 68, 0.15)" stroke="#ef4444" stroke-width="1.8" />
-            <text x="160" y="28" text-anchor="middle" font-family="'Courier New', monospace" font-size="19" font-weight="900" fill="#ef4444" letter-spacing="3">
+          <g transform="translate(40, 32)">
+            <rect width="320" height="42" rx="6" fill="rgba(239, 68, 68, 0.2)" stroke="#ef4444" stroke-width="1.8" />
+            <text x="160" y="28" text-anchor="middle" font-family="'Courier New', monospace" font-size="18" font-weight="900" fill="#ef4444" letter-spacing="3">
               CONFIDENTIAL // DOSSIER
             </text>
           </g>
 
           <!-- File ID Watermark -->
-          <text x="840" y="62" text-anchor="end" font-family="'Courier New', monospace" font-size="14" font-weight="700" fill="#64748b" letter-spacing="1">
+          <text x="840" y="58" text-anchor="end" font-family="'Courier New', monospace" font-size="14" font-weight="700" fill="#94a3b8" letter-spacing="1">
             REC: ${branding.slice(0, 12)}
           </text>
 
-          <line x1="40" y1="96" x2="840" y2="96" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" />
+          <line x1="40" y1="92" x2="840" y2="92" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1" />
         </g>
 
-        <!-- Dynamic Content Texts -->
+        <!-- Dynamic Content Texts (Strictly Centered Inside the Box) -->
         ${headlineElements}
         ${highlightElements}
         ${sublineElements}
 
-        <!-- Bottom Action Pill -->
-        <g transform="translate(140, ${cardY + 550})">
-          <rect width="800" height="56" rx="18" fill="rgba(251, 191, 36, 0.12)" stroke="rgba(251, 191, 36, 0.4)" stroke-width="1.2" />
-          <text x="400" y="36" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="700" fill="#fef08a">
+        <!-- Bottom Action Pill (Anchored securely inside the bottom of the card) -->
+        <g transform="translate(140, ${cardY + cardHeight - 64})">
+          <rect width="800" height="46" rx="23" fill="rgba(251, 191, 36, 0.12)" stroke="${accent}" stroke-width="1.2" />
+          <text x="400" y="29" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#fef08a" letter-spacing="1">
             ${dwellText}
           </text>
         </g>
@@ -234,34 +244,42 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
   } else if (template === 'satellite-telemetry') {
     // =========================================================================
-    // TEMPLATE 2: SATELLITE TELEMETRY & RECONNAISSANCE HUD
+    // TEMPLATE 2: SATELLITE TELEMETRY & RECONNAISSANCE HUD (Slide 3)
     // =========================================================================
-    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 20);
+    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 18);
     const highlightLines = rawHighlight ? wrapSvgText(rawHighlight.toUpperCase(), 22).map(escapeXml) : [];
     const sublineLines = rawSubline ? wrapSvgText(rawSubline, 34).map(escapeXml) : [];
+
+    const headlineHeight = headlineLines.length * 52;
+    const highlightHeight = highlightLines.length > 0 ? (highlightLines.length * 46 + 14) : 0;
+    const sublineHeight = sublineLines.length * 34;
+    const teleContentHeight = headlineHeight + highlightHeight + sublineHeight;
+    const backplateHeight = Math.max(540, teleContentHeight + 130);
 
     const startY = 820;
     let currentY = startY;
 
     const headlineElements = headlineLines.map((line, idx) => {
-      const y = currentY + idx * 56;
-      return `<text xml:space="preserve" x="140" y="${y}" font-family="'Segoe UI', 'Impact', sans-serif" font-size="50" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#38bdf8', rawHighlight)}</text>`;
+      const y = currentY + idx * 52;
+      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', sans-serif" font-size="44" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#38bdf8', rawHighlight)}</text>`;
     }).join('\n');
-    currentY += headlineLines.length * 56 + 14;
+    currentY += headlineHeight + 14;
 
     const highlightElements = highlightLines.map((line, idx) => {
-      const y = currentY + idx * 48;
+      const y = currentY + idx * 46;
+      const pillWidth = Math.min(780, Math.max(260, line.length * 22 + 40));
+      const pillX = 540 - pillWidth / 2;
       return `
         <!-- High-Contrast Cyan Highlighter Backplate -->
-        <rect x="135" y="${y - 36}" width="780" height="44" rx="6" fill="rgba(56, 189, 248, 0.22)" stroke="#38bdf8" stroke-width="1.2" />
-        <text x="140" y="${y}" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="#38bdf8" letter-spacing="1" filter="url(#glow)">${line}</text>
+        <rect x="${pillX}" y="${y - 34}" width="${pillWidth}" height="42" rx="10" fill="rgba(56, 189, 248, 0.22)" stroke="#38bdf8" stroke-width="1.2" />
+        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="900" fill="#38bdf8" letter-spacing="1" filter="url(#glow)">${line}</text>
       `;
     }).join('\n');
-    if (highlightLines.length > 0) currentY += highlightLines.length * 48 + 14;
+    if (highlightLines.length > 0) currentY += highlightHeight;
 
     const sublineElements = sublineLines.map((line, idx) => {
-      const y = currentY + idx * 36;
-      return `<text x="140" y="${y}" font-family="'Segoe UI', Roboto, sans-serif" font-size="25" font-weight="500" fill="#cbd5e1" filter="url(#shadow)">${line}</text>`;
+      const y = currentY + idx * 34;
+      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="500" fill="#cbd5e1" filter="url(#shadow)">${line}</text>`;
     }).join('\n');
 
     mainContentSvg = `
@@ -294,8 +312,8 @@ export function buildSceneSvg(opts: OverlayOptions): string {
           <line x1="0" y1="20" x2="0" y2="120" />
         </g>
 
-        <!-- Soft Lower Third Text Backplate (70% transparent so footage shows through) -->
-        <rect x="80" y="760" width="920" height="540" rx="24" fill="rgba(3, 7, 18, 0.72)" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" />
+        <!-- Soft Lower Third Text Backplate -->
+        <rect x="80" y="760" width="920" height="${backplateHeight}" rx="24" fill="rgba(3, 7, 18, 0.72)" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" />
 
         <!-- Floating Typography -->
         ${headlineElements}
@@ -303,8 +321,8 @@ export function buildSceneSvg(opts: OverlayOptions): string {
         ${sublineElements}
 
         <!-- Bottom Telemetry Coordinates -->
-        <g transform="translate(100, 1240)">
-          <text x="40" y="24" font-family="'Courier New', monospace" font-size="17" font-weight="700" fill="#38bdf8">
+        <g transform="translate(100, ${760 + backplateHeight - 40})">
+          <text x="40" y="20" font-family="'Courier New', monospace" font-size="17" font-weight="700" fill="#38bdf8">
             COORDINATES VERIFIED • ${badge}
           </text>
         </g>

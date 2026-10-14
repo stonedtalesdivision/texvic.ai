@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, Volume2, VolumeX, Heart, MessageCircle, Send, Bookmark, 
   Music, Eye, Share2, Sparkles, Check, Download, Calendar, Layers, ShieldCheck,
-  Trash2, Loader2, CheckCircle2, ExternalLink, X
+  Trash2, Loader2, CheckCircle2, ExternalLink, X, ChevronLeft, ChevronRight,
+  Gauge, Copy
 } from 'lucide-react';
 import { ReelItem, TrendingAudio } from '../types';
 import { playTrendingAudioTrack, stopAudioTrack, setBeatListener } from '../utils/audioSynth';
@@ -98,6 +99,10 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   const [exported, setExported] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState<number>(1.20);
+  const [copiedShare, setCopiedShare] = useState<boolean>(false);
+  const [floatingHearts, setFloatingHearts] = useState<Array<{ id: number; x: number; y: number }>>([]);
+  const clickTimerRef = useRef<number | null>(null);
 
   const duration = reel.duration || 8;
   const scenes = reel.scenes && reel.scenes.length > 0 ? reel.scenes : [];
@@ -108,17 +113,53 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   const [activeWordIndex, setActiveWordIndex] = useState<number>(0);
   const speechBoundaryActiveRef = useRef<boolean>(false);
 
-  // Close window on Escape key
+  // Jump directly to a specific scene
+  const jumpToScene = (targetIdx: number) => {
+    if (scenes.length === 0 || targetIdx < 0 || targetIdx >= scenes.length) return;
+    let targetTime = 0;
+    for (let i = 0; i < targetIdx; i++) {
+      targetTime += scenes[i]?.durationSeconds || (duration / scenes.length);
+    }
+    setCurrentTime(targetTime + 0.02);
+    setCurrentSceneIndex(targetIdx);
+    setActiveWordIndex(0);
+    if (videoRef.current) {
+      videoRef.current.currentTime = targetTime;
+    }
+  };
+
+  // Keyboard navigation & controls (Space, Esc, Arrows, M, L)
   useEffect(() => {
-    if (!onClose) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      if (['INPUT', 'TEXTAREA'].includes(targetTag)) return;
+
+      if (e.key === 'Escape' && onClose) {
         onClose();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        setIsPlaying(prev => !prev);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        jumpToScene(Math.max(0, currentSceneIndex - 1));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        jumpToScene(Math.min(scenes.length - 1, currentSceneIndex + 1));
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        setIsMuted(prev => !prev);
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        setLiked(prev => {
+          const next = !prev;
+          setLikesCount(c => next ? c + 1 : c - 1);
+          return next;
+        });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, currentSceneIndex, scenes.length]);
 
   // Sync beats with audio synthesizer
   useEffect(() => {
@@ -133,7 +174,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     };
   }, []);
 
-  // Playback timer loop
+  // Playback timer loop with dynamic rate scaling
   useEffect(() => {
     if (isPlaying) {
       if (!hasGeneratedVideo && !isMuted && reel.audio) {
@@ -141,20 +182,21 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       }
 
       if (hasGeneratedVideo && videoRef.current) {
+        videoRef.current.playbackRate = playbackRate;
         videoRef.current.play().catch(() => {});
       }
 
-      const intervalMs = 50;
+      const baseInterval = 50;
       timerRef.current = window.setInterval(() => {
         setCurrentTime(prev => {
-          const next = prev + intervalMs / 1000;
+          const next = prev + (baseInterval / 1000) * (playbackRate / 1.20);
           if (next >= duration) {
             // Loop back seamlessly
             return 0;
           }
           return next;
         });
-      }, intervalMs);
+      }, baseInterval);
     } else {
       stopAudioTrack();
       if (hasGeneratedVideo && videoRef.current) {
@@ -171,7 +213,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         clearInterval(timerRef.current);
       }
     };
-  }, [isPlaying, isMuted, duration, reel.audio, reel.duration, hasGeneratedVideo]);
+  }, [isPlaying, isMuted, duration, reel.audio, reel.duration, hasGeneratedVideo, playbackRate]);
 
   // Update current scene based on currentTime
   useEffect(() => {
@@ -213,7 +255,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       if (matureVoice) {
         utterance.voice = matureVoice;
       }
-      utterance.rate = 1.20; // 1.20x brisk, engaging pacing
+      utterance.rate = playbackRate; // 1.20x brisk, engaging pacing or user selected rate
       utterance.pitch = 0.85; // Deep chest resonance, never squeaky or childish
 
       speechBoundaryActiveRef.current = true;
@@ -245,7 +287,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         window.speechSynthesis.cancel();
       }
     };
-  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, scenes]);
+  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, scenes, playbackRate]);
 
   // Continuous sync of active word index across scenes and video playback
   useEffect(() => {
@@ -305,6 +347,43 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       setLikesCount(c => next ? c + 1 : c - 1);
       return next;
     });
+  };
+
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (clickTimerRef.current) {
+      // Double tap / click detected: burst floating heart!
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+      
+      const newHeart = { id: Date.now(), x, y };
+      setFloatingHearts(prev => [...prev, newHeart]);
+      setTimeout(() => {
+        setFloatingHearts(prev => prev.filter(h => h.id !== newHeart.id));
+      }, 950);
+
+      if (!liked) {
+        setLiked(true);
+        setLikesCount(c => c + 1);
+      }
+    } else {
+      // Single tap: toggle play
+      clickTimerRef.current = window.setTimeout(() => {
+        clickTimerRef.current = null;
+        togglePlay();
+      }, 240);
+    }
+  };
+
+  const handleShare = () => {
+    if (navigator?.clipboard) {
+      navigator.clipboard.writeText(window.location.href);
+    }
+    setCopiedShare(true);
+    setTimeout(() => setCopiedShare(false), 2400);
   };
 
   const handleExport = () => {
@@ -413,9 +492,56 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
           {/* Reel Interactive Canvas Center - High Watch-Time Typography */}
           <div 
-            onClick={togglePlay}
-            className="relative z-10 w-full h-full flex flex-col items-center justify-center px-6 text-center cursor-pointer"
+            onClick={handleCanvasClick}
+            className="relative z-10 w-full h-full flex flex-col items-center justify-center px-4 sm:px-6 text-center cursor-pointer select-none"
           >
+            {/* Double-Tap Animated Floating Heart Burst (Instagram Style) */}
+            {floatingHearts.map((heart) => (
+              <div
+                key={heart.id}
+                className="pointer-events-none absolute z-50 flex items-center justify-center animate-ping"
+                style={{
+                  left: heart.x - 28,
+                  top: heart.y - 28,
+                  animationDuration: '0.85s',
+                }}
+              >
+                <Heart className="w-14 h-14 fill-rose-500 text-rose-400 drop-shadow-[0_0_20px_rgba(244,63,94,0.95)]" />
+              </div>
+            ))}
+
+            {/* Quick Interactive Slide Switchers (Left & Right Arrow overlays) */}
+            {scenes.length > 1 && (
+              <>
+                {currentSceneIndex > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      jumpToScene(currentSceneIndex - 1);
+                    }}
+                    className="absolute left-1.5 top-1/2 -translate-y-1/2 z-30 p-1.5 rounded-full bg-black/45 hover:bg-black/75 text-white/70 hover:text-white border border-white/20 backdrop-blur-md transition-all active:scale-90 cursor-pointer shadow-lg"
+                    title="Previous Slide (←)"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
+                {currentSceneIndex < scenes.length - 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      jumpToScene(currentSceneIndex + 1);
+                    }}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 z-30 p-1.5 rounded-full bg-black/45 hover:bg-black/75 text-white/70 hover:text-white border border-white/20 backdrop-blur-md transition-all active:scale-90 cursor-pointer shadow-lg"
+                    title="Next Slide (→)"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+              </>
+            )}
+
             {/* Safe zone overlay guide (when enabled) */}
             {showSafeZones && (
               <div className="absolute inset-x-4 top-16 bottom-28 border-2 border-dashed border-sky-400/40 rounded-2xl pointer-events-none flex flex-col justify-between p-3 bg-sky-500/5">
@@ -429,7 +555,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
             )}
 
             {/* Scene Pacing Badge */}
-            <div className="mb-4 flex items-center gap-2">
+            <div className="mb-3 flex items-center gap-2">
               <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-black/60 text-white/90 backdrop-blur-md border border-white/20 shadow-lg flex items-center gap-1.5">
                 <span 
                   className="w-2 h-2 rounded-full animate-ping"
@@ -440,6 +566,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
             </div>
 
             {!hasGeneratedVideo && (() => {
+              const currentTemplate = activeScene?.visualFormat || (currentSceneIndex === 0 ? 'full-bleed-cinematic' : currentSceneIndex === 1 ? 'classified-dossier' : 'satellite-telemetry');
               const narration = activeScene?.voiceScript || activeScene?.voiceText || activeScene?.headline || activeScene?.hookText || activeScene?.text || reel.title || '';
               const narrationWords = narration.replace(/\*\*/g, '').trim().split(/\s+/).filter(Boolean);
               const phraseSize = 5;
@@ -451,6 +578,199 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
                 ? activeScene.secondaryText.replace(/\*\*/g, '')
                 : null;
 
+              if (currentTemplate === 'classified-dossier' || currentSceneIndex === 1) {
+                // =========================================================
+                // SLIDE 2: CLASSIFIED DOSSIER FOLDER CARD BOX
+                // Strictly bounded & centered inside the card box (No text overflow!)
+                // =========================================================
+                return (
+                  <div 
+                    key={`dossier-${activeScene?.id || currentSceneIndex}`}
+                    className={`w-full max-w-[270px] sm:max-w-[285px] rounded-2xl bg-slate-950/92 border-2 border-amber-500/80 p-3 sm:p-3.5 shadow-[0_16px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl relative flex flex-col items-center justify-between overflow-hidden transition-all duration-300 transform ${
+                      beatPulse ? 'scale-[1.03] border-amber-400' : 'scale-100'
+                    }`}
+                  >
+                    {/* Ambient glowing folder corner tint */}
+                    <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-amber-500/20 blur-xl pointer-events-none" />
+
+                    {/* Top Dossier Header / Confidential Intelligence Tag */}
+                    <div className="w-full flex items-center justify-between pb-2 border-b border-white/15">
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/50">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                        <span className="text-[9px] font-mono font-black text-rose-400 tracking-wider uppercase">
+                          CONFIDENTIAL // DOSSIER
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono font-bold text-slate-400 tracking-wider">
+                        REC: 02 // ARCHIVE
+                      </span>
+                    </div>
+
+                    {/* Dossier Card Core Headline - Strictly bounded into the box */}
+                    <div className="w-full my-2 px-1 text-center">
+                      <h2 className="text-sm sm:text-base font-black text-white leading-tight tracking-tight drop-shadow-md break-words">
+                        {renderSingleFocusText(
+                          activeScene?.hookText || activeScene?.headline || reel.title,
+                          activeScene?.highlight,
+                          accent
+                        )}
+                      </h2>
+                    </div>
+
+                    {/* Real-Time Spoken Karaoke Caption (Single Word Active Sync) bounded inside box */}
+                    {visiblePhraseWords.length > 0 && (
+                      <div className="w-full px-2 py-1.5 my-1 rounded-xl bg-black/60 border border-amber-500/30 shadow-inner">
+                        <div className="text-[8px] font-mono font-bold text-amber-400/80 mb-0.5 flex items-center justify-center gap-1 uppercase tracking-widest">
+                          <span className="w-1 h-1 rounded-full bg-amber-400 animate-ping" />
+                          {isPlaying ? 'Narration Sync' : 'Voiceover Preview'}
+                        </div>
+                        <div className="text-xs sm:text-sm font-black leading-snug flex flex-wrap items-center justify-center gap-x-1">
+                          {visiblePhraseWords.map((word, localIdx) => {
+                            const globalIdx = phraseStart + localIdx;
+                            const isCurrentWord = isPlaying ? globalIdx === activeWordIndex : localIdx === 0;
+
+                            if (isCurrentWord) {
+                              return (
+                                <mark
+                                  key={`spk-${globalIdx}`}
+                                  className="inline-block px-1.5 py-0.5 rounded-md font-black scale-105 border shadow-lg transition-all duration-100"
+                                  style={{
+                                    backgroundColor: `${accent}40`,
+                                    color: accent,
+                                    borderColor: `${accent}cc`,
+                                    textShadow: `0 0 12px ${accent}`,
+                                  }}
+                                >
+                                  {word}
+                                </mark>
+                              );
+                            }
+
+                            return (
+                              <span
+                                key={`spk-${globalIdx}`}
+                                className="inline-block text-white/90 font-bold"
+                              >
+                                {word}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Clean Secondary Detail inside the Dossier Box */}
+                    {cleanSecondary && (
+                      <div className="w-full text-center my-1 px-1">
+                        <p className="text-[10px] sm:text-[11px] font-semibold text-slate-300 leading-snug break-words line-clamp-2">
+                          {cleanSecondary}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Bottom Dossier Action Pill - Anchored cleanly inside the box */}
+                    <div className="w-full mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between">
+                      <span className="text-[9px] font-mono font-bold text-amber-400/90 tracking-wider">
+                        FORENSIC TIMELINE
+                      </span>
+                      <span className="text-[8px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.5 rounded border border-white/10">
+                        AUTHENTIC RECORD
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (currentTemplate === 'satellite-telemetry' || currentSceneIndex === 2) {
+                // =========================================================
+                // SLIDE 3: SATELLITE TELEMETRY RECONNAISSANCE HUD
+                // =========================================================
+                return (
+                  <div 
+                    key={`telemetry-${activeScene?.id || currentSceneIndex}`}
+                    className={`w-full max-w-[270px] sm:max-w-[285px] rounded-2xl bg-slate-950/85 border border-sky-400/60 p-3 sm:p-3.5 shadow-[0_16px_40px_rgba(0,0,0,0.85)] backdrop-blur-xl relative flex flex-col items-center justify-between overflow-hidden transition-all duration-300 transform ${
+                      beatPulse ? 'scale-[1.03] border-sky-300' : 'scale-100'
+                    }`}
+                  >
+                    {/* HUD Reticle Corner Brackets */}
+                    <div className="absolute top-1 left-1 w-3 h-3 border-t-2 border-l-2 border-sky-400 pointer-events-none" />
+                    <div className="absolute top-1 right-1 w-3 h-3 border-t-2 border-r-2 border-sky-400 pointer-events-none" />
+                    <div className="absolute bottom-1 left-1 w-3 h-3 border-b-2 border-l-2 border-sky-400 pointer-events-none" />
+                    <div className="absolute bottom-1 right-1 w-3 h-3 border-b-2 border-r-2 border-sky-400 pointer-events-none" />
+
+                    {/* Top Telemetry Header */}
+                    <div className="w-full flex items-center justify-between pb-2 border-b border-sky-400/20">
+                      <div className="flex items-center gap-1.5 text-sky-400 text-[9px] font-mono font-bold tracking-wider uppercase">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
+                        [ SATELLITE RECON ]
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-400">
+                        ORBITAL LOCK
+                      </span>
+                    </div>
+
+                    {/* Telemetry Core Headline */}
+                    <div className="w-full my-2 px-1 text-center">
+                      <h2 className="text-sm sm:text-base font-black text-white leading-tight tracking-tight drop-shadow-md break-words">
+                        {renderSingleFocusText(
+                          activeScene?.hookText || activeScene?.headline || reel.title,
+                          activeScene?.highlight,
+                          '#38bdf8'
+                        )}
+                      </h2>
+                    </div>
+
+                    {/* Spoken Karaoke Caption */}
+                    {visiblePhraseWords.length > 0 && (
+                      <div className="w-full px-2 py-1.5 my-1 rounded-xl bg-black/60 border border-sky-400/30 shadow-inner">
+                        <div className="text-[8px] font-mono font-bold text-sky-400/80 mb-0.5 flex items-center justify-center gap-1 uppercase tracking-widest">
+                          <span className="w-1 h-1 rounded-full bg-sky-400 animate-ping" />
+                          {isPlaying ? 'Narration Sync' : 'Voiceover Preview'}
+                        </div>
+                        <div className="text-xs sm:text-sm font-black leading-snug flex flex-wrap items-center justify-center gap-x-1">
+                          {visiblePhraseWords.map((word, localIdx) => {
+                            const globalIdx = phraseStart + localIdx;
+                            const isCurrentWord = isPlaying ? globalIdx === activeWordIndex : localIdx === 0;
+
+                            if (isCurrentWord) {
+                              return (
+                                <mark
+                                  key={`spk-${globalIdx}`}
+                                  className="inline-block px-1.5 py-0.5 rounded-md font-black scale-105 border shadow-lg transition-all duration-100"
+                                  style={{
+                                    backgroundColor: 'rgba(56, 189, 248, 0.25)',
+                                    color: '#38bdf8',
+                                    borderColor: '#38bdf8',
+                                    textShadow: '0 0 12px #38bdf8',
+                                  }}
+                                >
+                                  {word}
+                                </mark>
+                              );
+                            }
+
+                            return (
+                              <span key={`spk-${globalIdx}`} className="inline-block text-white/90 font-bold">
+                                {word}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bottom Telemetry Status */}
+                    <div className="w-full mt-1.5 pt-1.5 border-t border-sky-400/20 flex items-center justify-between text-[9px] font-mono text-sky-300">
+                      <span>COORDINATES VERIFIED</span>
+                      <span className="text-slate-400">INTEL // ARCHIVE</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              // =========================================================
+              // SLIDE 1 (or other): FULL-BLEED CINEMATIC HOOK
+              // =========================================================
               return (
                 <div 
                   key={activeScene?.id || currentSceneIndex}
@@ -523,7 +843,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
             {/* Subtle Play Prompt when paused */}
             {!isPlaying && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] pointer-events-none">
                 <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border border-white/40 flex items-center justify-center shadow-xl">
                   <Play className="w-8 h-8 text-white fill-white ml-1" />
                 </div>
@@ -534,35 +854,64 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
         {/* Top Header Overlays */}
         <div className="relative z-20 flex items-center justify-between px-2 pt-2">
-          {/* Timeline scene segments progress bar */}
-          <div className="w-full flex items-center gap-1 mb-2">
+          {/* Interactive timeline scene segments progress bar */}
+          <div className="w-full flex items-center gap-1.5 mb-2">
             {scenes.map((sc, idx) => {
               const isCurrent = idx === currentSceneIndex;
               const isPast = idx < currentSceneIndex;
               return (
-                <div 
+                <button
                   key={sc.id || idx}
-                  className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    jumpToScene(idx);
+                  }}
+                  title={`Jump to Slide ${idx + 1}: ${idx === 0 ? 'Cinematic Hook' : idx === 1 ? 'Classified Dossier Box' : 'Recon Telemetry'}`}
+                  className="h-2 flex-1 bg-white/25 hover:bg-white/45 rounded-full overflow-hidden transition-all duration-200 cursor-pointer group relative"
                 >
                   <div 
-                    className={`h-full bg-white transition-all duration-100 ${
-                      isPast ? 'w-full' : isCurrent ? 'w-full' : 'w-0'
+                    className={`h-full transition-all duration-100 ${
+                      isPast 
+                        ? 'w-full bg-white' 
+                        : isCurrent 
+                        ? 'w-full bg-gradient-to-r from-pink-500 via-amber-400 to-rose-500 shadow-[0_0_8px_rgba(236,72,153,0.8)]' 
+                        : 'w-0'
                     }`}
                   />
-                </div>
+                  {isCurrent && (
+                    <span className="absolute inset-0 bg-white/30 animate-pulse pointer-events-none" />
+                  )}
+                </button>
               );
             })}
           </div>
         </div>
 
         <div className="relative z-20 flex items-center justify-between px-3 text-xs text-white/80 font-medium">
-          <span className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-full backdrop-blur-md">
-            Reels
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-full backdrop-blur-md font-bold">
+              Reels
+            </span>
+            {/* Speed Selector Pill */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                const nextRate = playbackRate === 1.0 ? 1.2 : playbackRate === 1.2 ? 1.5 : 1.0;
+                setPlaybackRate(nextRate);
+              }}
+              className="px-2 py-0.5 rounded-full bg-black/50 hover:bg-black/70 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-[10px] font-mono font-bold backdrop-blur-md transition-all cursor-pointer flex items-center gap-1 active:scale-95"
+              title="Click to toggle voice playback speed"
+            >
+              <Gauge className="w-3 h-3 text-amber-400" />
+              <span>{playbackRate.toFixed(1)}x</span>
+            </button>
+          </div>
           <button 
             type="button"
             onClick={toggleMute}
-            className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-colors"
+            className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-colors cursor-pointer"
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-pink-400" />}
           </button>
@@ -573,10 +922,10 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
           <button 
             type="button"
             onClick={handleLike}
-            className="flex flex-col items-center gap-1 group"
+            className="flex flex-col items-center gap-1 group active:scale-90 transition-transform cursor-pointer"
           >
             <div className={`p-2 rounded-full backdrop-blur-md transition-all ${
-              liked ? 'bg-pink-500 text-white scale-110' : 'bg-black/40 text-white group-hover:bg-black/60'
+              liked ? 'bg-pink-500 text-white scale-110 shadow-lg shadow-pink-500/50' : 'bg-black/40 text-white group-hover:bg-black/60'
             }`}>
               <Heart className={`w-6 h-6 ${liked ? 'fill-white' : ''}`} />
             </div>
@@ -587,7 +936,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
           <button 
             type="button"
-            className="flex flex-col items-center gap-1 group"
+            className="flex flex-col items-center gap-1 group active:scale-90 transition-transform cursor-pointer"
           >
             <div className="p-2 rounded-full bg-black/40 text-white group-hover:bg-black/60 backdrop-blur-md">
               <MessageCircle className="w-6 h-6" />
@@ -599,14 +948,17 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
           <button 
             type="button"
-            onClick={handleExport}
-            className="flex flex-col items-center gap-1 group"
+            onClick={handleShare}
+            className="flex flex-col items-center gap-1 group active:scale-90 transition-transform cursor-pointer"
+            title="Share Reel (Copy Link)"
           >
-            <div className="p-2 rounded-full bg-black/40 text-white group-hover:bg-black/60 backdrop-blur-md">
-              <Send className="w-6 h-6" />
+            <div className={`p-2 rounded-full backdrop-blur-md transition-all ${
+              copiedShare ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/50' : 'bg-black/40 text-white group-hover:bg-black/60'
+            }`}>
+              {copiedShare ? <Check className="w-6 h-6" /> : <Send className="w-6 h-6" />}
             </div>
             <span className="text-[11px] font-bold drop-shadow">
-              {reel.shares || 4120}
+              {copiedShare ? 'Copied' : (reel.shares || 4120)}
             </span>
           </button>
 
@@ -713,6 +1065,53 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
               </button>
             )}
           </div>
+        </div>
+
+        {/* Interactive Scene Sequence Navigator */}
+        <div className="space-y-2 py-1">
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+            <span className="flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-pink-400" />
+              Interactive Reel Sequence
+            </span>
+            <span className="text-[11px] font-mono text-slate-400">
+              Slide {currentSceneIndex + 1} of {scenes.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {scenes.map((sc, idx) => {
+              const isCurrent = idx === currentSceneIndex;
+              const title = idx === 0 ? '01 Hook' : idx === 1 ? '02 Dossier' : '03 Telemetry';
+              const subtitle = idx === 0 ? 'Cinema' : idx === 1 ? 'Archive Box' : 'HUD Scan';
+              return (
+                <button
+                  key={`seq-btn-${idx}`}
+                  type="button"
+                  onClick={() => jumpToScene(idx)}
+                  className={`p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    isCurrent 
+                      ? 'bg-pink-500/20 border-pink-500/50 shadow-md ring-1 ring-pink-500/30' 
+                      : 'bg-slate-800/40 hover:bg-slate-800/80 border-white/5 hover:border-white/20'
+                  }`}
+                >
+                  <span className={`text-[11px] font-bold ${isCurrent ? 'text-pink-300' : 'text-slate-300'}`}>
+                    {title}
+                  </span>
+                  <span className="text-[9px] text-slate-400 truncate">
+                    {subtitle}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Keyboard Legend */}
+        <div className="px-3 py-1.5 rounded-xl bg-slate-800/40 border border-white/5 text-[10px] text-slate-400 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1">
+          <span><kbd className="px-1 py-0.5 rounded bg-black/40 font-mono text-slate-300">Space</kbd> Play</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-black/40 font-mono text-slate-300">←/→</kbd> Slides</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-black/40 font-mono text-slate-300">Double-Tap</kbd> ❤️</span>
+          <span><kbd className="px-1 py-0.5 rounded bg-black/40 font-mono text-slate-300">M</kbd> Mute</span>
         </div>
 
         {/* Retention & Hook Metrics */}
