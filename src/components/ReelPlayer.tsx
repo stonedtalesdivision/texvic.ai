@@ -303,8 +303,8 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       if (matureVoice) {
         utterance.voice = matureVoice;
       }
-      utterance.rate = playbackRate; // 1.18x brisk, engaging pacing or user selected rate
-      utterance.pitch = 0.80; // Deep masculine chest resonance, authoritative documentary tone
+      utterance.rate = playbackRate || 1.20; // 1.20x default crisp, modern tempo
+      utterance.pitch = 1.0; // Natural, un-warped human voice pitch
 
       speechBoundaryActiveRef.current = true;
       setActiveWordIndex(0);

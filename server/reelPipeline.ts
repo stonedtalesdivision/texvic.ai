@@ -142,14 +142,14 @@ export async function prepareReelSceneAssets(reel: any): Promise<{ scenes: any[]
     if (narrationText) {
       try {
         const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice });
+        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice, rate: '+20%' });
         audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
         console.warn(`[Reel Video Pipeline] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
         const headline = String(sc?.headline || sc?.hookText || sc?.text || reel?.title || '').trim();
         if (headline) {
           try {
-            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale });
+            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale, rate: '+20%' });
             audioDur = await getAudioDuration(segPath);
           } catch (headErr) {
             console.error(`[Reel Video Pipeline] Headline fallback also failed for scene ${i + 1}:`, headErr);

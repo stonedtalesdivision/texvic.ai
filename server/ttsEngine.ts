@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { GoogleGenAI } from '@google/genai';
 
 const execFileAsync = promisify(execFile);
@@ -221,17 +222,29 @@ export async function padAudioSegment(filePath: string, targetDurationSec: numbe
   }
 }
 
+async function ensureTtsDir(): Promise<string> {
+  try {
+    await fs.mkdir(TTS_DIR, { recursive: true });
+    return TTS_DIR;
+  } catch {
+    const fallback = path.join(os.tmpdir(), 'texvic_tts');
+    await fs.mkdir(fallback, { recursive: true });
+    return fallback;
+  }
+}
+
 /**
  * Generate human-like neural audio voiceover from script text.
  * Completely free, zero API key required, low latency (~1.5s).
- * Features multi-voice fallback, temp-file argument passing, and backoff retries.
+ * Primary Engine: Microsoft Edge Neural TTS (1.20x speed, natural male neural voices).
+ * Fallback: Gemini 3.8 Flash TTS (Charon) -> Tier 3 HTTPS TTS.
  */
 export async function generateSpeech(
   text: string,
   outputPath?: string,
   options: TTSOptions = {}
 ): Promise<string> {
-  await fs.mkdir(TTS_DIR, { recursive: true });
+  const activeTtsDir = await ensureTtsDir();
 
   const cleanedText = humanizeSpeechText(text);
 
@@ -239,43 +252,32 @@ export async function generateSpeech(
     throw new Error('TTS text cannot be empty');
   }
 
-  const targetPath = outputPath || path.join(TTS_DIR, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
+  const targetPath = outputPath || path.join(activeTtsDir, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
 
-  // Tier 1: Gemini 3.8 Flash TTS (Deep, mature, Hollywood-caliber documentary baritone)
-  // Runs over pure Node.js HTTPS - requires ZERO Python, ZERO pip packages, ZERO CLI tools
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
-    try {
-      const geminiVoice = options.voice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(options.voice)
-        ? options.voice
-        : 'Charon'; // Charon: Deepest authoritative male documentary narrator
-      console.log(`[TTS Engine] Synthesizing authentic documentary voiceover via Gemini 3.8 Flash TTS (${geminiVoice})...`);
-      return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
-    } catch (geminiErr: any) {
-      console.warn('[TTS Engine] Gemini 3.8 Flash TTS unavailable, falling back to Microsoft Edge Neural TTS:', geminiErr?.message || geminiErr);
-    }
-  }
-
-  // Tier 2: Microsoft Edge Neural TTS (Deep adult male voices: Christopher / Guy / Ryan)
+  // =========================================================================
+  // Tier 1 (DEFAULT): Microsoft Edge Neural TTS (Natural Male Neural Core)
+  // Deep adult male documentary baritones: Christopher / Guy / Eric / Andrew / Brian / Ryan
+  // Free, unlimited, zero quota limits, 1.20x speed for captivating pacing
+  // =========================================================================
   const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '+18%';  // 1.18x speed: brisk, modern, captivating tempo
-  const pitch = options.pitch || '-5Hz'; // Deep chest resonance, rich neural core baritone
+  const rate = options.rate || '+20%';   // 1.20x default speed as requested
+  const pitch = options.pitch || '+0Hz'; // 100% natural, un-warped human pitch
 
-  // Write text to a temporary UTF-8 text file to eliminate command-line encoding & length bugs
-  const tempTextFile = path.join(TTS_DIR, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
+  const tempTextFile = path.join(activeTtsDir, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
   await fs.writeFile(tempTextFile, cleanedText, 'utf8');
 
-  // Mature, deep adult voice candidates only
+  // Multi-candidate male neural voices (all high-fidelity adult male narrators)
   const candidateVoices = [
     primaryVoice,
-    CREATOR_VOICES.deepDocumentaryMale,
-    CREATOR_VOICES.cinematicStorytellerMale,
-    'en-US-GuyNeural',
-    CREATOR_VOICES.britishNarratorMale
+    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
+    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
+    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
+    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
+    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
+    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
   ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   try {
-    let lastError: any = null;
-
     for (let attempt = 0; attempt < candidateVoices.length; attempt++) {
       const voiceToUse = candidateVoices[attempt];
       const args = [
@@ -287,39 +289,48 @@ export async function generateSpeech(
       ];
 
       try {
-        await executeEdgeTTS(args, 45000);
+        await executeEdgeTTS(args, 30000);
 
-        // Verify audio file was produced and has valid data
         if (fsSync.existsSync(targetPath)) {
           const stat = await fs.stat(targetPath);
           if (stat.size >= 500) {
-            console.log(`[TTS Engine] Voiceover synthesized via Edge Neural TTS (${voiceToUse}).`);
+            console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Edge Neural TTS (${voiceToUse} @ 1.20x).`);
             return targetPath;
           }
           try { await fs.unlink(targetPath); } catch {}
         }
       } catch (err: any) {
-        lastError = err;
-        console.warn(`[TTS Engine] Attempt ${attempt + 1} with voice "${voiceToUse}" failed:`, err?.message || err);
+        console.warn(`[TTS Engine] Edge-TTS candidate "${voiceToUse}" failed:`, err?.message || err);
         try { if (fsSync.existsSync(targetPath)) await fs.unlink(targetPath); } catch {}
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 400));
       }
-    }
-
-    // Tier 3: Zero-Dependency Pure HTTPS Web TTS Fallback
-    // Guaranteed to work on any VPS, inside Docker, with zero Python and zero API keys!
-    console.warn('[TTS Engine] Microsoft Edge Neural TTS candidates exhausted. Invoking Tier 3 HTTPS Web TTS fallback...');
-    return await generateSpeechViaHttp(cleanedText, targetPath);
-  } catch (tier2Err: any) {
-    try {
-      console.warn('[TTS Engine] Invoking Tier 3 HTTPS Web TTS fallback after error:', tier2Err?.message || tier2Err);
-      return await generateSpeechViaHttp(cleanedText, targetPath);
-    } catch (tier3Err: any) {
-      throw tier3Err || tier2Err;
     }
   } finally {
     try { await fs.unlink(tempTextFile); } catch {}
   }
+
+  // =========================================================================
+  // Tier 2: Gemini 3.8 Flash TTS (Deep Hollywood Charon / Fenrir Baritone)
+  // Invoked only if Edge-TTS network candidates fail
+  // =========================================================================
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
+    try {
+      const geminiVoice = options.voice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(options.voice)
+        ? options.voice
+        : 'Charon'; // Charon: Deepest authoritative male documentary narrator
+      console.log(`[TTS Engine] Falling back to Tier 2 Gemini 3.8 Flash TTS (${geminiVoice})...`);
+      return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
+    } catch (geminiErr: any) {
+      console.warn('[TTS Engine] Tier 2 Gemini TTS also unavailable:', geminiErr?.message || geminiErr);
+    }
+  }
+
+  // =========================================================================
+  // Tier 3: Pure HTTPS Web TTS Fallback (Emergency Offline VPS Fallback)
+  // Clean 1.20x pacing, NO chipmunk or child formant warping
+  // =========================================================================
+  console.warn('[TTS Engine] Invoking Tier 3 HTTPS Web TTS fallback...');
+  return await generateSpeechViaHttp(cleanedText, targetPath);
 }
 
 /**
@@ -405,7 +416,7 @@ export async function generateSpeechViaHttp(
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', chunkFiles[0],
-        '-af', 'asetrate=44100*0.78,aresample=44100,atempo=1.18/0.78,equalizer=f=110:width_type=o:width=1.2:g=5.0,equalizer=f=250:width_type=o:width=1.5:g=2.5,aformat=sample_rates=44100:channel_layouts=stereo',
+        '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
         '-c:a', 'libmp3lame',
         '-ar', '44100',
         '-ac', '2',
@@ -413,7 +424,7 @@ export async function generateSpeechViaHttp(
         outputPath
       ]);
     } else {
-      // Concatenate all chunks and normalize at 1.18x speed with male pitch transposition
+      // Concatenate all chunks and normalize at clean 1.20x speed
       const concatList = `${tempBase}-list.txt`;
       const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
       await fs.writeFile(concatList, listContent, 'utf8');
@@ -424,7 +435,7 @@ export async function generateSpeechViaHttp(
           '-f', 'concat',
           '-safe', '0',
           '-i', concatList,
-          '-af', 'asetrate=44100*0.78,aresample=44100,atempo=1.18/0.78,equalizer=f=110:width_type=o:width=1.2:g=5.0,equalizer=f=250:width_type=o:width=1.5:g=2.5,aformat=sample_rates=44100:channel_layouts=stereo',
+          '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
           '-c:a', 'libmp3lame',
           '-ar', '44100',
           '-ac', '2',
