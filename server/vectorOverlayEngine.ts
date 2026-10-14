@@ -161,318 +161,39 @@ export function buildSceneSvg(opts: OverlayOptions): string {
     <rect x="120" y="85" width="${progressWidth}" height="6" rx="3" fill="url(#accentGrad)" filter="url(#glow)" />
   `;
 
-  let mainContentSvg = '';
-
-  if (template === 'classified-dossier') {
-    // =========================================================================
-    // TEMPLATE 1: CLASSIFIED DOSSIER / DECLASSIFIED INVESTIGATION (Slide 2 Box)
-    // =========================================================================
-    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 18);
-    const highlightLines = rawHighlight ? wrapSvgText(rawHighlight.toUpperCase(), 22).map(escapeXml) : [];
-    const sublineLines = rawSubline ? wrapSvgText(rawSubline, 34).map(escapeXml) : [];
-
-    const headlineHeight = headlineLines.length * 52;
-    const highlightHeight = highlightLines.length > 0 ? (highlightLines.length * 46 + 14) : 0;
-    const sublineHeight = sublineLines.length * 34;
-    const totalContentHeight = headlineHeight + highlightHeight + sublineHeight;
-
-    // Card height dynamically fits content + header (130px) + footer action pill & padding (90px)
-    const cardHeight = Math.max(660, 130 + totalContentHeight + 90);
-    // Center the card vertically on the 1080x1920 canvas within Instagram Reels safe zone
-    const cardY = Math.max(340, Math.min(640, Math.round((1920 - cardHeight) / 2)));
-    let textY = cardY + 150;
-
-    const headlineElements = headlineLines.map((line, idx) => {
-      const y = textY + idx * 52;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="44" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
-    }).join('\n');
-    textY += headlineHeight + 14;
-
-    const highlightElements = highlightLines.map((line, idx) => {
-      const y = textY + idx * 46;
-      const pillWidth = Math.min(780, Math.max(260, line.length * 22 + 40));
-      const pillX = 540 - pillWidth / 2;
-      return `
-        <!-- High-Contrast Fluorescent Highlighter Pill strictly inside box -->
-        <rect x="${pillX}" y="${y - 34}" width="${pillWidth}" height="42" rx="10" fill="rgba(251, 191, 36, 0.24)" stroke="${accent}" stroke-width="1.2" />
-        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="900" fill="${accent}" letter-spacing="0.8" filter="url(#glow)">${line}</text>
-      `;
-    }).join('\n');
-    if (highlightLines.length > 0) textY += highlightHeight;
-
-    const sublineElements = sublineLines.map((line, idx) => {
-      const y = textY + idx * 34;
-      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" fill="#cbd5e1" filter="url(#shadow)">${line}</text>`;
-    }).join('\n');
-
-    mainContentSvg = `
-      <g>
-        <!-- Declassified Dossier Folder Card Box -->
-        <g transform="translate(100, ${cardY})">
-          <rect width="880" height="${cardHeight}" rx="28" fill="rgba(8, 12, 22, 0.90)" stroke="${accent}" stroke-width="2" filter="url(#shadow)" />
-          
-          <!-- Confidential Intelligence Tag -->
-          <g transform="translate(40, 32)">
-            <rect width="320" height="42" rx="6" fill="rgba(239, 68, 68, 0.2)" stroke="#ef4444" stroke-width="1.8" />
-            <text x="160" y="28" text-anchor="middle" font-family="'Courier New', monospace" font-size="18" font-weight="900" fill="#ef4444" letter-spacing="3">
-              CONFIDENTIAL // DOSSIER
-            </text>
-          </g>
-
-          <!-- File ID Watermark -->
-          <text x="840" y="58" text-anchor="end" font-family="'Courier New', monospace" font-size="14" font-weight="700" fill="#94a3b8" letter-spacing="1">
-            REC: ${branding.slice(0, 12)}
-          </text>
-
-          <line x1="40" y1="92" x2="840" y2="92" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1" />
-        </g>
-
-        <!-- Dynamic Content Texts (Strictly Centered Inside the Box) -->
-        ${headlineElements}
-        ${highlightElements}
-        ${sublineElements}
-
-        <!-- Bottom Action Pill (Anchored securely inside the bottom of the card) -->
-        <g transform="translate(140, ${cardY + cardHeight - 64})">
-          <rect width="800" height="46" rx="23" fill="rgba(251, 191, 36, 0.12)" stroke="${accent}" stroke-width="1.2" />
-          <text x="400" y="29" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="#fef08a" letter-spacing="1">
-            ${dwellText}
-          </text>
-        </g>
+  // Minimalist Archival Framing: Leaves 100% of the video center clear for 4K B-roll and kinetic subtitles
+  const cornerColor = accent || '#d4af37';
+  const mainContentSvg = `
+    <g>
+      <!-- Sleek Glassmorphic Archival Header Capsule (Safe zone y=140) -->
+      <g transform="translate(100, 140)">
+        <rect width="880" height="52" rx="26" fill="rgba(8, 12, 22, 0.72)" stroke="rgba(255, 255, 255, 0.18)" stroke-width="1.2" filter="url(#shadow)" />
+        <circle cx="36" cy="26" r="6" fill="${cornerColor}" filter="url(#glow)" />
+        <text x="56" y="33" font-family="'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="800" fill="${cornerColor}" letter-spacing="1.5">
+          [ ${badge} ]
+        </text>
+        <text x="844" y="33" text-anchor="end" font-family="'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700" fill="#f1f5f9" letter-spacing="0.8">
+          ${branding}
+        </text>
       </g>
-    `;
 
-  } else if (template === 'satellite-telemetry') {
-    // =========================================================================
-    // TEMPLATE 2: SATELLITE TELEMETRY & RECONNAISSANCE HUD (Slide 3)
-    // =========================================================================
-    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 18);
-    const highlightLines = rawHighlight ? wrapSvgText(rawHighlight.toUpperCase(), 22).map(escapeXml) : [];
-    const sublineLines = rawSubline ? wrapSvgText(rawSubline, 34).map(escapeXml) : [];
-
-    const headlineHeight = headlineLines.length * 52;
-    const highlightHeight = highlightLines.length > 0 ? (highlightLines.length * 46 + 14) : 0;
-    const sublineHeight = sublineLines.length * 34;
-    const teleContentHeight = headlineHeight + highlightHeight + sublineHeight;
-    const backplateHeight = Math.max(540, teleContentHeight + 130);
-
-    const startY = 820;
-    let currentY = startY;
-
-    const headlineElements = headlineLines.map((line, idx) => {
-      const y = currentY + idx * 52;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', sans-serif" font-size="44" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#38bdf8', rawHighlight)}</text>`;
-    }).join('\n');
-    currentY += headlineHeight + 14;
-
-    const highlightElements = highlightLines.map((line, idx) => {
-      const y = currentY + idx * 46;
-      const pillWidth = Math.min(780, Math.max(260, line.length * 22 + 40));
-      const pillX = 540 - pillWidth / 2;
-      return `
-        <!-- High-Contrast Cyan Highlighter Backplate -->
-        <rect x="${pillX}" y="${y - 34}" width="${pillWidth}" height="42" rx="10" fill="rgba(56, 189, 248, 0.22)" stroke="#38bdf8" stroke-width="1.2" />
-        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="900" fill="#38bdf8" letter-spacing="1" filter="url(#glow)">${line}</text>
-      `;
-    }).join('\n');
-    if (highlightLines.length > 0) currentY += highlightHeight;
-
-    const sublineElements = sublineLines.map((line, idx) => {
-      const y = currentY + idx * 34;
-      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="500" fill="#cbd5e1" filter="url(#shadow)">${line}</text>`;
-    }).join('\n');
-
-    mainContentSvg = `
-      <g>
-        <!-- Reconnaissance HUD Reticle & Corner Brackets -->
-        <g stroke="#38bdf8" stroke-width="2" fill="none" opacity="0.6">
-          <path d="M 100 240 L 160 240 M 100 240 L 100 300" />
-          <path d="M 980 240 L 920 240 M 980 240 L 980 300" />
-          <path d="M 100 1380 L 160 1380 M 100 1380 L 100 1320" />
-          <path d="M 980 1380 L 920 1380 M 980 1380 L 980 1320" />
-        </g>
-
-        <!-- Top Telemetry Readout -->
-        <g transform="translate(100, 180)">
-          <rect width="880" height="42" rx="8" fill="rgba(6, 18, 38, 0.75)" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.2" />
-          <text x="24" y="27" font-family="'Courier New', monospace" font-size="17" font-weight="700" fill="#38bdf8" letter-spacing="1.5">
-            [ SATELLITE RECON ] • TOPOGRAPHIC SCAN
-          </text>
-          <text x="856" y="27" text-anchor="end" font-family="'Courier New', monospace" font-size="16" font-weight="700" fill="#94a3b8">
-            REC // INTEL
-          </text>
-        </g>
-
-        <!-- Center Target Crosshair -->
-        <g transform="translate(540, 520)" opacity="0.4" stroke="#38bdf8" stroke-width="1.5">
-          <circle cx="0" cy="0" r="80" fill="none" stroke-dasharray="8,6" />
-          <line x1="-120" y1="0" x2="-20" y2="0" />
-          <line x1="20" y1="0" x2="120" y2="0" />
-          <line x1="0" y1="-120" x2="0" y2="-20" />
-          <line x1="0" y1="20" x2="0" y2="120" />
-        </g>
-
-        <!-- Soft Lower Third Text Backplate -->
-        <rect x="80" y="760" width="920" height="${backplateHeight}" rx="24" fill="rgba(3, 7, 18, 0.72)" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" />
-
-        <!-- Floating Typography -->
-        ${headlineElements}
-        ${highlightElements}
-        ${sublineElements}
-
-        <!-- Bottom Telemetry Coordinates -->
-        <g transform="translate(100, ${760 + backplateHeight - 40})">
-          <text x="40" y="20" font-family="'Courier New', monospace" font-size="17" font-weight="700" fill="#38bdf8">
-            COORDINATES VERIFIED • ${badge}
-          </text>
-        </g>
+      <!-- Minimalist Documentary Camera Framing Reticles (Authentic Film Archive Feel) -->
+      <g stroke="${cornerColor}" stroke-width="2" fill="none" opacity="0.45">
+        <path d="M 100 240 L 140 240 M 100 240 L 100 280" />
+        <path d="M 980 240 L 940 240 M 980 240 L 980 280" />
+        <path d="M 100 1480 L 140 1480 M 100 1480 L 100 1440" />
+        <path d="M 980 1480 L 940 1480 M 980 1480 L 980 1440" />
       </g>
-    `;
 
-  } else if (template === 'split-screen') {
-    // =========================================================================
-    // TEMPLATE 4: SPLIT-SCREEN RETENTION ACCELERATOR (Top: Core Narrative, Bottom: Satisfying B-Roll)
-    // =========================================================================
-    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 18);
-    const highlightLines = rawHighlight ? wrapSvgText(rawHighlight.toUpperCase(), 22).map(escapeXml) : [];
-    const sublineLines = rawSubline ? wrapSvgText(rawSubline, 32).map(escapeXml) : [];
-
-    const topStartY = 280;
-    const headlineElements = headlineLines.map((line, idx) => {
-      const y = topStartY + idx * 56;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="48" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
-    }).join('\n');
-
-    const highlightElements = highlightLines.map((line, idx) => {
-      const y = 1440 + idx * 48;
-      const textWidth = Math.min(840, Math.max(280, line.length * 26));
-      const textX = 540 - textWidth / 2;
-      return `
-        <!-- High-Contrast Fluorescent Highlighter Pill -->
-        <rect x="${textX}" y="${y - 36}" width="${textWidth}" height="44" rx="8" fill="rgba(251, 191, 36, 0.25)" stroke="${accent}" stroke-width="1.2" />
-        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" fill="${accent}" letter-spacing="1" filter="url(#glow)">${line}</text>
-      `;
-    }).join('\n');
-
-    const sublineElements = sublineLines.map((line, idx) => {
-      const y = 1520 + (highlightLines.length > 0 ? 35 : 0) + idx * 34;
-      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="600" fill="#f1f5f9" filter="url(#shadow)">${line}</text>`;
-    }).join('\n');
-
-    mainContentSvg = `
-      <g>
-        <!-- Top Pill Badge (Safe zone y=150) -->
-        <g transform="translate(100, 150)">
-          <rect width="880" height="44" rx="22" fill="rgba(8, 12, 22, 0.7)" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.2" />
-          <text x="32" y="28" font-family="'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="800" fill="${accent}" letter-spacing="1.5">
-            [ PRIMARY FEED: ${badge} ]
-          </text>
-          <text x="848" y="28" text-anchor="end" font-family="'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700" fill="#e2e8f0">
-            ${branding}
-          </text>
-        </g>
-
-        <!-- Top Section Headline -->
-        ${headlineElements}
-
-        <!-- Center Glowing Laser Divider (y=960) -->
-        <line x1="0" y1="960" x2="1080" y2="960" stroke="${accent}" stroke-width="3" filter="url(#glow)" />
-        <line x1="0" y1="960" x2="1080" y2="960" stroke="#ffffff" stroke-width="1" opacity="0.8" />
-        
-        <!-- Center Cyber HUD Badge -->
-        <g transform="translate(320, 938)">
-          <rect width="440" height="44" rx="22" fill="#090d16" stroke="${accent}" stroke-width="2" />
-          <circle cx="28" cy="22" r="5" fill="${accent}" />
-          <text x="220" y="28" text-anchor="middle" font-family="'Courier New', monospace" font-size="14" font-weight="900" fill="#ffffff" letter-spacing="1.5">
-            RETENTION ACCELERATOR // B-ROLL
-          </text>
-        </g>
-
-        <!-- Cyber Tick Corner Marks -->
-        <g stroke="${accent}" stroke-width="2" fill="none" opacity="0.7">
-          <path d="M 60 935 L 60 985" />
-          <path d="M 1020 935 L 1020 985" />
-        </g>
-
-        <!-- Bottom B-Roll Region Karaoke & Subtitles (y=1400-1600) -->
-        <rect x="100" y="1370" width="880" height="240" rx="20" fill="rgba(3, 7, 18, 0.65)" stroke="rgba(255, 255, 255, 0.1)" stroke-width="1" />
-        ${highlightElements}
-        ${sublineElements}
-
-        <!-- Bottom CTA Pill -->
-        <g transform="translate(140, 1650)">
-          <rect width="800" height="50" rx="25" fill="rgba(0, 0, 0, 0.75)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.2" />
-          <text x="400" y="32" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="700" fill="#ffffff">
-            ${dwellText}
-          </text>
-        </g>
+      <!-- Subtle Bottom Dwell Pill (Safe zone y=1680) -->
+      <g transform="translate(140, 1660)">
+        <rect width="800" height="46" rx="23" fill="rgba(3, 7, 18, 0.70)" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" />
+        <text x="400" y="29" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="1">
+          ${dwellText}
+        </text>
       </g>
-    `;
-  } else {
-    // =========================================================================
-    // TEMPLATE 3: FULL-BLEED CINEMATIC FOOTAGE (Leaves 90% of Video Visible!)
-    // =========================================================================
-    const headlineLines = wrapSvgText(rawHeadline.toUpperCase(), 18);
-    const highlightLines = rawHighlight ? wrapSvgText(rawHighlight.toUpperCase(), 20).map(escapeXml) : [];
-    const sublineLines = rawSubline ? wrapSvgText(rawSubline, 32).map(escapeXml) : [];
-
-    const startY = 880;
-    let currentY = startY;
-
-    const headlineElements = headlineLines.map((line, idx) => {
-      const y = currentY + idx * 62;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="54" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, accent, rawHighlight)}</text>`;
-    }).join('\n');
-    currentY += headlineLines.length * 62 + 14;
-
-    const highlightElements = highlightLines.map((line, idx) => {
-      const y = currentY + idx * 54;
-      const textWidth = Math.min(880, Math.max(300, line.length * 28));
-      const textX = 540 - textWidth / 2;
-      return `
-        <!-- Fluorescent Highlighter Pen Capsule -->
-        <rect x="${textX}" y="${y - 42}" width="${textWidth}" height="52" rx="12" fill="rgba(251, 191, 36, 0.28)" stroke="${accent}" stroke-width="1.5" filter="url(#glow)" />
-        <text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="44" font-weight="900" fill="${accent}" letter-spacing="1">${line}</text>
-      `;
-    }).join('\n');
-    if (highlightLines.length > 0) currentY += highlightLines.length * 52 + 16;
-
-    const sublineElements = sublineLines.map((line, idx) => {
-      const y = currentY + idx * 36;
-      return `<text x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="600" fill="#f1f5f9" filter="url(#shadow)">${line}</text>`;
-    }).join('\n');
-
-    mainContentSvg = `
-      <g>
-        <!-- Top Minimalist Pill Header -->
-        <g transform="translate(100, 160)">
-          <rect width="880" height="46" rx="23" fill="rgba(8, 12, 22, 0.65)" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.2" />
-          <text x="32" y="30" font-family="'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800" fill="${accent}" letter-spacing="1.5">
-            [ ${badge} ]
-          </text>
-          <text x="848" y="30" text-anchor="end" font-family="'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700" fill="#e2e8f0">
-            ${branding}
-          </text>
-        </g>
-
-        <!-- Subtle Text Shadow Gradient Behind Floating Typography -->
-        <rect x="0" y="780" width="1080" height="660" fill="url(#centerFade)" opacity="0.6" />
-
-        <!-- Bold Floating Words directly over 4K Footage -->
-        ${headlineElements}
-        ${highlightElements}
-        ${sublineElements}
-
-        <!-- Bottom CTA Pill -->
-        <g transform="translate(140, 1380)">
-          <rect width="800" height="54" rx="27" fill="rgba(0, 0, 0, 0.65)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.2" />
-          <text x="400" y="35" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="700" fill="#ffffff">
-            ${dwellText}
-          </text>
-        </g>
-      </g>
-    `;
-  }
+    </g>
+  `;
 
   return `
     <svg width="1080" height="1920" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg">

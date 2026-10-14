@@ -1,9 +1,12 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from './database.js';
 import { getAsset, markAssetUsed, selectAssets } from './assetLibrary.js';
+import { generateKineticAssSubtitles, type TimedSceneNarration } from './kineticSubtitleEngine.js';
+import { composeCinematicAudio } from './cinematicAudioEngine.js';
 
 export interface ReelScene {
   assetId: string;
@@ -13,6 +16,8 @@ export interface ReelScene {
   speed?: number;
   transition?: 'cut' | 'fade';
   text?: string;
+  narrationText?: string;
+  voiceScript?: string;
 }
 
 export interface ReelComposition {
@@ -20,10 +25,12 @@ export interface ReelComposition {
   scenes: ReelScene[];
   voicePath?: string;
   musicPath?: string;
+  subtitlesPath?: string;
   outputPath?: string;
   width?: number;
   height?: number;
   fps?: number;
+  accentColor?: string;
 }
 
 const COMPOSER_DIR = path.join(process.cwd(), 'data', 'media', 'composed');
@@ -38,6 +45,16 @@ function run(command: string, args: string[]): Promise<void> {
   });
 }
 
+function escapeFilterPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
+}
+
+/**
+ * State-of-the-art Reel Composer (Option A Architecture):
+ * - Word-by-word kinetic karaoke subtitles (.ass) with dynamic golden highlights
+ * - Broadcast audio mastering: Sidechain compression music ducking + Sub-bass impact + Cut whooshes
+ * - Cinematic 35mm film grading (contrast, saturation, subtle vignette)
+ */
 export async function composeReel(input: ReelComposition): Promise<{ outputPath: string; reelId: string; scenes: ReelScene[] }> {
   if (!input.scenes.length) throw new Error('At least one scene is required.');
   await fs.mkdir(COMPOSER_DIR, { recursive: true });
@@ -53,22 +70,25 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
   await fs.mkdir(workDir, { recursive: true });
 
   const normalized: string[] = [];
+  const sceneCutTimestamps: number[] = [];
+  let runningTime = 0;
+
   try {
+    // 1. Process and normalize each scene video track
     for (let i = 0; i < resolved.length; i++) {
       const { scene, asset } = resolved[i];
       const output = path.join(workDir, `scene-${i}.mp4`);
+      sceneCutTimestamps.push(runningTime);
+      const sceneDur = Math.max(0.5, scene.duration);
+      runningTime += sceneDur;
       
-      // Determine if asset is already rendered at standard 1080x1920 portrait resolution
       const isFullVertical = (asset.width === 1080 && asset.height === 1920) || asset.source === 'ffmpeg-autonomous-visual-producer';
-      
       const vf: string[] = [];
+
       if (isFullVertical) {
-        // PRESERVE 100% ORIGINAL RESOLUTION & SAFE ZONE:
-        // Never apply destructive zoom or asymmetric horizontal cropping (which clips typography).
         vf.push('scale=1080:1920:force_original_aspect_ratio=decrease');
         vf.push('pad=1080:1920:(ow-iw)/2:(oh-ih)/2');
       } else {
-        // Non-vertical or external asset: scale and crop centered without top-clipping
         const zoom = Math.max(1, Math.min(scene.zoom || 1, 1.25));
         const cropX = scene.crop === 'left' ? '0' : scene.crop === 'right' ? 'in_w-1080' : '(in_w-1080)/2';
         const cropY = '(in_h-1920)/2';
@@ -76,24 +96,26 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
         vf.push(`crop=1080:1920:${cropX}:${cropY}`);
       }
 
-      // Cinematic Creator Grading & 35mm Film Grain Polish
-      vf.push('eq=contrast=1.05:saturation=1.10:brightness=-0.01');
-      vf.push('noise=alls=8:allf=t+u');
+      // Subtle documentary film grading & vignette
+      vf.push('eq=contrast=1.06:saturation=1.12:brightness=-0.01');
+      vf.push('vignette=PI/4.5');
 
       const filters = [
         `setpts=PTS/${Math.max(0.25, Math.min(scene.speed || 1, 2))}`,
         ...vf
       ];
+
       await run('ffmpeg', [
         '-y', '-stream_loop', '-1', '-i', asset.file_path,
-        '-t', String(Math.max(0.5, scene.duration)),
+        '-t', String(sceneDur),
         '-vf', filters.join(','),
         '-an', '-r', String(input.fps || 30),
         '-threads', '2',
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
         '-pix_fmt', 'yuv420p', output
       ]);
       normalized.push(output);
+
       markAssetUsed(asset.id, input.reelId, i + 1, {
         crop: isFullVertical ? 'center' : (scene.crop || 'center'),
         zoom: isFullVertical ? 1 : (scene.zoom || 1),
@@ -102,46 +124,97 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       });
     }
 
+    // 2. Concatenate video clips into silent master video
     const concatFile = path.join(workDir, 'concat.txt');
     await fs.writeFile(concatFile, normalized.map(file => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
 
-    const silent = path.join(workDir, 'video.mp4');
+    const silentVideoPath = path.join(workDir, 'silent_video.mp4');
     await run('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0', '-i', concatFile,
-      '-c', 'copy', '-movflags', '+faststart', silent
+      '-c', 'copy', '-movflags', '+faststart', silentVideoPath
     ]);
 
-    const outputPath = input.outputPath || path.join(COMPOSER_DIR, `${input.reelId}-${Date.now()}.mp4`);
-    const inputs = ['-y', '-i', silent];
-    if (input.voicePath) inputs.push('-i', input.voicePath);
-    if (input.musicPath) inputs.push('-i', input.musicPath);
+    const totalDuration = runningTime;
 
-    const audioCount = Number(Boolean(input.voicePath)) + Number(Boolean(input.musicPath));
-    if (!audioCount) {
-      await fs.copyFile(silent, outputPath);
-    } else {
-      let mix: string;
-      if (input.voicePath && input.musicPath) {
-        // Broadcast audio mastering: Narration elevated & prominent, BGM boosted for rich cinematic presence
-        mix = '[1:a]volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo[voice];[2:a]volume=0.50,lowpass=f=7500,aformat=sample_rates=44100:channel_layouts=stereo[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0:weights=1 0.65[a]';
-      } else if (input.voicePath) {
-        mix = '[1:a]volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo[a]';
-      } else {
-        console.warn(`[Reel Composer] Reel "${input.reelId}" is composing without voiceover track (BGM solo at full ambient volume).`);
-        mix = '[1:a]volume=0.95,aresample=async=1,aformat=sample_rates=44100:channel_layouts=stereo[a]';
+    // 3. Generate Word-by-Word Kinetic Subtitles (.ass)
+    let assPath: string | null = input.subtitlesPath || null;
+    if (!assPath) {
+      const timedNarrations: TimedSceneNarration[] = input.scenes.map(s => ({
+        text: s.narrationText || s.voiceScript || s.text || '',
+        duration: s.duration
+      }));
+
+      if (timedNarrations.some(t => t.text.trim().length > 0)) {
+        try {
+          assPath = await generateKineticAssSubtitles(timedNarrations, {
+            accentHex: input.accentColor || '#d4af37',
+            wordsPerGroup: 3,
+            marginV: 840
+          });
+          console.info(`[Reel Composer] ✅ Kinetic ASS subtitles synthesized: ${assPath}`);
+        } catch (err: any) {
+          console.warn('[Reel Composer] Subtitle generation notice:', err?.message || err);
+        }
       }
-      await run('ffmpeg', [
-        ...inputs,
-        '-filter_complex', mix,
-        '-map', '0:v:0', '-map', '[a]',
-        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-        '-shortest', '-movflags', '+faststart', outputPath
-      ]);
     }
 
+    // 4. Generate Broadcast Audio with Dynamic Sidechain Ducking and SFX
+    let masterAudioPath: string | null = null;
+    if (input.voicePath || input.musicPath) {
+      try {
+        masterAudioPath = await composeCinematicAudio({
+          voicePath: input.voicePath,
+          musicPath: input.musicPath,
+          sceneCutTimestamps,
+          totalDuration,
+          workDir
+        });
+        console.info(`[Reel Composer] ✅ Broadcast master audio compiled with ducking & SFX: ${masterAudioPath}`);
+      } catch (err: any) {
+        console.warn('[Reel Composer] Sidechain audio composition fallback:', err?.message || err);
+      }
+    }
+
+    // 5. Final Assembly & Export
+    const outputPath = input.outputPath || path.join(COMPOSER_DIR, `${input.reelId}-${Date.now()}.mp4`);
+    const finalArgs: string[] = ['-y', '-i', silentVideoPath];
+
+    if (masterAudioPath && fsSync.existsSync(masterAudioPath)) {
+      finalArgs.push('-i', masterAudioPath);
+    } else if (input.voicePath) {
+      finalArgs.push('-i', input.voicePath);
+    }
+
+    const videoFilters: string[] = [];
+    if (assPath && fsSync.existsSync(assPath)) {
+      const escapedAss = escapeFilterPath(assPath);
+      videoFilters.push(`ass='${escapedAss}'`);
+    }
+
+    if (videoFilters.length > 0) {
+      finalArgs.push(
+        '-vf', videoFilters.join(','),
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p'
+      );
+    } else {
+      finalArgs.push('-c:v', 'copy');
+    }
+
+    if (masterAudioPath && fsSync.existsSync(masterAudioPath)) {
+      finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-map', '0:v:0', '-map', '1:a:0', '-shortest');
+    } else if (input.voicePath) {
+      finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-map', '0:v:0', '-map', '1:a:0', '-shortest');
+    }
+
+    finalArgs.push('-movflags', '+faststart', outputPath);
+    await run('ffmpeg', finalArgs);
+
+    console.info(`[Reel Composer] 🚀 Viral Reel Mastered successfully: ${outputPath}`);
     return { outputPath, reelId: input.reelId, scenes: input.scenes };
   } finally {
-    await fs.rm(workDir, { recursive: true, force: true });
+    try {
+      await fs.rm(workDir, { recursive: true, force: true });
+    } catch {}
   }
 }
 
