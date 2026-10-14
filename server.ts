@@ -2164,7 +2164,38 @@ Rules:
 }
 
 // Internal helper for publishing a reel to Instagram directly
-async function publishReelInternal(reel: any, accountParam?: any) {
+async function publishReelInternal(rawReel: any, accountParam?: any) {
+  const reel = {
+    ...rawReel,
+    scenes: (Array.isArray(rawReel.scenes) && rawReel.scenes.length > 0)
+      ? rawReel.scenes
+      : (() => {
+          try {
+            const parsed = typeof rawReel.scenes_json === 'string' ? JSON.parse(rawReel.scenes_json) : rawReel.scenes_json;
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+    audio: rawReel.audio || (() => {
+      try {
+        return typeof rawReel.audio_json === 'string' ? JSON.parse(rawReel.audio_json) : rawReel.audio_json;
+      } catch {
+        return {};
+      }
+    })(),
+    hashtags: Array.isArray(rawReel.hashtags)
+      ? rawReel.hashtags
+      : (() => {
+          try {
+            const parsed = typeof rawReel.hashtags_json === 'string' ? JSON.parse(rawReel.hashtags_json) : rawReel.hashtags_json;
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+  };
+
   const account = accountParam || (db.prepare('SELECT account_id, access_token, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any);
   if (!account?.is_connected || !account?.access_token || !account?.account_id) {
     throw new Error("Instagram account not connected. Please connect your Meta Instagram Account in Settings before publishing.");

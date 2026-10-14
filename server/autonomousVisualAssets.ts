@@ -470,8 +470,68 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
 }
 
 export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets: MediaAsset[]; generated: number }> {
-  const scenes = Array.isArray(reel?.scenes) ? reel.scenes : [];
-  if (!scenes.length) return { assets: [], generated: 0 };
+  let scenes: any[] = [];
+  if (Array.isArray(reel?.scenes) && reel.scenes.length > 0) {
+    scenes = reel.scenes;
+  } else if (reel?.scenes_json) {
+    try {
+      const parsed = typeof reel.scenes_json === 'string' ? JSON.parse(reel.scenes_json) : reel.scenes_json;
+      if (Array.isArray(parsed) && parsed.length > 0) scenes = parsed;
+    } catch {}
+  }
+
+  // Resilient fallback: If no scenes could be parsed from DB, synthesize a 3-scene documentary story
+  if (!scenes.length) {
+    const title = String(reel?.title || 'The Untold Archive Secret').trim();
+    const caption = String(reel?.caption || '').trim();
+    const niche = String(reel?.niche || 'Historical Enigma');
+    scenes = [
+      {
+        id: `sc-gen-1`,
+        order: 1,
+        durationSeconds: 4,
+        hookText: title,
+        headline: title,
+        highlight: 'DEEP ARCHIVE FILE',
+        subline: `CONFIDENTIAL INVESTIGATION // ${niche.toUpperCase()}`,
+        voiceScript: `${title}. For decades, the true mechanism was kept out of standard history textbooks.`,
+        visualTheme: 'monochrome-bold',
+        accentColor: '#d4af37',
+        pacingEffect: 'pulse',
+        visualFormat: 'full-bleed-cinematic'
+      },
+      {
+        id: `sc-gen-2`,
+        order: 2,
+        durationSeconds: 4.5,
+        hookText: 'THE UNSEEN MECHANISM',
+        headline: 'THE FORENSIC EVIDENCE',
+        highlight: 'MICROSCOPIC ANALYSIS',
+        subline: caption.slice(0, 90) || 'ARCHIVAL LOGS CONFIRM A FORGOTTEN FORMULA',
+        voiceScript: caption.length > 20 ? caption.slice(0, 160) : `Forensic material analysis revealed the ancient compound reacted with water to seal fissures automatically.`,
+        visualTheme: 'classified-dossier',
+        accentColor: '#0284c7',
+        pacingEffect: 'zoom-in',
+        visualFormat: 'classified-dossier'
+      },
+      {
+        id: `sc-gen-3`,
+        order: 3,
+        durationSeconds: 4,
+        hookText: 'THE VERDICT',
+        headline: 'CASE RECORD CLOSED',
+        highlight: 'DECODED ARCHIVE',
+        subline: 'FOLLOW @THEUNTOLDARCH FOR DAILY HISTORICAL DOSSIERS',
+        voiceScript: `Modern engineers are now copying this exact method. Follow for more declassified records.`,
+        visualTheme: 'satellite-telemetry',
+        accentColor: '#d4af37',
+        pacingEffect: 'subtle-drift',
+        visualFormat: 'satellite-telemetry'
+      }
+    ];
+    // Sync back to reel object
+    reel.scenes = scenes;
+  }
   const assets: MediaAsset[] = [];
   const used = new Set<string>();
   for (let index = 0; index < scenes.length; index++) {

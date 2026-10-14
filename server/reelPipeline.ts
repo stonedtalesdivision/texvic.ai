@@ -122,7 +122,28 @@ export function extractSceneNarration(sc: any, sceneIndex: number, totalScenes: 
   return String(reel?.title || 'SARLX AI Special Report').trim();
 }
 
-export async function prepareReelSceneAssets(reel: any): Promise<{ scenes: any[]; musicPath: string; voicePath?: string }> {
+export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: any[]; musicPath: string; voicePath?: string }> {
+  const reel = {
+    ...rawReel,
+    scenes: (Array.isArray(rawReel.scenes) && rawReel.scenes.length > 0)
+      ? rawReel.scenes
+      : (() => {
+          try {
+            const parsed = typeof rawReel.scenes_json === 'string' ? JSON.parse(rawReel.scenes_json) : rawReel.scenes_json;
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+    audio: rawReel.audio || (() => {
+      try {
+        return typeof rawReel.audio_json === 'string' ? JSON.parse(rawReel.audio_json) : rawReel.audio_json;
+      } catch {
+        return {};
+      }
+    })()
+  };
+
   const prepared = await ensureAutonomousVisualAssets(reel);
   if (!prepared.assets.length) {
     throw new Error(`Failed to generate or select visual assets for reel "${reel.title || reel.id}".`);
@@ -224,8 +245,39 @@ export async function prepareReelSceneAssets(reel: any): Promise<{ scenes: any[]
 
 const inFlightRenders = new Map<string, Promise<string>>();
 
-export async function renderReelVideo(reel: any, options: { forceReRender?: boolean } = {}): Promise<string> {
-  const reelId = String(reel.id);
+export async function renderReelVideo(rawReel: any, options: { forceReRender?: boolean } = {}): Promise<string> {
+  const reelId = String(rawReel.id);
+  const reel = {
+    ...rawReel,
+    scenes: (Array.isArray(rawReel.scenes) && rawReel.scenes.length > 0)
+      ? rawReel.scenes
+      : (() => {
+          try {
+            const parsed = typeof rawReel.scenes_json === 'string' ? JSON.parse(rawReel.scenes_json) : rawReel.scenes_json;
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+    audio: rawReel.audio || (() => {
+      try {
+        return typeof rawReel.audio_json === 'string' ? JSON.parse(rawReel.audio_json) : rawReel.audio_json;
+      } catch {
+        return {};
+      }
+    })(),
+    hashtags: Array.isArray(rawReel.hashtags)
+      ? rawReel.hashtags
+      : (() => {
+          try {
+            const parsed = typeof rawReel.hashtags_json === 'string' ? JSON.parse(rawReel.hashtags_json) : rawReel.hashtags_json;
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+  };
+
   if (inFlightRenders.has(reelId)) {
     console.log(`[Reel Video Pipeline] Re-using in-flight render for reel "${reel.title || reelId}"`);
     return inFlightRenders.get(reelId)!;
