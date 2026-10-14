@@ -88,6 +88,8 @@ export async function getAudioDuration(filePath: string): Promise<number> {
   }
 }
 
+let hasAttemptedUpgrade = false;
+
 /**
  * Executes edge-tts trying all available CLI entrypoints across Windows & Linux Docker
  */
@@ -96,7 +98,13 @@ async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ s
 
   if (process.platform === 'win32') {
     candidates.push({ cmd: 'python', prefix: ['-m', 'edge_tts'] });
+    candidates.push({ cmd: 'python3', prefix: ['-m', 'edge_tts'] });
     candidates.push({ cmd: 'edge-tts', prefix: [] });
+    const appData = process.env.APPDATA || '';
+    if (appData) {
+      candidates.push({ cmd: path.join(appData, 'Python', 'Python314', 'Scripts', 'edge-tts.exe'), prefix: [] });
+      candidates.push({ cmd: path.join(appData, 'Python', 'Scripts', 'edge-tts.exe'), prefix: [] });
+    }
   } else {
     // Linux / Docker environment
     candidates.push({ cmd: 'edge-tts', prefix: [] });
@@ -117,7 +125,20 @@ async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ s
         // Binary or python executable not found, try next candidate
         continue;
       }
-      // If edge-tts threw an execution error (e.g. connection refused, network timeout), keep error and try next
+      // Check for 403 / handshake error from Microsoft Edge TTS and auto-heal
+      const errStr = String(err?.stderr || err?.message || '');
+      if ((errStr.includes('403') || errStr.includes('WSServerHandshakeError') || errStr.includes('Sec-MS-GEC')) && !hasAttemptedUpgrade) {
+        hasAttemptedUpgrade = true;
+        console.warn('[TTS Engine] Detected 403 Forbidden handshake from Microsoft Edge TTS. Attempting automatic upgrade to latest edge-tts...');
+        try {
+          const pipCmd = process.platform === 'win32' ? 'python' : 'python3';
+          await execFileAsync(pipCmd, ['-m', 'pip', 'install', '--upgrade', 'edge-tts']);
+          console.log('[TTS Engine] edge-tts upgraded successfully! Retrying synthesis with candidate...');
+          return await execFileAsync(candidate.cmd, [...candidate.prefix, ...cliArgs], { timeout: timeoutMs });
+        } catch (upgradeErr) {
+          console.warn('[TTS Engine] Auto-upgrade failed:', upgradeErr);
+        }
+      }
     }
   }
 
@@ -136,14 +157,45 @@ export async function generateSilentAudioSegment(durationSec: number, outputPath
   await execFileAsync('ffmpeg', [
     '-y',
     '-f', 'lavfi',
-    '-i', 'anullsrc=r=24000:cl=mono',
+    '-i', 'anullsrc=r=44100:cl=stereo',
     '-t', String(safeDur),
     '-c:a', 'libmp3lame',
-    '-b:a', '48k',
+    '-ar', '44100',
+    '-b:a', '192k',
     target
   ]);
 
   return target;
+}
+
+/**
+ * Pads an audio segment with trailing silence so it precisely matches the target scene duration.
+ * Converts to standardized 44.1kHz stereo MP3 to prevent audio/visual drift.
+ */
+export async function padAudioSegment(filePath: string, targetDurationSec: number, outputPath?: string): Promise<string> {
+  await fs.mkdir(TTS_DIR, { recursive: true });
+  const currentDur = await getAudioDuration(filePath);
+  if (currentDur >= targetDurationSec - 0.05) {
+    return filePath;
+  }
+  const paddedPath = outputPath || path.join(TTS_DIR, `padded-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.mp3`);
+  try {
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-i', filePath,
+      '-af', 'apad',
+      '-t', targetDurationSec.toFixed(3),
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-ac', '2',
+      '-b:a', '192k',
+      paddedPath
+    ]);
+    return paddedPath;
+  } catch (err) {
+    console.warn(`[TTS Engine] Padding audio segment failed, falling back to original:`, err);
+    return filePath;
+  }
 }
 
 /**
@@ -219,10 +271,91 @@ export async function generateSpeech(
       }
     }
 
-    throw lastError || new Error(`TTS synthesis failed for text: "${cleanedText.slice(0, 50)}..."`);
+    // Secondary Tier: Universal Zero-Dependency Web HTTP Speech Synthesis
+    // Requires ZERO Python, ZERO pip packages, ZERO edge-tts installation. Works natively on ANY Ubuntu VPS / Docker.
+    console.warn(`[TTS Engine] CLI edge-tts unavailable on this host (${lastError?.message || 'not installed'}). Falling back to Zero-Dependency Web HTTP Speech Synthesizer...`);
+    return await generateSpeechViaHttp(cleanedText, targetPath);
+  } catch (primaryErr) {
+    console.warn(`[TTS Engine] Primary edge-tts failed completely (${primaryErr}). Attempting Web HTTP Speech Synthesizer fallback...`);
+    return await generateSpeechViaHttp(cleanedText, targetPath);
   } finally {
     try { await fs.unlink(tempTextFile); } catch {}
   }
+}
+
+function splitTextIntoSpeechChunks(text: string, maxLen = 170): string[] {
+  const words = text.split(/\s+/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    if ((current + ' ' + word).trim().length > maxLen) {
+      if (current) chunks.push(current.trim());
+      current = word;
+    } else {
+      current = current ? current + ' ' + word : word;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+/**
+ * Universal Zero-Dependency Web HTTP Speech Synthesizer.
+ * Fetches neural MP3 audio over HTTPS directly in Node.js without requiring Python, pip, or edge-tts.
+ * Automatically polishes vocal frequencies with FFmpeg for authentic broadcast tone.
+ */
+export async function generateSpeechViaHttp(text: string, outputPath: string): Promise<string> {
+  await fs.mkdir(TTS_DIR, { recursive: true });
+  const chunks = splitTextIntoSpeechChunks(text);
+  const buffers: Buffer[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=en&client=tw-ob`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    if (!res.ok) {
+      throw new Error(`Web HTTP TTS fetch failed with HTTP status ${res.status}`);
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    buffers.push(Buffer.from(arrayBuffer));
+  }
+
+  const combined = Buffer.concat(buffers);
+  const rawPath = outputPath.replace(/\.mp3$/, `-raw-${Date.now()}.mp3`);
+  await fs.writeFile(rawPath, combined);
+
+  try {
+    // Polish vocal frequencies: subtle pitch calibration (-3%) & warm low-end EQ for documentary resonance
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-i', rawPath,
+      '-af', 'asetrate=44100*0.97,aresample=44100,equalizer=f=110:width_type=o:width=1.5:g=3,equalizer=f=3200:width_type=o:width=1.2:g=1.5',
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-ac', '2',
+      '-b:a', '192k',
+      outputPath
+    ]);
+  } catch {
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-i', rawPath,
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-ac', '2',
+      '-b:a', '192k',
+      outputPath
+    ]);
+  } finally {
+    try { await fs.unlink(rawPath); } catch {}
+  }
+
+  return outputPath;
 }
 
 /**
@@ -245,7 +378,8 @@ export async function concatenateAudioTracks(segmentPaths: string[], outputPath:
   try {
     await execFileAsync('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0', '-i', concatList,
-      '-c', 'copy', outputPath
+      '-c:a', 'libmp3lame', '-ar', '44100', '-ac', '2', '-b:a', '192k',
+      outputPath
     ]);
     return outputPath;
   } finally {

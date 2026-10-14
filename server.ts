@@ -40,14 +40,14 @@ import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset } from "
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, generateSilentAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
+import { generateSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
   computeStrategyFeedback, 
   StrategyFeedback 
 } from "./server/jobQueue.js";
-import { renderReelVideo, normalizeVideoUrl } from "./server/reelPipeline.js";
+import { renderReelVideo, normalizeVideoUrl, extractSceneNarration } from "./server/reelPipeline.js";
 import { 
   listAgents, 
   getAgent, 
@@ -448,8 +448,7 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
 
   for (let i = 0; i < rawScenes.length; i++) {
     const sc = rawScenes[i];
-    // Prioritize rich voiceScript / voiceText over brief headlines
-    const narrationText = String(sc?.voiceScript || sc?.voiceText || sc?.subline || sc?.headline || '').trim();
+    const narrationText = extractSceneNarration(sc, i, rawScenes.length, reel);
     let segPath: string | null = null;
     let audioDur = 0;
 
@@ -460,7 +459,7 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
         audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
         console.warn(`[Autonomous 24x7 Engine] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
-        const headline = String(sc?.headline || sc?.hookText || '').trim();
+        const headline = String(sc?.headline || sc?.hookText || sc?.text || reel?.title || '').trim();
         if (headline) {
           try {
             segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale });
@@ -472,12 +471,13 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
       }
     }
 
-    // If speech was produced, calibrate scene duration to speech plus breathing buffer
+    // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
-      const sceneDur = Math.max(audioDur + 0.5, 6.0);
-      voiceSegments.push(segPath);
+      const sceneDur = Math.max(audioDur + 0.8, 6.0);
+      const paddedSeg = await padAudioSegment(segPath, sceneDur);
+      voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);
-      console.log(`[Autonomous 24x7 Engine] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s audio -> Scene calibrated to ${sceneDur.toFixed(1)}s.`);
+      console.log(`[Autonomous 24x7 Engine] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
     } else {
       // Create a synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
       const fallbackDur = Math.max(Number(sc?.durationSeconds || 8.0), 6.0);
@@ -499,14 +499,18 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     const scene = rawScenes[index] || {};
     const dynamicDuration = sceneDurations[index] || Number(scene.durationSeconds || 8.0);
     const isPortrait = (asset.width === 1080 && asset.height === 1920) || asset.source === "ffmpeg-autonomous-visual-producer";
+    const narrationText = extractSceneNarration(scene, index, prepared.assets.length, reel);
     return {
+      ...scene,
       assetId: asset.id,
       duration: dynamicDuration,
       crop: "center",
       zoom: isPortrait ? 1 : Number(scene.pacingEffect === "zoom-in" ? 1.05 : 1),
       speed: 1,
       transition: "cut",
-      text: scene.headline || scene.hookText || scene.secondaryText || ""
+      text: scene.headline || scene.hookText || scene.secondaryText || scene.text || narrationText,
+      voiceScript: scene.voiceScript || narrationText,
+      voiceText: scene.voiceText || narrationText
     };
   });
 
@@ -1890,6 +1894,41 @@ app.delete("/api/reels/:id", (req, res) => {
       AND status IN ('pending', 'processing')
   `).run(id);
   res.json({ success: true, id });
+});
+
+// POST /api/reels/:id/re-render - Force re-render a reel with fresh voiceover
+app.post("/api/reels/:id/re-render", async (req, res) => {
+  const { id } = req.params;
+  const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+  if (!reel) return res.status(404).json({ success: false, error: 'Reel not found.' });
+
+  try {
+    const parsedReel = {
+      ...reel,
+      scenes: JSON.parse(reel.scenes_json || '[]'),
+      audio: JSON.parse(reel.audio_json || '{}'),
+      hashtags: JSON.parse(reel.hashtags_json || '[]')
+    };
+
+    console.log(`[Reel Re-render] Force re-rendering video for reel "${parsedReel.title}" (${id}) with authentic voiceover...`);
+    const videoUrl = await renderReelVideo(parsedReel, { forceReRender: true });
+    const updated = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+
+    res.json({
+      success: true,
+      videoUrl,
+      reel: {
+        ...updated,
+        scenes: JSON.parse(updated.scenes_json || '[]'),
+        audio: JSON.parse(updated.audio_json || '{}'),
+        hashtags: JSON.parse(updated.hashtags_json || '[]')
+      },
+      message: 'Reel re-rendered successfully with voiceover!'
+    });
+  } catch (err: any) {
+    console.error(`[Reel Re-render] Failed to re-render reel ${id}:`, err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
 });
 // Instant First Comment Engagement Kickstart:
 // Breaks the cold-start 0-comment freeze by immediately posting an author discussion

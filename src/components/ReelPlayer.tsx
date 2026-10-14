@@ -181,6 +181,32 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     }
   }, [currentTime, scenes]);
 
+  // Browser Speech Synthesis preview fallback when video has not yet been rendered to disk
+  useEffect(() => {
+    if (!isPlaying || isMuted || hasGeneratedVideo || typeof window === 'undefined' || !window.speechSynthesis) {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      return;
+    }
+
+    const currentScene = scenes[currentSceneIndex];
+    const narration = currentScene?.voiceScript || currentScene?.voiceText || currentScene?.headline || currentScene?.hookText || currentScene?.text;
+    if (narration) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(narration);
+      utterance.rate = 1.05;
+      utterance.pitch = 0.95;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex]);
+
   const activeScene = scenes[currentSceneIndex] || scenes[0];
 
   const togglePlay = () => {
