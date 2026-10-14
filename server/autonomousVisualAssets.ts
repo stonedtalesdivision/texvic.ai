@@ -309,28 +309,24 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
   try {
     const totalScenes = Math.max(1, reel?.scenes?.length || 3);
     const requestedFormat = scene?.visualFormat || scene?.visualTemplate;
-    const validFormats = ['full-bleed-cinematic', 'classified-dossier', 'satellite-telemetry', 'lower-third', 'split-screen', 'pause-challenge'];
-    let template: 'full-bleed-cinematic' | 'classified-dossier' | 'satellite-telemetry' | 'lower-third' | 'split-screen' | 'pause-challenge';
+    const validFormats = ['full-bleed-cinematic', 'classified-dossier', 'satellite-telemetry', 'lower-third', 'split-screen'];
+    let template: 'full-bleed-cinematic' | 'classified-dossier' | 'satellite-telemetry' | 'lower-third' | 'split-screen';
 
-    if (requestedFormat && validFormats.includes(requestedFormat)) {
+    if (requestedFormat && validFormats.includes(requestedFormat) && requestedFormat !== 'pause-challenge') {
       template = requestedFormat as any;
-    } else if (scene?.interactiveWidget?.type === 'pause-challenge') {
-      template = 'pause-challenge';
     } else {
-      // Dynamic sequence rotation for viral retention:
+      // Dynamic sequence rotation for high-production documentary:
       // Scene 1: Full-Bleed 4K Cinema Hook
-      // Scene 2: 0.5s Pause Challenge / Classified Dossier Investigation
-      // Scene 3: Satellite Telemetry Investigative Cross-Examination / Pinned Poll Direction
-      template = index === 0 ? 'full-bleed-cinematic' : index === 1 ? 'pause-challenge' : 'satellite-telemetry';
+      // Scene 2: Classified Dossier Investigation
+      // Scene 3: Satellite Telemetry Investigative Telemetry
+      template = index === 0 ? 'full-bleed-cinematic' : index === 1 ? 'classified-dossier' : 'satellite-telemetry';
     }
 
-    const dwellText = template === 'pause-challenge'
-      ? '🔍 Pause at 0:04 and comment what you spotted in the document'
-      : index === 0
-      ? '📌 Save this archive file before starting your research'
+    const dwellText = index === 0
+      ? 'DEEP ARCHIVE INVESTIGATION // RECORD 01'
       : index === 1
-      ? `🔥 Follow ${persona.handle} for untold declassified cases`
-      : '🗳️ Vote in the pinned poll below & drop your theory 📜';
+      ? 'FORENSIC EVIDENCE & HISTORICAL TIMELINE'
+      : 'INTELLIGENCE ANALYSIS // VERIFIED SOURCES';
 
     await renderOverlayToPng({
       badge,

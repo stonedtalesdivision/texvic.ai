@@ -3772,24 +3772,23 @@ VIRAL RETENTION & CURIOSITY RULES (DOCUMENTARY CINEMA STANDARD):
    - "highlight": Shocking detail, number, or outcome in ALL CAPS (3-5 words, e.g. "A BROKEN PRINTER", "NUCLEAR BLAST DOORS", "2000-YEAR OLD COMPUTER").
    - "subline": Clear, intriguing explanation in simple English (8-14 words).
 
-4. INTERACTIVE VIRAL NARRATION & PARTICIPATION RULES:
+4. INVESTIGATIVE DOCUMENTARY NARRATION RULES:
    - Each scene MUST include a "voiceScript" containing a full, engaging, conversational paragraph (~25-45 words per scene).
    - Tone: Deeply intriguing, authoritative investigative storyteller (like Vox, Magnates Media, or Lemmino).
-   - Scene 1 voiceScript (~8-10s): High-tension mystery dilemma that hooks the viewer immediately and introduces two opposing explanations.
-   - Scene 2 voiceScript (~10-12s): The forensic evidence or anomaly breakdown + explicit 0.5s pause challenge directive: "Pause at 0:04 to examine line 3 of the leaked record—notice the unredacted coordinate..."
-   - Scene 3 voiceScript (~8-10s): Polarizing Dual-Choice Cross-Examination: "Whose story do you actually believe? Option A or Option B? Comment A or B right now, and our automated archive bot will DM you the declassified proof!" + seamless audio loop bridge phrase into Scene 1.
+   - Scene 1 voiceScript (~8-10s): High-tension mystery dilemma that hooks the viewer immediately with two competing possibilities.
+   - Scene 2 voiceScript (~10-12s): The forensic breakdown detailing tangible declassified evidence, recovered documents, or physical anomaly timeline.
+   - Scene 3 voiceScript (~8-10s): The unresolved historical paradox or lasting impact, concluding with a seamless audio loop bridge phrase back into Scene 1.
 
-5. INTERACTIVE VISUAL DIRECTION & WIDGET ARCHETYPES:
-   - Scene 1: "full-bleed-cinematic" (high-impact 4K cinematic hook).
-   - Scene 2: "pause-challenge" (includes interactiveWidget with type "pause-challenge", pauseTarget e.g. "0:04", and anomalyClue).
-   - Scene 3: "satellite-telemetry" (investigative evidence telemetry layout; interactive poll is posted automatically in the pinned first comment).
+5. CINEMATIC VISUAL DIRECTION & SCENE ARCHETYPES:
+   - Scene 1: "full-bleed-cinematic" (high-impact 4K cinematic hook leaving 90% screen clear for archival footage).
+   - Scene 2: "classified-dossier" (authentic declassified archival folder with stamped metadata and evidence card).
+   - Scene 3: "satellite-telemetry" (investigative telemetry HUD with coordinates and source verification).
 
-6. VIRAL INSTAGRAM SEO CAPTION & INTERACTIVE VOTING FUNNEL:
+6. VIRAL INSTAGRAM SEO CAPTION:
    - Line 1: High search-intent query for Instagram SEO.
-   - Middle: 3-4 ultra-practical bullet points summarizing the timeline and evidence.
-   - Interactive Community Poll Cue: "🗳️ Vote below: Drop [A] or [B] in the comments — our automated Sentinel will instantly DM you the declassified dossier backing your choice! 👇"
-   - Save & Share Multiplier: "📌 Save this archive file so you don't lose it | 🚀 Share with someone who loves mysteries"
-   - Follower Nudge: "Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜"
+   - Middle: 3-4 ultra-practical bullet points summarizing the timeline and forensic evidence.
+   - Conclusion: Thought-provoking historical perspective.
+   - Follower Nudge: "Follow ${brandHandle} for daily historical deep-dives & declassified intelligence."
    - Hashtags: Exactly 5-7 low/mid-tier niche tags (10k-300k volume). Include "${brandTag}".
 
 Theme-page context:
@@ -3807,7 +3806,7 @@ Respond in JSON:
   "triggerKeyword": "A",
   "hookScore": 99,
   "retentionEstimate": 96,
-  "caption": "Full SEO-optimized Instagram caption following the rules above with line breaks, bullets, voting cue [A vs B], Save & Share cue, and follow nudge",
+  "caption": "Full SEO-optimized Instagram caption following the rules above with line breaks, bullets, and follow nudge",
   "hashtags": ["${brandTag}", "#untoldhistory", "#worldmysteries", "#declassified", "#historicalfacts", "#ancienthistory"],
   "scenes": [
     {
@@ -3830,16 +3829,11 @@ Respond in JSON:
       "durationSeconds": ${s2Duration},
       "headline": "THE UNTOLD EVIDENCE",
       "highlight": "UNREDACTED ANOMALY FOUND",
-      "subline": "Pause at 0:04 to inspect line 3 of the leaked document (max 14 words)",
-      "voiceScript": "Full natural conversational narration script (~35-45 words) breaking down the evidence and instructing viewers to pause at 0:04 to catch the anomaly.",
+      "subline": "Declassified telegram revealed zero radar echo over the test sector (max 14 words)",
+      "voiceScript": "Full natural conversational narration script (~35-45 words) breaking down the forensic timeline and physical documents recovered from the archive.",
       "bRollKeywords": ["specific stock video query 1", "specific stock video query 2"],
       "archivalQuery": "Specific declassified record or photo query for Wikimedia Commons",
-      "visualFormat": "pause-challenge",
-      "interactiveWidget": {
-        "type": "pause-challenge",
-        "pauseTarget": "0:04",
-        "anomalyClue": "CLASSIFIED TELEGRAM: // RECORD 09-B // ZERO RADAR ECHO"
-      },
+      "visualFormat": "classified-dossier",
       "imagePrompt": "A photorealistic 8K description of a tangible photographic camera shot depicting scene 2. NO text, letters, or logos.",
       "visualTheme": "subject-specific mechanism",
       "accentColor": "#f87171",
@@ -3848,21 +3842,13 @@ Respond in JSON:
     {
       "order": 3,
       "durationSeconds": ${s3Duration},
-      "headline": "WHO DO YOU BELIEVE?",
-      "highlight": "OFFICIAL STORY VS WHISTLEBLOWER",
-      "subline": "Comment A or B to cast your vote below (max 14 words)",
-      "voiceScript": "Full natural conversational narration script (~25-35 words) urging viewers to choose between Option A and Option B, telling them our automated bot will DM the proof, and ending with a seamless loop bridge phrase into scene 1.",
+      "headline": "THE UNRESOLVED RECORD",
+      "highlight": "OFFICIAL STORY VS REALITY",
+      "subline": "The records remain sealed under presidential executive order (max 14 words)",
+      "voiceScript": "Full natural conversational narration script (~25-35 words) exploring the unresolved aftermath and concluding with a seamless audio loop phrase connecting into scene 1.",
       "bRollKeywords": ["specific stock video query 1", "specific stock video query 2"],
       "archivalQuery": "Specific geographic map or aerial query",
       "visualFormat": "satellite-telemetry",
-      "interactiveWidget": {
-        "type": "poll",
-        "question": "WHO WAS REALLY AT FAULT?",
-        "optionA": "OFFICIAL COVER STORY",
-        "optionB": "SECRET WHISTLEBLOWER",
-        "percentA": 64,
-        "percentB": 36
-      },
       "imagePrompt": "A photorealistic 8K description of a tangible photographic camera shot depicting scene 3. NO text, letters, or logos.",
       "visualTheme": "subject-specific conclusion",
       "accentColor": "#38bdf8",

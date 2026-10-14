@@ -70,34 +70,49 @@ export function formatKaraokeWords(line: string, accentColor: string, explicitHi
       .filter(w => w.length >= 2)
   );
 
-  const impactMatches = words.map(w => {
-    // Check if word has markdown bold markers like **word**
+  // Identify candidate words and score them to pick EXACTLY ONE primary focus keyword (never whole sentence)
+  let bestIdx = -1;
+  let bestScore = -1;
+
+  words.forEach((w, idx) => {
     const hasMarkdownBold = /^\*\*.*\*\*$/.test(w) || w.includes('**');
     const clean = w.replace(/[^a-zA-Z0-9$%#]/g, '').toLowerCase();
     const isExplicit = explicitTerms.has(clean);
-    return hasMarkdownBold || isExplicit || IMPACT_WORD_PATTERN.test(clean) || /^\d+/.test(clean);
+    const isImpact = IMPACT_WORD_PATTERN.test(clean);
+    const hasDigits = /^\d+/.test(clean);
+
+    let score = 0;
+    if (hasMarkdownBold) score += 50;
+    if (isExplicit) score += 40;
+    if (isImpact) score += 30;
+    if (hasDigits) score += 20;
+    if (clean.length >= 4) score += Math.min(clean.length, 10);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = idx;
+    }
   });
 
-  const hasAnyImpact = impactMatches.some(Boolean);
-  let fallbackHighlightIdx = -1;
-  if (!hasAnyImpact && words.length > 0) {
+  // If no word met impact criteria, fallback to the longest substantive word
+  if (bestIdx === -1 && words.length > 0) {
     let maxLen = 0;
     words.forEach((w, idx) => {
       const clean = w.replace(/[^a-zA-Z0-9]/g, '');
-      if (clean.length > maxLen && clean.length >= 3) {
+      if (clean.length > maxLen) {
         maxLen = clean.length;
-        fallbackHighlightIdx = idx;
+        bestIdx = idx;
       }
     });
-    if (fallbackHighlightIdx === -1) fallbackHighlightIdx = 0;
+    if (bestIdx === -1) bestIdx = 0;
   }
 
   return words.map((w, idx) => {
-    const isImpact = impactMatches[idx] || (idx === fallbackHighlightIdx);
+    const isFocusWord = (idx === bestIdx);
     const cleanDisplay = w.replace(/\*\*/g, '');
     const escaped = escapeXml(cleanDisplay);
     const trailingSpace = idx < words.length - 1 ? ' ' : '';
-    if (isImpact) {
+    if (isFocusWord) {
       return `<tspan fill="${accentColor}" font-weight="900">${escaped}${trailingSpace}</tspan>`;
     }
     return `<tspan fill="#ffffff" font-weight="800">${escaped}${trailingSpace}</tspan>`;
@@ -114,7 +129,7 @@ export function buildSceneSvg(opts: OverlayOptions): string {
   const activePersona = getActivePersona();
   const accent = (opts.accentColor || '#fbbf24').replace(/^#?([0-9a-fA-F]{6})$/, '#$1');
   const badge = escapeXml(opts.badge || 'UNTOLD MYSTERY');
-  const dwellText = escapeXml(opts.dwellText || 'Comment "STORY" below for the declassified file 📜');
+  const dwellText = escapeXml(opts.dwellText || `${activePersona.brand || 'THE UNTOLD ARCHIVE'} • HISTORICAL DOSSIER`);
   const branding = escapeXml(opts.branding || activePersona.brand || 'THE UNTOLD ARCHIVE');
   const progressPercent = Math.max(0, Math.min(100, opts.progressPercent ?? 50));
   const progressWidth = Math.round(840 * (progressPercent / 100));
@@ -125,12 +140,8 @@ export function buildSceneSvg(opts: OverlayOptions): string {
 
   // Determine template archetype if not explicitly passed
   let template = opts.template;
-  if (!template) {
-    if (opts.interactiveWidget?.type === 'pause-challenge' || /pause|inspect|challenge|spot\s+the|0:0[1-9]|unredacted/i.test(rawHeadline + ' ' + rawHighlight + ' ' + rawSubline)) {
-      template = 'pause-challenge';
-    } else if (/split|satisfying|screen|dual|accelerator|retention|kinetic/i.test(rawHeadline + ' ' + rawHighlight)) {
-      template = 'split-screen';
-    } else if (/satellite|island|bunker|ocean|borehole|tibet|radar|coordinates/i.test(rawHeadline + ' ' + rawHighlight)) {
+  if (!template || template === 'pause-challenge') {
+    if (/satellite|island|bunker|ocean|borehole|tibet|radar|coordinates/i.test(rawHeadline + ' ' + rawHighlight)) {
       template = 'satellite-telemetry';
     } else if (/heist|classified|fbi|cia|nazi|gold|bank|secret|document|wire/i.test(rawHeadline + ' ' + rawHighlight)) {
       template = 'classified-dossier';
@@ -379,101 +390,6 @@ export function buildSceneSvg(opts: OverlayOptions): string {
         </g>
       </g>
     `;
-  } else if (template === 'pause-challenge') {
-    // =========================================================================
-    // TEMPLATE 6: 0.5s PAUSE & INSPECT CHALLENGE (Algorithm Retention Multiplier)
-    // =========================================================================
-    const widget = opts.interactiveWidget || {};
-    const pauseTarget = escapeXml(widget.pauseTarget || '0:04');
-    const anomalyClue = escapeXml(widget.anomalyClue || rawHighlight || 'COORDINATES: 47°09\'S 126°43\'W');
-    const challengeHeadline = wrapSvgText((rawHeadline || 'PAUSE TO READ THE SECRET').toUpperCase(), 18);
-
-    const challengeElements = challengeHeadline.map((line, idx) => {
-      const y = 620 + idx * 56;
-      return `<text xml:space="preserve" x="540" y="${y}" text-anchor="middle" font-family="'Segoe UI', 'Impact', Roboto, sans-serif" font-size="50" font-weight="900" letter-spacing="-0.5" filter="url(#shadow)">${formatKaraokeWords(line, '#f87171', rawHighlight)}</text>`;
-    }).join('\n');
-
-    mainContentSvg = `
-      <g>
-        <!-- Top Alert Badge Bar -->
-        <g transform="translate(100, 140)">
-          <rect width="880" height="52" rx="26" fill="rgba(239, 68, 68, 0.25)" stroke="#ef4444" stroke-width="2" />
-          <circle cx="36" cy="26" r="7" fill="#ef4444" />
-          <text x="60" y="34" font-family="'Segoe UI', Impact, sans-serif" font-size="20" font-weight="900" fill="#fca5a5" letter-spacing="2">
-            ⚠️ 0.5s ALGORITHMIC RETENTION CHALLENGE
-          </text>
-          <text x="844" y="34" text-anchor="end" font-family="'Courier New', monospace" font-size="16" font-weight="900" fill="#ffffff">
-            REWIND &amp; PAUSE
-          </text>
-        </g>
-
-        <!-- Challenge Headline Text -->
-        ${challengeElements}
-
-        <!-- Secret Declassified Document Frame (Center y=700) -->
-        <g transform="translate(80, 700)">
-          <rect width="920" height="660" rx="28" fill="rgba(8, 12, 24, 0.94)" stroke="#ef4444" stroke-width="2.5" filter="url(#shadow)" />
-          
-          <!-- Document Header -->
-          <g transform="translate(40, 36)">
-            <rect width="400" height="38" rx="6" fill="rgba(239, 68, 68, 0.2)" stroke="#ef4444" stroke-width="1.5" />
-            <text x="20" y="25" font-family="'Courier New', monospace" font-size="17" font-weight="900" fill="#ef4444" letter-spacing="2">
-              DECLASSIFIED ARCHIVE // LEAK
-            </text>
-          </g>
-          <text x="880" y="62" text-anchor="end" font-family="'Courier New', monospace" font-size="15" font-weight="700" fill="#64748b">
-            DOSSIER #${branding.slice(0, 10)}
-          </text>
-
-          <!-- Redacted Blackout Bars -->
-          <rect x="40" y="100" width="480" height="26" rx="4" fill="#334155" opacity="0.9" />
-          <rect x="40" y="140" width="680" height="26" rx="4" fill="#334155" opacity="0.9" />
-
-          <!-- UNREDACTED ANOMALY EVIDENCE BOX -->
-          <g transform="translate(40, 195)">
-            <rect width="840" height="150" rx="18" fill="rgba(234, 179, 8, 0.16)" stroke="#eab308" stroke-width="2.2" filter="url(#glow)" />
-            <text x="30" y="44" font-family="'Courier New', monospace" font-size="18" font-weight="700" fill="#fde047">
-              [ UNREDACTED ANOMALY CLUE • PAUSE TARGET: ${pauseTarget} ]
-            </text>
-            <text x="30" y="90" font-family="'Courier New', monospace" font-size="28" font-weight="900" fill="#ffffff" letter-spacing="1">
-              ${anomalyClue}
-            </text>
-            <text x="30" y="126" font-family="'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="600" fill="#cbd5e1">
-              Only 5% of viewers notice what is hidden in this frame.
-            </text>
-          </g>
-
-          <!-- More Redacted Bars -->
-          <rect x="40" y="375" width="580" height="26" rx="4" fill="#334155" opacity="0.9" />
-          <rect x="40" y="415" width="760" height="26" rx="4" fill="#334155" opacity="0.9" />
-
-          <!-- Angled PAUSE Stamp -->
-          <g transform="translate(620, 480) rotate(-8)">
-            <rect width="260" height="68" rx="10" fill="rgba(239, 68, 68, 0.25)" stroke="#ef4444" stroke-width="3" />
-            <text x="130" y="46" text-anchor="middle" font-family="'Segoe UI', Impact, sans-serif" font-size="28" font-weight="900" fill="#ef4444" letter-spacing="3">
-              PAUSE TO READ
-            </text>
-          </g>
-
-          <!-- Bottom Micro-Challenge CTA Button -->
-          <g transform="translate(40, 560)">
-            <rect width="840" height="66" rx="20" fill="rgba(255, 255, 255, 0.1)" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.2" />
-            <text x="420" y="42" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="21" font-weight="800" fill="#ffffff">
-              🔍 PAUSE AT ${pauseTarget} &amp; COMMENT WHAT YOU SPOT 👇
-            </text>
-          </g>
-        </g>
-
-        <!-- Bottom Safe Zone Footnote -->
-        <g transform="translate(140, 1640)">
-          <rect width="800" height="52" rx="26" fill="rgba(0, 0, 0, 0.75)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1.2" />
-          <text x="400" y="33" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="19" font-weight="700" fill="#ffffff">
-            ${dwellText}
-          </text>
-        </g>
-      </g>
-    `;
-
   } else {
     // =========================================================================
     // TEMPLATE 3: FULL-BLEED CINEMATIC FOOTAGE (Leaves 90% of Video Visible!)

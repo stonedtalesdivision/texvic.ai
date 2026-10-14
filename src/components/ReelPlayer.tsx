@@ -18,12 +18,15 @@ interface ReelPlayerProps {
 
 const IMPACT_WORD_REGEX = /^(lost|doomsday|secret|secrets|stolen|heist|never|banned|truth|archive|warning|found|killed|disappeared|classified|hidden|conspiracy|unsolved|trillion|billion|million|cad|autocad|rhino|revit|bim|ai|pros|pro|shortcut|shortcuts|trick|tricks|hack|hacks|mistake|mistakes|blueprint|blueprints|rule|rules|workflow|workflows|drawing|drawings|render|rendering|speed|faster|fast|free|stop|destroys|destroy|illegal|power|powerful|ultimate|cheat|code|floorplan|3d|\$\d+.*|\d+[%a-z]*|#\d+)$/i;
 
-function renderHighlightedText(
+function renderSingleFocusText(
   text: string, 
   highlight?: string, 
   accentColor: string = '#fbbf24'
 ) {
   if (!text) return null;
+
+  const cleanText = text.replace(/\*\*/g, '');
+  const words = cleanText.split(/(\s+)/);
 
   const explicitTerms = new Set(
     (highlight || '')
@@ -33,14 +36,38 @@ function renderHighlightedText(
       .filter(w => w.length >= 2)
   );
 
-  const boldChunks = text.split(/(\*\*[^*]+\*\*)/g);
+  // Identify the single highest-impact keyword in the phrase (never highlight the whole sentence)
+  let bestWordIdx = -1;
+  let bestScore = -1;
+  let nonSpaceIdx = 0;
 
-  return boldChunks.map((chunk, chunkIdx) => {
-    if (chunk.startsWith('**') && chunk.endsWith('**')) {
-      const cleanBold = chunk.slice(2, -2);
+  words.forEach((w) => {
+    if (/^\s+$/.test(w)) return;
+    const cleanWord = w.replace(/[^a-zA-Z0-9$%#]/g, '').toLowerCase();
+    let score = 0;
+    if (explicitTerms.has(cleanWord)) score += 50;
+    if (IMPACT_WORD_REGEX.test(cleanWord)) score += 30;
+    if (/^\d+/.test(cleanWord)) score += 20;
+    if (cleanWord.length >= 4) score += Math.min(cleanWord.length, 10);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestWordIdx = nonSpaceIdx;
+    }
+    nonSpaceIdx++;
+  });
+
+  nonSpaceIdx = 0;
+  return words.map((w, wIdx) => {
+    if (/^\s+$/.test(w)) return <span key={`sp-${wIdx}`}>{w}</span>;
+
+    const isFocus = (nonSpaceIdx === bestWordIdx);
+    nonSpaceIdx++;
+
+    if (isFocus) {
       return (
         <mark
-          key={`bold-${chunkIdx}`}
+          key={`w-${wIdx}`}
           className="inline-block px-1.5 py-0.5 mx-0.5 rounded-md font-black shadow-md border"
           style={{
             backgroundColor: `${accentColor}33`,
@@ -49,37 +76,12 @@ function renderHighlightedText(
             textShadow: `0 0 12px ${accentColor}80`,
           }}
         >
-          {cleanBold}
+          {w}
         </mark>
       );
     }
 
-    const words = chunk.split(/(\s+)/);
-    return words.map((w, wIdx) => {
-      if (/^\s+$/.test(w)) return <span key={`sp-${chunkIdx}-${wIdx}`}>{w}</span>;
-      const cleanWord = w.replace(/[^a-zA-Z0-9$%#]/g, '').toLowerCase();
-      const isImpact = IMPACT_WORD_REGEX.test(cleanWord) || /^\d+[%a-z]*$/i.test(cleanWord);
-      const isExplicit = explicitTerms.has(cleanWord);
-
-      if (isImpact || isExplicit) {
-        return (
-          <mark
-            key={`w-${chunkIdx}-${wIdx}`}
-            className="inline-block px-1.5 py-0.5 mx-0.5 rounded-md font-black shadow-md border"
-            style={{
-              backgroundColor: `${accentColor}33`,
-              color: accentColor,
-              borderColor: `${accentColor}66`,
-              textShadow: `0 0 12px ${accentColor}80`,
-            }}
-          >
-            {w}
-          </mark>
-        );
-      }
-
-      return <span key={`w-${chunkIdx}-${wIdx}`}>{w}</span>;
-    });
+    return <span key={`w-${wIdx}`}>{w}</span>;
   });
 }
 
@@ -102,6 +104,9 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   const timerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hasGeneratedVideo = Boolean(reel.videoUrl);
+
+  const [activeWordIndex, setActiveWordIndex] = useState<number>(0);
+  const speechBoundaryActiveRef = useRef<boolean>(false);
 
   // Close window on Escape key
   useEffect(() => {
@@ -181,9 +186,10 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     }
   }, [currentTime, scenes]);
 
-  // Browser Speech Synthesis preview fallback when video has not yet been rendered to disk
+  // Browser Speech Synthesis preview fallback with Word-Level Boundary Event Sync
   useEffect(() => {
     if (!isPlaying || isMuted || hasGeneratedVideo || typeof window === 'undefined' || !window.speechSynthesis) {
+      speechBoundaryActiveRef.current = false;
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
@@ -209,15 +215,68 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       }
       utterance.rate = 1.20; // 1.20x brisk, engaging pacing
       utterance.pitch = 0.85; // Deep chest resonance, never squeaky or childish
+
+      speechBoundaryActiveRef.current = true;
+      setActiveWordIndex(0);
+
+      // Real-time word boundary sync: updates as each single word is spoken by speech synthesis
+      utterance.onboundary = (event: SpeechSynthesisEvent) => {
+        if (event.name === 'word') {
+          const textBefore = narration.slice(0, event.charIndex);
+          const wordsBefore = textBefore.trim().split(/\s+/).filter(Boolean);
+          setActiveWordIndex(wordsBefore.length);
+        }
+      };
+
+      utterance.onend = () => {
+        speechBoundaryActiveRef.current = false;
+      };
+
+      utterance.onerror = () => {
+        speechBoundaryActiveRef.current = false;
+      };
+
       window.speechSynthesis.speak(utterance);
     }
 
     return () => {
+      speechBoundaryActiveRef.current = false;
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }
     };
-  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex]);
+  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, scenes]);
+
+  // Continuous sync of active word index across scenes and video playback
+  useEffect(() => {
+    if (!isPlaying) {
+      setActiveWordIndex(0);
+      return;
+    }
+
+    // If browser speech synthesis is actively firing boundary events, let it drive
+    if (speechBoundaryActiveRef.current && !hasGeneratedVideo) {
+      return;
+    }
+
+    const currentScene = scenes[currentSceneIndex];
+    const narration = currentScene?.voiceScript || currentScene?.voiceText || currentScene?.headline || currentScene?.hookText || currentScene?.text || reel.title || '';
+    const words = narration.replace(/\*\*/g, '').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      setActiveWordIndex(0);
+      return;
+    }
+
+    let sceneStartTime = 0;
+    for (let i = 0; i < currentSceneIndex; i++) {
+      sceneStartTime += scenes[i]?.durationSeconds || (duration / (scenes.length || 1));
+    }
+    const sceneDuration = currentScene?.durationSeconds || (duration / (scenes.length || 1));
+    const sceneElapsed = Math.max(0, currentTime - sceneStartTime);
+    const progress = Math.min(0.999, Math.max(0, sceneElapsed / sceneDuration));
+    const calculatedWordIdx = Math.floor(progress * words.length);
+    setActiveWordIndex(calculatedWordIdx);
+  }, [currentTime, currentSceneIndex, scenes, duration, isPlaying, hasGeneratedVideo, reel.title]);
 
   const activeScene = scenes[currentSceneIndex] || scenes[0];
 
@@ -380,79 +439,87 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
               </span>
             </div>
 
-            {!hasGeneratedVideo && <>
-            {/* Interactive Widget or Main Kinetic Headline Text */}
-            <div 
-              key={activeScene?.id || currentSceneIndex}
-              className={`w-full max-w-[270px] transition-all duration-300 transform ${
-                beatPulse ? 'scale-[1.03]' : 'scale-100'
-              }`}
-            >
-              {activeScene?.visualFormat === 'pause-challenge' || activeScene?.interactiveWidget?.type === 'pause-challenge' ? (
-                /* 0.5s Pause Challenge Banner */
-                <div className="w-full bg-slate-950/90 backdrop-blur-md rounded-2xl border-2 border-rose-500 p-3 shadow-2xl text-left">
-                  <div className="flex items-center justify-between text-[10px] font-bold text-rose-400 mb-1.5">
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                      0.5s PAUSE CHALLENGE
-                    </span>
-                    <span className="bg-rose-500/20 px-1.5 py-0.5 rounded text-[9px] font-mono">
-                      AT {activeScene.interactiveWidget?.pauseTarget || '0:04'}
-                    </span>
-                  </div>
-                  <h3 className="text-xs sm:text-sm font-black text-white mb-2 leading-tight">
-                    {activeScene.hookText || 'PAUSE TO READ SECRET'}
-                  </h3>
-                  <div className="bg-black/60 border border-yellow-500/40 rounded-xl p-2 mb-2">
-                    <div className="text-[9px] font-mono text-yellow-400 font-bold mb-0.5">[ UNREDACTED RECORD ]</div>
-                    <div className="text-[11px] font-mono font-black text-white break-words">
-                      {activeScene.interactiveWidget?.anomalyClue || activeScene.secondaryText || 'COORDINATES: 47°09\'S 126°43\'W'}
-                    </div>
-                    <div className="text-[9px] text-slate-400 mt-0.5">Only 5% spot the hidden anomaly.</div>
-                  </div>
-                  <div className="text-[10px] font-bold text-center text-rose-300 bg-rose-500/10 py-1 rounded-lg">
-                    🔍 PAUSE &amp; COMMENT WHAT YOU SPOT
-                  </div>
-                </div>
-              ) : (
-                /* Standard Kinetic Hook */
-                <div>
-                  <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white leading-tight tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
-                    {renderHighlightedText(
+            {!hasGeneratedVideo && (() => {
+              const narration = activeScene?.voiceScript || activeScene?.voiceText || activeScene?.headline || activeScene?.hookText || activeScene?.text || reel.title || '';
+              const narrationWords = narration.replace(/\*\*/g, '').trim().split(/\s+/).filter(Boolean);
+              const phraseSize = 5;
+              const phraseStart = Math.floor(Math.max(0, activeWordIndex) / phraseSize) * phraseSize;
+              const visiblePhraseWords = narrationWords.slice(phraseStart, phraseStart + phraseSize);
+              const accent = activeScene?.accentColor || '#fbbf24';
+
+              const cleanSecondary = activeScene?.secondaryText && !/pause|0:0[1-9]|comment\s+[a-b]|drop\s+\[a\]/i.test(activeScene.secondaryText)
+                ? activeScene.secondaryText.replace(/\*\*/g, '')
+                : null;
+
+              return (
+                <div 
+                  key={activeScene?.id || currentSceneIndex}
+                  className={`w-full max-w-[280px] transition-all duration-300 transform ${
+                    beatPulse ? 'scale-[1.03]' : 'scale-100'
+                  }`}
+                >
+                  {/* Clean Authoritative Headline with Single Keyword Focus Accent */}
+                  <h2 className="text-xl sm:text-2xl font-black text-white leading-tight tracking-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.85)]">
+                    {renderSingleFocusText(
                       activeScene?.hookText || activeScene?.headline || reel.title,
                       activeScene?.highlight,
-                      activeScene?.accentColor || '#fbbf24'
+                      accent
                     )}
                   </h2>
-                  {activeScene?.highlight && (
-                    <div className="mt-2.5 flex justify-center">
-                      <span 
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl font-mono text-[10px] sm:text-xs font-black tracking-wider uppercase border shadow-lg backdrop-blur-md"
-                        style={{
-                          backgroundColor: `${activeScene.accentColor || '#fbbf24'}25`,
-                          borderColor: `${activeScene.accentColor || '#fbbf24'}77`,
-                          color: activeScene.accentColor || '#fbbf24',
-                          boxShadow: `0 0 15px ${activeScene.accentColor || '#fbbf24'}35`,
-                        }}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full animate-ping" style={{ backgroundColor: activeScene.accentColor || '#fbbf24' }} />
-                        ⚡ {activeScene.highlight.replace(/\*\*/g, '')}
-                      </span>
+
+                  {/* Real-Time Spoken Karaoke Caption (Single Word Active Sync) */}
+                  {visiblePhraseWords.length > 0 && (
+                    <div className="mt-4 px-3.5 py-2.5 rounded-2xl bg-black/65 backdrop-blur-md border border-white/15 shadow-2xl">
+                      <div className="text-[9px] font-mono font-bold text-white/50 mb-1.5 flex items-center justify-center gap-1.5 uppercase tracking-widest">
+                        <span className="w-1.5 h-1.5 rounded-full animate-ping" style={{ backgroundColor: accent }} />
+                        {isPlaying ? 'Narration' : 'Voiceover Preview'}
+                      </div>
+                      <div className="text-sm sm:text-base font-black leading-snug flex flex-wrap items-center justify-center">
+                        {visiblePhraseWords.map((word, localIdx) => {
+                          const globalIdx = phraseStart + localIdx;
+                          const isCurrentWord = isPlaying ? globalIdx === activeWordIndex : localIdx === 0;
+
+                          if (isCurrentWord) {
+                            return (
+                              <mark
+                                key={`spk-${globalIdx}`}
+                                className="inline-block px-2 py-0.5 mx-1 rounded-lg font-black scale-110 border shadow-xl transition-all duration-100"
+                                style={{
+                                  backgroundColor: `${accent}40`,
+                                  color: accent,
+                                  borderColor: `${accent}cc`,
+                                  textShadow: `0 0 16px ${accent}`,
+                                  boxShadow: `0 0 20px ${accent}66`,
+                                }}
+                              >
+                                {word}
+                              </mark>
+                            );
+                          }
+
+                          return (
+                            <span
+                              key={`spk-${globalIdx}`}
+                              className="inline-block mx-0.5 text-white/90 font-bold"
+                              style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}
+                            >
+                              {word}
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
-                  {activeScene?.secondaryText && (
-                    <p className="mt-2.5 sm:mt-3 text-xs sm:text-sm md:text-base font-semibold text-white/90 bg-black/50 px-3 py-1.5 rounded-xl backdrop-blur-sm border border-white/10 shadow-lg inline-block">
-                      {renderHighlightedText(
-                        activeScene.secondaryText,
-                        activeScene?.highlight,
-                        activeScene?.accentColor || '#38bdf8'
-                      )}
+
+                  {/* Clean Archival Secondary Detail (No Gimmicks) */}
+                  {cleanSecondary && (
+                    <p className="mt-3 text-xs sm:text-sm font-semibold text-slate-200/90 bg-black/50 px-3 py-1.5 rounded-xl backdrop-blur-sm border border-white/10 shadow-lg inline-block">
+                      {cleanSecondary}
                     </p>
                   )}
                 </div>
-              )}
-            </div>
-            </>}
+              );
+            })()}
 
             {/* Subtle Play Prompt when paused */}
             {!isPlaying && (
