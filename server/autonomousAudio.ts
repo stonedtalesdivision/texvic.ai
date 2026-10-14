@@ -217,8 +217,8 @@ export async function ensureAutonomousAudioAsset(reel: any): Promise<MediaAsset 
   const filename = `studio-${track.id}-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp3`;
   const outputPath = path.join(GENERATED_DIR, filename);
 
-  // Background music volume reduced by 50% (from 0.35 down to 0.17) with smooth breathing fades
-  const audioFilter = `volume=0.17,afade=t=in:ss=0:d=0.5,afade=t=out:st=${Math.max(1, duration - 1.5)}:d=1.5`;
+  // Background music volume boosted for audible cinematic presence (from 0.17 to 0.55) with smooth breathing fades
+  const audioFilter = `volume=0.55,afade=t=in:ss=0:d=0.5,afade=t=out:st=${Math.max(1, duration - 1.5)}:d=1.5`;
 
   try {
     await execFileAsync('ffmpeg', [

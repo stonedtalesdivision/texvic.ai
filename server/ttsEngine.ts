@@ -16,17 +16,14 @@ export interface TTSOptions {
   volume?: string;
 }
 
-// Top natural creator & cinematic documentary voices in Microsoft Edge Neural TTS
+// Top natural creator & cinematic documentary male voices in Microsoft Edge Neural TTS
 export const CREATOR_VOICES = {
   deepDocumentaryMale: 'en-US-ChristopherNeural',         // Deep, authoritative, mature adult narrator
   cinematicStorytellerMale: 'en-US-EricNeural',           // Rich, calm, cinematic storytelling tone
-  naturalCreatorMale: 'en-US-AndrewMultilingualNeural',   // Warm conversational voice
+  naturalCreatorMale: 'en-US-AndrewMultilingualNeural',   // Warm conversational male voice
   casualPodcastMale: 'en-US-BrianMultilingualNeural',     // Dynamic creator delivery
-  britishNarratorMale: 'en-GB-RyanNeural',                // Mature, sophisticated British documentary voice
+  britishNarratorMale: 'en-GB-RyanNeural',                // Mature, sophisticated British documentary baritone
   authorityMale: 'en-US-GuyNeural',                       // Deep, crisp dramatic broadcast anchor
-  naturalCreatorFemale: 'en-US-AvaMultilingualNeural',    // Warm, authentic female storyteller
-  expressiveFemale: 'en-US-EmmaMultilingualNeural',       // Articulate female narrator
-  mysteriousFemale: 'en-GB-SoniaNeural',                  // Chilling, atmospheric British storyteller
 };
 
 /**
@@ -41,7 +38,7 @@ export function resolveBestVoiceForTopic(topicOrNiche = '', mood = ''): string {
     return CREATOR_VOICES.cinematicStorytellerMale;
   }
   if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
-    return 'en-US-GuyNeural';
+    return CREATOR_VOICES.authorityMale;
   }
   return CREATOR_VOICES.deepDocumentaryMale;
 }
@@ -54,10 +51,10 @@ export function resolveGeminiVoiceForTopic(topicOrNiche = '', mood = ''): string
   if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
     return 'Puck'; // Confident, sharp modern creator voice
   }
-  if (/crime|heist|dossier|classified|nuclear|cold war|war|secret|danger/i.test(text)) {
+  if (/crime|heist|dossier|classified|nuclear|cold war|war|secret|danger|dark|mystery/i.test(text)) {
     return 'Charon'; // Deepest, gravest narrator
   }
-  return 'Fenrir'; // Deep, authoritative documentary baritone
+  return 'Charon'; // Default to Charon (deepest authoritative documentary baritone)
 }
 
 /**
@@ -248,9 +245,9 @@ export async function generateSpeech(
   // Runs over pure Node.js HTTPS - requires ZERO Python, ZERO pip packages, ZERO CLI tools
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     try {
-      const geminiVoice = options.voice && ['Fenrir', 'Charon', 'Puck', 'Aoede', 'Kore'].includes(options.voice)
+      const geminiVoice = options.voice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(options.voice)
         ? options.voice
-        : 'Fenrir';
+        : 'Charon'; // Charon: Deepest authoritative male documentary narrator
       console.log(`[TTS Engine] Synthesizing authentic documentary voiceover via Gemini 3.8 Flash TTS (${geminiVoice})...`);
       return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
     } catch (geminiErr: any) {
@@ -260,8 +257,8 @@ export async function generateSpeech(
 
   // Tier 2: Microsoft Edge Neural TTS (Deep adult male voices: Christopher / Guy / Ryan)
   const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '+20%';  // 1.20x speed: brisk, modern, captivating tempo
-  const pitch = options.pitch || '-4Hz'; // Deep chest resonance, never squeaky or childish
+  const rate = options.rate || '+18%';  // 1.18x speed: brisk, modern, captivating tempo
+  const pitch = options.pitch || '-5Hz'; // Deep chest resonance, rich neural core baritone
 
   // Write text to a temporary UTF-8 text file to eliminate command-line encoding & length bugs
   const tempTextFile = path.join(TTS_DIR, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
@@ -408,7 +405,7 @@ export async function generateSpeechViaHttp(
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', chunkFiles[0],
-        '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
+        '-af', 'asetrate=44100*0.78,aresample=44100,atempo=1.18/0.78,equalizer=f=110:width_type=o:width=1.2:g=5.0,equalizer=f=250:width_type=o:width=1.5:g=2.5,aformat=sample_rates=44100:channel_layouts=stereo',
         '-c:a', 'libmp3lame',
         '-ar', '44100',
         '-ac', '2',
@@ -416,7 +413,7 @@ export async function generateSpeechViaHttp(
         outputPath
       ]);
     } else {
-      // Concatenate all chunks and normalize at 1.20x speed
+      // Concatenate all chunks and normalize at 1.18x speed with male pitch transposition
       const concatList = `${tempBase}-list.txt`;
       const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
       await fs.writeFile(concatList, listContent, 'utf8');
@@ -427,7 +424,7 @@ export async function generateSpeechViaHttp(
           '-f', 'concat',
           '-safe', '0',
           '-i', concatList,
-          '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
+          '-af', 'asetrate=44100*0.78,aresample=44100,atempo=1.18/0.78,equalizer=f=110:width_type=o:width=1.2:g=5.0,equalizer=f=250:width_type=o:width=1.5:g=2.5,aformat=sample_rates=44100:channel_layouts=stereo',
           '-c:a', 'libmp3lame',
           '-ar', '44100',
           '-ac', '2',
@@ -455,7 +452,7 @@ export async function generateSpeechViaHttp(
 export async function generateSpeechWithGemini(
   text: string,
   outputPath: string,
-  voiceName = 'Fenrir'
+  voiceName = 'Charon'
 ): Promise<string> {
   await fs.mkdir(TTS_DIR, { recursive: true });
   const apiKey = process.env.GEMINI_API_KEY;

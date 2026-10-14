@@ -105,10 +105,10 @@ export async function renderReelToMp4(reel: {
         `drawtext=${fontArg}text='${brandName}  |  Follow ${handleName}':fontcolor=white@0.85:fontsize=24:x=(w-text_w)/2:y=1380:shadowcolor=black@0.8:shadowx=2:shadowy=2`
       ];
 
-      // Multi-layer electronic beat synthesis
-      const kick = `0.48*sin(2*PI*(46+130*exp(-38*mod(t,${1 / beatRate}))))*exp(-9*mod(t,${1 / beatRate}))`;
-      const bass = `0.26*sin(2*PI*55*t)*(0.65+0.35*sin(2*PI*${beatRate * 2}*t))`;
-      const lead = `0.15*sin(2*PI*(${baseFreq}+55*mod(floor(t*${beatRate * 4}),4))*t)*(0.7+0.3*cos(2*PI*${beatRate}*t))`;
+      // Multi-layer electronic beat synthesis (boosted volume)
+      const kick = `0.65*sin(2*PI*(46+130*exp(-38*mod(t,${1 / beatRate}))))*exp(-9*mod(t,${1 / beatRate}))`;
+      const bass = `0.38*sin(2*PI*55*t)*(0.65+0.35*sin(2*PI*${beatRate * 2}*t))`;
+      const lead = `0.22*sin(2*PI*(${baseFreq}+55*mod(floor(t*${beatRate * 4}),4))*t)*(0.7+0.3*cos(2*PI*${beatRate}*t))`;
       const audioExpr = `${kick}+${bass}+${lead}`;
 
       await execFileAsync(ffmpegPath, [

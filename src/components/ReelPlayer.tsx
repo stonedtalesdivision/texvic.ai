@@ -112,6 +112,28 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
   const [activeWordIndex, setActiveWordIndex] = useState<number>(0);
   const speechBoundaryActiveRef = useRef<boolean>(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  // Load and cache browser voices as soon as they become ready
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    const loadVoices = () => {
+      const v = window.speechSynthesis.getVoices();
+      if (v && v.length > 0) {
+        setAvailableVoices(v);
+      }
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
 
   // Jump directly to a specific scene
   const jumpToScene = (targetIdx: number) => {
@@ -244,19 +266,45 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(narration);
       
-      // Select the best available natural, mature adult narrator voice
-      const voices = window.speechSynthesis.getVoices();
-      const matureVoice = voices.find(v => 
-        /guy|christopher|ryan|andrew|eric|daniel|oliver|arthur|david|george|natural/i.test(v.name) &&
-        !/female|child|zira|samantha|victoria|karen/i.test(v.name) &&
-        v.lang.startsWith('en')
-      ) || voices.find(v => v.lang.startsWith('en') && !/female|child|zira/i.test(v.name)) || voices[0];
+      // Select the best available natural/neural adult male narrator voice
+      const voices = availableVoices.length > 0 ? availableVoices : (typeof window !== 'undefined' && window.speechSynthesis ? window.speechSynthesis.getVoices() : []);
+      
+      const isExplicitlyFemale = (name: string) => 
+        /female|woman|girl|zira|samantha|victoria|karen|catherine|stephanie|lisa|jenny|eva|amber|susan|helena|anna|maria|serena|yuri|zoe|aria|sara|cortana|katrina|hazel|fiona|moira|veena|tessa|allison|kendra/i.test(name);
+      
+      const isExplicitlyMale = (name: string) =>
+        /male|man|boy|david|guy|christopher|ryan|andrew|eric|daniel|oliver|arthur|george|mark|richard|james|brian|william|charon|fenrir|baritone|broadcaster/i.test(name);
+
+      // Tier A: Neural / Natural English Male Voice
+      let matureVoice = voices.find(v => 
+        v.lang.startsWith('en') && 
+        /neural|natural|online/i.test(v.name) && 
+        isExplicitlyMale(v.name) && 
+        !isExplicitlyFemale(v.name)
+      );
+
+      // Tier B: Any English Male Voice
+      if (!matureVoice) {
+        matureVoice = voices.find(v => 
+          v.lang.startsWith('en') && 
+          isExplicitlyMale(v.name) && 
+          !isExplicitlyFemale(v.name)
+        );
+      }
+
+      // Tier C: Any English Voice that is NOT female
+      if (!matureVoice) {
+        matureVoice = voices.find(v => 
+          v.lang.startsWith('en') && 
+          !isExplicitlyFemale(v.name)
+        );
+      }
       
       if (matureVoice) {
         utterance.voice = matureVoice;
       }
-      utterance.rate = playbackRate; // 1.20x brisk, engaging pacing or user selected rate
-      utterance.pitch = 0.85; // Deep chest resonance, never squeaky or childish
+      utterance.rate = playbackRate; // 1.18x brisk, engaging pacing or user selected rate
+      utterance.pitch = 0.80; // Deep masculine chest resonance, authoritative documentary tone
 
       speechBoundaryActiveRef.current = true;
       setActiveWordIndex(0);
@@ -287,7 +335,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         window.speechSynthesis.cancel();
       }
     };
-  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, scenes, playbackRate]);
+  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, scenes, playbackRate, availableVoices]);
 
   // Continuous sync of active word index across scenes and video playback
   useEffect(() => {
