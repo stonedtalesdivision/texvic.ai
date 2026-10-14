@@ -260,7 +260,7 @@ export async function generateSpeech(
 
   // Tier 2: Microsoft Edge Neural TTS (Deep adult male voices: Christopher / Guy / Ryan)
   const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '-2%';  // Measured, serious documentary tempo
+  const rate = options.rate || '+20%';  // 1.20x speed: brisk, modern, captivating tempo
   const pitch = options.pitch || '-4Hz'; // Deep chest resonance, never squeaky or childish
 
   // Write text to a temporary UTF-8 text file to eliminate command-line encoding & length bugs
@@ -404,11 +404,11 @@ export async function generateSpeechViaHttp(
     }
 
     if (chunkFiles.length === 1) {
-      // Standardize to broadcast 44.1kHz stereo MP3 with subtle warm EQ (clean adult voice, NO pitch distortion)
+      // Standardize to broadcast 44.1kHz stereo MP3 at 1.20x speed with subtle warm EQ
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', chunkFiles[0],
-        '-af', 'equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
+        '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
         '-c:a', 'libmp3lame',
         '-ar', '44100',
         '-ac', '2',
@@ -416,7 +416,7 @@ export async function generateSpeechViaHttp(
         outputPath
       ]);
     } else {
-      // Concatenate all chunks and normalize
+      // Concatenate all chunks and normalize at 1.20x speed
       const concatList = `${tempBase}-list.txt`;
       const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
       await fs.writeFile(concatList, listContent, 'utf8');
@@ -427,7 +427,7 @@ export async function generateSpeechViaHttp(
           '-f', 'concat',
           '-safe', '0',
           '-i', concatList,
-          '-af', 'equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
+          '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=2.2,aformat=sample_rates=44100:channel_layouts=stereo',
           '-c:a', 'libmp3lame',
           '-ar', '44100',
           '-ac', '2',
@@ -500,11 +500,11 @@ export async function generateSpeechWithGemini(
   await fs.writeFile(rawWav, buffer);
 
   try {
-    // Convert to broadcast 44.1kHz stereo MP3 with subtle warm low-end EQ
+    // Convert to broadcast 44.1kHz stereo MP3 at 1.20x speed with subtle warm low-end EQ
     await execFileAsync('ffmpeg', [
       '-y',
       '-i', rawWav,
-      '-af', 'equalizer=f=95:width_type=o:width=1.5:g=2.5,equalizer=f=3400:width_type=o:width=1.2:g=1.2',
+      '-af', 'atempo=1.20,equalizer=f=95:width_type=o:width=1.5:g=2.5,equalizer=f=3400:width_type=o:width=1.2:g=1.2',
       '-c:a', 'libmp3lame',
       '-ar', '44100',
       '-ac', '2',
@@ -515,6 +515,7 @@ export async function generateSpeechWithGemini(
     await execFileAsync('ffmpeg', [
       '-y',
       '-i', rawWav,
+      '-af', 'atempo=1.20',
       '-c:a', 'libmp3lame',
       '-ar', '44100',
       '-ac', '2',

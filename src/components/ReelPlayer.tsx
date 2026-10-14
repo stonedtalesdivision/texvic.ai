@@ -207,7 +207,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       if (matureVoice) {
         utterance.voice = matureVoice;
       }
-      utterance.rate = 0.96; // Measured, cinematic documentary pacing
+      utterance.rate = 1.20; // 1.20x brisk, engaging pacing
       utterance.pitch = 0.85; // Deep chest resonance, never squeaky or childish
       window.speechSynthesis.speak(utterance);
     }
