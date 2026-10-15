@@ -119,7 +119,7 @@ export function extractSceneNarration(sc: any, sceneIndex: number, totalScenes: 
   }
 
   // 5. Ultimate fallback: Title
-  return String(reel?.title || 'SARLX AI Special Report').trim();
+  return String(reel?.title || 'The Untold Archive Special Report').trim();
 }
 
 export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: any[]; musicPath: string; voicePath?: string }> {
@@ -314,7 +314,7 @@ export async function renderReelVideo(rawReel: any, options: { forceReRender?: b
   console.log(`[Reel Video Pipeline] Rendering video for reel "${reel.title || reel.id}"...`);
   const prepared = await prepareReelSceneAssets(reel);
 
-  const videoPrompt = `Create an original 9:16 short-form Reel for SARLX.Ai. Topic: ${reel.title || reel.niche || 'AI Tech'}`;
+  const videoPrompt = `Create an original 9:16 short-form Reel for The Untold Archive (@theuntoldarch). Topic: ${reel.title || reel.niche || 'Documentary Mystery'}`;
   const videoJob = createVideoJob({ reelId: reel.id, prompt: videoPrompt });
 
   const composed = await composeReel({

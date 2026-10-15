@@ -111,7 +111,7 @@ function playKick(ctx: AudioContext, time: number) {
   osc.frequency.setValueAtTime(140, time);
   osc.frequency.exponentialRampToValueAtTime(38, time + 0.12);
 
-  gain.gain.setValueAtTime(0.85, time);
+  gain.gain.setValueAtTime(0.95, time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
 
   osc.connect(gain);
@@ -130,7 +130,7 @@ function playSoftKick(ctx: AudioContext, time: number) {
   osc.frequency.setValueAtTime(100, time);
   osc.frequency.exponentialRampToValueAtTime(45, time + 0.18);
 
-  gain.gain.setValueAtTime(0.58, time);
+  gain.gain.setValueAtTime(0.75, time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
 
   osc.connect(gain);
@@ -157,7 +157,7 @@ function playSnare(ctx: AudioContext, time: number, isSoft = false) {
   filter.frequency.value = isSoft ? 1200 : 900;
 
   const gain = ctx.createGain();
-  gain.gain.setValueAtTime(isSoft ? 0.25 : 0.45, time);
+  gain.gain.setValueAtTime(isSoft ? 0.40 : 0.65, time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + (isSoft ? 0.12 : 0.2));
 
   noise.connect(filter);
@@ -175,7 +175,7 @@ function playHiHat(ctx: AudioContext, time: number, decay: number) {
   osc.type = 'triangle';
   osc.frequency.setValueAtTime(8000, time);
 
-  gain.gain.setValueAtTime(0.22, time);
+  gain.gain.setValueAtTime(0.35, time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
 
   osc.connect(gain);
@@ -196,35 +196,35 @@ function playMelodyNote(ctx: AudioContext, time: number, preset: string, beatInd
     const notes = [110, 130.81, 146.83, 164.81, 110, 146.83, 174.61, 220];
     freq = notes[beatIndex % notes.length];
     osc.type = 'sawtooth';
-    gain.gain.setValueAtTime(0.28, time);
+    gain.gain.setValueAtTime(0.42, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
   } else if (preset === 'chill-lofi') {
     // Warm Rhodes chords
     const chordFrequencies = [261.63, 329.63, 392.00, 493.88]; // Cmaj7
     freq = chordFrequencies[beatIndex % chordFrequencies.length];
     osc.type = 'sine';
-    gain.gain.setValueAtTime(0.32, time);
+    gain.gain.setValueAtTime(0.48, time);
     gain.gain.exponentialRampToValueAtTime(0.01, time + 0.45);
   } else if (preset === 'trap-bass') {
     // Heavy 808 sub note
     const subFrequencies = [55, 55, 65.41, 48.99]; // A1, C2, G1
     freq = subFrequencies[Math.floor(beatIndex / 2) % subFrequencies.length];
     osc.type = 'triangle';
-    gain.gain.setValueAtTime(0.52, time);
+    gain.gain.setValueAtTime(0.72, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
   } else if (preset === 'deep-house') {
     // Pluck synth
     const houseBass = [65.41, 65.41, 77.78, 87.31];
     freq = houseBass[beatIndex % houseBass.length];
     osc.type = 'square';
-    gain.gain.setValueAtTime(0.24, time);
+    gain.gain.setValueAtTime(0.38, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
   } else {
     // Ambient glow
     const padNotes = [174.61, 220, 261.63, 329.63];
     freq = padNotes[beatIndex % padNotes.length];
     osc.type = 'sine';
-    gain.gain.setValueAtTime(0.22, time);
+    gain.gain.setValueAtTime(0.36, time);
     gain.gain.exponentialRampToValueAtTime(0.01, time + 0.6);
   }
 

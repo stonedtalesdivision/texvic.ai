@@ -89,12 +89,12 @@ interface Palette {
 function getPalette(theme: string, slideNum: number, totalSlides: number = 5): Palette {
   const t = (theme || '').toLowerCase();
 
-  let badge = 'AI INTEL';
-  if (slideNum === 1) badge = 'BREAKTHROUGH';
-  else if (slideNum === totalSlides) badge = 'SAVE & IMPLEMENT';
-  else if (slideNum === 2) badge = 'STACK INSIGHT';
-  else if (slideNum === 3) badge = 'FRAMEWORK';
-  else if (slideNum === 4) badge = 'BENCHMARK';
+  let badge = 'ARCHIVAL DOSSIER';
+  if (slideNum === 1) badge = 'CLASSIFIED';
+  else if (slideNum === totalSlides) badge = 'SAVE & SHARE';
+  else if (slideNum === 2) badge = 'EVIDENCE';
+  else if (slideNum === 3) badge = 'ANOMALY';
+  else if (slideNum === 4) badge = 'TIMELINE';
 
   if (t === 'emerald' || t === 'green') {
     return { bg0: '#061c1e', bg1: '#020d12', accent: '#10b981', accent2: '#34d399', badge };
@@ -343,7 +343,7 @@ function buildSlideSvg(
     <g transform="translate(90, 80)">
       <rect width="210" height="44" rx="22" fill="rgba(255, 255, 255, 0.06)" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1.2" />
       <circle cx="22" cy="22" r="12" fill="${p.accent}" />
-      <text x="22" y="27" text-anchor="middle" font-family="'Segoe UI', sans-serif" font-weight="900" font-size="12" fill="#000">S</text>
+      <text x="22" y="27" text-anchor="middle" font-family="'Segoe UI', sans-serif" font-weight="900" font-size="12" fill="#000">${xmlEscape((displayHandle.replace('@', '')[0] || 'U').toUpperCase())}</text>
       <text x="44" y="28" font-family="'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="16" fill="#ffffff">${xmlEscape(displayHandle)}</text>
       <circle cx="188" cy="22" r="8" fill="#38bdf8" />
       <text x="188" y="26" text-anchor="middle" font-size="11" fill="#000" font-weight="900">✓</text>
@@ -396,7 +396,7 @@ export async function renderCarouselPostSlides(post: {
   dotenv.config({ override: true });
   const appUrl = (process.env.APP_URL || 'http://localhost:3100').replace(/\/$/, '');
   const persona = getActivePersona();
-  const rawHandle = post.brandHandle || persona.handle || '@texvic_ai';
+  const rawHandle = post.brandHandle || persona.handle || '@theuntoldarch';
   const displayHandle = rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`;
 
   const slides = Array.isArray(post.slides) && post.slides.length > 0
@@ -404,37 +404,37 @@ export async function renderCarouselPostSlides(post: {
     : [
         {
           slideNumber: 1,
-          headline: post.title || 'Breaking AI Updates',
-          bodyText: 'The latest models, secret tools, and advancements shifting the tech world this week.',
-          takeaway: 'Swipe to see what changed →',
+          headline: post.title || 'Declassified Archival Files',
+          bodyText: 'Unsolved anomalies, covert facilities, and historical mysteries documented and verified.',
+          takeaway: 'Swipe to inspect the evidence →',
           theme: 'cyan'
         },
         {
           slideNumber: 2,
-          headline: 'The Big Breakthrough',
-          bodyText: 'A major capability leap just rolled out that makes everyday creation and work 10x faster.',
-          takeaway: 'Key takeaway',
+          headline: 'The Initial Discovery',
+          bodyText: 'Archival logs revealed discrepancies dating back decades that authorities never officially reconciled.',
+          takeaway: 'The paper trail',
           theme: 'indigo'
         },
         {
           slideNumber: 3,
-          headline: 'Top Tools & Hacks',
-          bodyText: '1. Instant Automation: delegate repetitive tasks. 2. Creative Superpowers: generate 4k visuals. 3. Smart Prompting: get instant answers.',
-          takeaway: 'Try these today',
+          headline: 'Key Evidence Recovered',
+          bodyText: '1. Unredacted Transcripts: contradictory official statements. 2. Geo-spatial Anomalies: missing coordinates. 3. Eye-witness Testimonies: silenced researchers.',
+          takeaway: 'Classified records',
           theme: 'emerald'
         },
         {
           slideNumber: 4,
-          headline: 'Why It Matters',
-          bodyText: 'Everyday creators and users can now build and automate what used to take entire teams weeks to complete.',
-          takeaway: 'Mind-blowing speed',
+          headline: 'The Cover-Up',
+          bodyText: 'Within hours of discovery, documentation was compartmentalized and relocated to deep storage facilities.',
+          takeaway: 'Restricted access',
           theme: 'amber'
         },
         {
           slideNumber: 5,
-          headline: 'The Final Verdict',
-          bodyText: 'Which new tool or breakthrough are you testing first? Drop your thoughts below!',
-          takeaway: 'Bookmark for reference 📌',
+          headline: 'The Unsolved Question',
+          bodyText: 'What really happened behind closed doors? Examine the archives and share your theory below.',
+          takeaway: 'Bookmark for analysis 📌',
           theme: 'emerald'
         }
       ];

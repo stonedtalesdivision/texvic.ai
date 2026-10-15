@@ -56,7 +56,7 @@ export async function renderReelToMp4(reel: {
 }): Promise<{ videoUrl: string; filePath: string }> {
   const scenes = Array.isArray(reel.scenes) && reel.scenes.length
     ? reel.scenes
-    : [{ durationSeconds: reel.duration || 8, hookText: 'TEXVIC', secondaryText: 'AI-powered content', accentColor: '#7c3aed' }];
+    : [{ durationSeconds: reel.duration || 8, hookText: 'THE UNTOLD ARCHIVE', secondaryText: 'Declassified History & Mysteries', accentColor: '#d4af37' }];
   const bpm = Math.max(70, Math.min(180, Number(reel.audio?.bpm || 120)));
   const mood = String(reel.audio?.mood || 'high energy').toLowerCase();
   const baseFreq = mood.includes('lofi') || mood.includes('chill') ? 196 : mood.includes('ambient') ? 174 : mood.includes('deep') ? 110 : 220;
@@ -77,8 +77,8 @@ export async function renderReelToMp4(reel: {
         .filter(Boolean)
         .join('\n');
       const persona = getActivePersona();
-      const brandName = persona.brand || 'TEXVIC.Ai';
-      const handleName = persona.handle || '@texvic_ai';
+      const brandName = persona.brand || 'The Untold Archive';
+      const handleName = persona.handle || '@theuntoldarch';
       const textFile = path.join(workDir, `scene-${i}.txt`);
       const segment = path.join(workDir, `segment-${i}.mp4`);
       await fs.writeFile(textFile, text || brandName, 'utf8');
@@ -87,7 +87,7 @@ export async function renderReelToMp4(reel: {
       const fontArg = fontFile ? `fontfile='${fontFile}':` : '';
       const escapedTextFile = escapeFilterPath(textFile);
       const accent = ffmpegColor(scene.accentColor);
-      const badge = i === 0 ? '• BREAKTHROUGH •' : i === 1 ? '• DEEP DIVE •' : '• FUTURE TECH •';
+      const badge = i === 0 ? '• DECLASSIFIED DOSSIER •' : i === 1 ? '• ARCHIVAL EVIDENCE •' : '• HISTORICAL ANOMALY •';
 
       const filterParts = [
         // Top dynamic progress bar (centered in safe zone at y=90)
