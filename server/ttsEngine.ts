@@ -261,7 +261,7 @@ export async function generateSpeech(
   // =========================================================================
   const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
   const rate = options.rate || '+0%';   // 1.0x natural human speech rate
-  const pitch = options.pitch || '+0Hz'; // 100% natural, un-warped human pitch
+  const pitch = options.pitch || '-4Hz'; // Rich, authoritative documentary chest resonance
 
   const tempTextFile = path.join(activeTtsDir, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
   await fs.writeFile(tempTextFile, cleanedText, 'utf8');
@@ -411,12 +411,14 @@ export async function generateSpeechViaHttp(
       chunkFiles.push(chunkPath);
     }
 
+    // Male formant filter: asetrate lowers pitch by 22%, atempo compensates tempo back to 1.0x, equalizer adds chest depth
+    const maleFormantFilter = 'asetrate=44100*0.78,aresample=44100,atempo=1.28,equalizer=f=120:width_type=o:width=1.5:g=4.0,aformat=sample_rates=44100:channel_layouts=stereo';
+
     if (chunkFiles.length === 1) {
-      // Standardize to broadcast 44.1kHz stereo MP3 at 1.0x natural tempo with subtle warm EQ
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', chunkFiles[0],
-        '-af', 'atempo=1.00,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
+        '-af', maleFormantFilter,
         '-c:a', 'libmp3lame',
         '-ar', '44100',
         '-ac', '2',
@@ -424,7 +426,6 @@ export async function generateSpeechViaHttp(
         outputPath
       ]);
     } else {
-      // Concatenate all chunks and normalize at clean 1.0x natural tempo
       const concatList = `${tempBase}-list.txt`;
       const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
       await fs.writeFile(concatList, listContent, 'utf8');
@@ -435,7 +436,7 @@ export async function generateSpeechViaHttp(
           '-f', 'concat',
           '-safe', '0',
           '-i', concatList,
-          '-af', 'atempo=1.00,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
+          '-af', maleFormantFilter,
           '-c:a', 'libmp3lame',
           '-ar', '44100',
           '-ac', '2',
@@ -447,7 +448,7 @@ export async function generateSpeechViaHttp(
       }
     }
 
-    console.log(`[TTS Engine] Voiceover synthesized via Tier 3 HTTPS Web TTS (${chunkFiles.length} chunk(s)).`);
+    console.log(`[TTS Engine] Voiceover synthesized via Tier 3 HTTPS Web TTS with male formant tuning (${chunkFiles.length} chunk(s)).`);
     return outputPath;
   } finally {
     for (const f of chunkFiles) {

@@ -355,7 +355,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         utterance.voice = matureVoice;
       }
       utterance.rate = playbackRate || 1.0; // 1.0x default natural human tempo
-      utterance.pitch = 1.0; // Natural, un-warped human voice pitch
+      utterance.pitch = 0.82; // Deep, authoritative documentary chest resonance
 
       speechBoundaryActiveRef.current = true;
       setActiveWordIndex(0);

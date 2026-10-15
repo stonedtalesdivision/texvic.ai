@@ -364,7 +364,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
           '-filter_complex',
           '[0:v]scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960:(in_w-1080)/2:(in_h-960)/2,fps=30[top];' +
           '[1:v]fps=30[bot];' +
-          '[top][bot]vstack[stacked];' +
+          '[top][bot]vstack,setsar=1[stacked];' +
           '[stacked][2:v]overlay=0:0[v]',
           '-map', '[v]',
           '-an', '-r', '30',
@@ -382,7 +382,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
           '-filter_complex',
           `[0:v]scale=1200:1066:force_original_aspect_ratio=increase,crop=1080:960:(in_w-1080)/2:(in_h-960)/2 ${driftDirection} (t*10)[top];` +
           `[1:v]fps=30[bot];` +
-          `[top][bot]vstack[stacked];` +
+          `[top][bot]vstack,setsar=1[stacked];` +
           `[stacked][2:v]overlay=0:0[v]`,
           '-map', '[v]',
           '-an', '-r', '30',
@@ -400,7 +400,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
           '-filter_complex',
           '[0:v]fps=30[top];' +
           '[1:v]fps=30[bot];' +
-          '[top][bot]vstack[stacked];' +
+          '[top][bot]vstack,setsar=1[stacked];' +
           '[stacked][2:v]overlay=0:0[v]',
           '-map', '[v]',
           '-an', '-r', '30',
@@ -417,7 +417,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
         '-loop', '1', '-i', overlayPng,
         '-t', String(duration),
         '-filter_complex',
-        '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,fps=30[bg];' +
+        '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,setsar=1,fps=30[bg];' +
         '[bg][1:v]overlay=0:0[v]',
         '-map', '[v]',
         '-an', '-r', '30',
@@ -433,7 +433,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
         '-loop', '1', '-i', overlayPng,
         '-t', String(duration),
         '-filter_complex',
-        `[0:v]scale=1200:2133:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2 ${driftDirection} (t*14)[bg];` +
+        `[0:v]scale=1200:2133:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2 ${driftDirection} (t*14),setsar=1[bg];` +
         `[bg][1:v]overlay=0:0[v]`,
         '-map', '[v]',
         '-an', '-r', '30',
@@ -450,7 +450,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
         '-i', `gradients=s=1080x1920:c0=${bgHex}:c1=0x0a0a16:x0=0:y0=0:x1=1080:y1=1920`,
         '-loop', '1', '-i', overlayPng,
         '-t', String(duration),
-        '-filter_complex', '[0:v][1:v]overlay=0:0[v]',
+        '-filter_complex', '[0:v]setsar=1[bg];[bg][1:v]overlay=0:0[v]',
         '-map', '[v]',
         '-an', '-r', '30',
         '-threads', '2',

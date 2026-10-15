@@ -95,6 +95,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
         vf.push(`scale=ceil(1080*${zoom}/2)*2:ceil(1920*${zoom}/2)*2:force_original_aspect_ratio=increase`);
         vf.push(`crop=1080:1920:${cropX}:${cropY}`);
       }
+      vf.push('setsar=1');
 
       // Subtle documentary film grading & vignette
       vf.push('eq=contrast=1.06:saturation=1.12:brightness=-0.01');

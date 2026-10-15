@@ -96,12 +96,12 @@ export async function fetchBestFreeVisual(
     console.warn(`[Free Stock Engine] Pollinations fetch skipped: ${err?.message || err}`);
   }
 
-  // 3. Fallback: Curated Royalty-Free Tech CDN background
+  // 3. Fallback: Curated Royalty-Free Documentary & Archival CDN imagery
   const curatedFallbackUrls = [
-    'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1080&q=80', // Microchip
-    'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=1080&q=80', // Matrix code
-    'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=1080&q=80', // Cyber server
-    'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1080&q=80', // Earth data network
+    'https://images.unsplash.com/photo-1461360370896-922624d12aa1?auto=format&fit=crop&w=1080&h=1920&q=80', // Ancient library & manuscripts
+    'https://images.unsplash.com/photo-1507842229451-7f01be7ff612?auto=format&fit=crop&w=1080&h=1920&q=80', // Archival dark hall
+    'https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?auto=format&fit=crop&w=1080&h=1920&q=80', // Classified shelf & books
+    'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=1080&h=1920&q=80', // Dramatic historical architecture
   ];
   const chosenUrl = curatedFallbackUrls[Math.floor(Math.random() * curatedFallbackUrls.length)];
   try {
