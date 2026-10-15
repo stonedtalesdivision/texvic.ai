@@ -4006,7 +4006,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     db.prepare(`UPDATE autonomous_config SET current_stage = 'researching_web', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
     console.log(`[Autonomous 24x7 Engine] Step 1/4: Researching vertical "${activeVertical.niche}" [${activeVertical.badge}]...`);
     const recentTopics = getRecentAutonomousTopics(20);
-    let topicInfo: { topic: string; ideaHook: string; webSources: string[] } | null = null;
+    let topicInfo: { topic: string; ideaHook: string; webSources: string[]; dossier?: ResearchDossier } | null = null;
     let lastQualityIssue = 'unknown quality issue';
 
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -4045,6 +4045,10 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
           notes: 'Curated historical archive fallback'
         }
       };
+    }
+
+    if (!topicInfo) {
+      throw new Error("[Autonomous 24x7 Engine] Failed to obtain topic research candidate or fallback.");
     }
 
     // Stage 2: Ideating hook
