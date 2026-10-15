@@ -557,10 +557,12 @@ export async function selectOptimalHook(dossier: ResearchDossier): Promise<Candi
 
   // If dossier has facts, synthesize a bespoke hook based on real verified facts
   if (dossier.verifiedFacts && dossier.verifiedFacts.length > 0) {
-    const fact1 = dossier.verifiedFacts[0];
+    const rawPremise = dossier.centralPremise.trim();
+    // Do not slice mid-sentence with ellipsis; keep full clean premise
+    const hookText = rawPremise.replace(/\.+$/, '');
     const customized: CandidateHook = {
       angle: 'evidence_led_premise',
-      hookText: dossier.centralPremise.length > 120 ? `${dossier.centralPremise.slice(0, 115)}...` : dossier.centralPremise,
+      hookText,
       promise: `Explains the documented truth behind ${dossier.subject}.`,
       score: 96,
       reason: 'Directly grounded in primary verified facts from the research dossier.',
@@ -599,15 +601,34 @@ export async function constructDocumentaryReelPackage(
     structure = 'discovery_to_mechanism';
   }
 
+  // Helper to dynamically calibrate duration for 1.0x human speech pacing (~2.2 words per sec + 1.2s buffer)
+  const calcDuration = (script: string, minSec = 8.0): number => {
+    const wordCount = (script || '').trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(minSec, Number(((wordCount / 2.2) + 1.2).toFixed(1)));
+  };
+
+  const cleanHook = selectedHook.hookText.trim().replace(/\.+$/, '');
+  const scene1Script = `${cleanHook}. Behind this verified record lies an operation that changed what historians thought was possible.`;
+
+  const fact1Raw = dossier.verifiedFacts[1] ? dossier.verifiedFacts[1].trim().replace(/\.+$/, '') : '';
+  const scene2Script = fact1Raw
+    ? `Official records confirmed that ${fact1Raw.charAt(0).toLowerCase() + fact1Raw.slice(1)}. When investigators pieced together the timeline, the evidence pointed to an outcome few predicted.`
+    : `Declassified evidence documented the exact physical timeline, proving the event was neither an anomaly nor an accident.`;
+
+  const fact2Raw = dossier.verifiedFacts[2] ? dossier.verifiedFacts[2].trim().replace(/\.+$/, '') : '';
+  const scene3Script = fact2Raw
+    ? `The final consequence was undeniable: ${fact2Raw}. Today, it stands as a documented testament to what was hidden in plain sight.`
+    : `Today, this verified event stands as documented proof that the most extraordinary operations leave permanent marks on history.`;
+
   // Generate 3 scenes aligned with documentary standards
   const scenes: CuratedScene[] = [
     {
       order: 1,
-      durationSeconds: 9.0,
+      durationSeconds: calcDuration(scene1Script, 9.0),
       headline: dossier.subject.split(':')[0].slice(0, 24).toUpperCase(),
       highlight: dossier.verifiedFacts[0]?.slice(0, 38).toUpperCase() || 'DOCUMENTED RECORD',
-      subline: dossier.centralPremise.slice(0, 75),
-      voiceScript: `${selectedHook.hookText} Behind this verified record lies an operation that changed what historians thought was possible.`,
+      subline: dossier.centralPremise,
+      voiceScript: scene1Script,
       bRollKeywords: ['historical archive documentary', 'investigative evidence files', 'vintage photography'],
       archivalQuery: dossier.subject.split(':')[0],
       imagePrompt: `A cinematic 35mm documentary photograph depicting ${dossier.subject}. Dark atmospheric archival lighting, high contrast, muted gold and obsidian palette. Photorealistic, authentic museum quality. NO text, NO labels, NO logos.`,
@@ -618,13 +639,11 @@ export async function constructDocumentaryReelPackage(
     },
     {
       order: 2,
-      durationSeconds: 10.5,
+      durationSeconds: calcDuration(scene2Script, 10.0),
       headline: 'THE EVIDENCE',
       highlight: dossier.verifiedFacts[1]?.slice(0, 38).toUpperCase() || 'RECOVERED TIMELINE',
-      subline: dossier.verifiedFacts[1] ? dossier.verifiedFacts[1].slice(0, 85) : 'Official records reveal the precise timeline reconstructed by investigators.',
-      voiceScript: dossier.verifiedFacts[1] 
-        ? `Official records confirmed that ${dossier.verifiedFacts[1]}. When investigators pieced together the timeline, the evidence pointed to an outcome few predicted.`
-        : `Declassified evidence documented the exact physical timeline, proving the event was neither an anomaly nor an accident.`,
+      subline: dossier.verifiedFacts[1] || 'Official records reveal the precise timeline reconstructed by investigators.',
+      voiceScript: scene2Script,
       bRollKeywords: ['archival documents inspection', 'historical evidence analysis', 'macro record examination'],
       archivalQuery: dossier.citations[0]?.sourceName || dossier.subject,
       imagePrompt: `Detailed documentary close-up of historical archival evidence for ${dossier.subject}. Authentic aged parchment, muted charcoal background, scientific examination lighting. NO text, NO watermarks.`,
@@ -635,13 +654,11 @@ export async function constructDocumentaryReelPackage(
     },
     {
       order: 3,
-      durationSeconds: 8.5,
+      durationSeconds: calcDuration(scene3Script, 9.0),
       headline: 'THE OUTCOME',
       highlight: dossier.verifiedFacts[2]?.slice(0, 38).toUpperCase() || 'HISTORICAL AFTERMATH',
-      subline: dossier.uncertaintiesOrLimits[0]?.slice(0, 80) || 'The documented lessons remain active across modern security and intelligence.',
-      voiceScript: dossier.verifiedFacts[2]
-        ? `The final consequence was undeniable: ${dossier.verifiedFacts[2]}. Today, it stands as a documented testament to what was hidden in plain sight.`
-        : `Today, this verified event stands as documented proof that the most extraordinary operations leave permanent marks on history.`,
+      subline: dossier.uncertaintiesOrLimits[0] || 'The documented lessons remain active across modern security and intelligence.',
+      voiceScript: scene3Script,
       bRollKeywords: ['aerial drone cinematic landscape', 'modern historical site', 'documentary aftermath'],
       archivalQuery: dossier.subject,
       imagePrompt: `Cinematic wide-angle documentary shot of the modern location or museum conservation of ${dossier.subject}. Dusk lighting, deep shadow contrast, quiet contemplative historical atmosphere. NO text.`,

@@ -485,16 +485,33 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
     const title = String(reel?.title || 'The Untold Archive Secret').trim();
     const caption = String(reel?.caption || '').trim();
     const niche = String(reel?.niche || 'Historical Enigma');
+    const cleanCaption = caption
+      .split(/🗳️|Drop \[A\]|Vote below|Follow @|📌 Save|🚀 Share/i)[0]
+      .replace(/#\w+/g, '')
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '')
+      .trim();
+    const captionSentences = cleanCaption.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 15);
+    const storySentence = captionSentences[0] || 'Forensic material analysis revealed the ancient compound reacted with water to seal fissures automatically.';
+
+    const sc1Voice = `${title}. For decades, the true mechanism was kept out of standard history textbooks.`;
+    const sc2Voice = `Official records confirm that ${storySentence.replace(/\.+$/, '')}. When investigators examined the physical evidence, the findings were undeniable.`;
+    const sc3Voice = `Today, modern engineers and scientists are copying this exact historical breakthrough. Follow for more declassified records.`;
+
+    const calcSceneDur = (script: string, minSec = 8.0) => {
+      const words = script.trim().split(/\s+/).filter(Boolean).length;
+      return Math.max(minSec, Number(((words / 2.2) + 1.2).toFixed(1)));
+    };
+
     scenes = [
       {
         id: `sc-gen-1`,
         order: 1,
-        durationSeconds: 4,
+        durationSeconds: calcSceneDur(sc1Voice, 8.5),
         hookText: title,
         headline: title,
         highlight: 'DEEP ARCHIVE FILE',
         subline: `CONFIDENTIAL INVESTIGATION // ${niche.toUpperCase()}`,
-        voiceScript: `${title}. For decades, the true mechanism was kept out of standard history textbooks.`,
+        voiceScript: sc1Voice,
         visualTheme: 'monochrome-bold',
         accentColor: '#d4af37',
         pacingEffect: 'pulse',
@@ -503,12 +520,12 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       {
         id: `sc-gen-2`,
         order: 2,
-        durationSeconds: 4.5,
+        durationSeconds: calcSceneDur(sc2Voice, 9.5),
         hookText: 'THE UNSEEN MECHANISM',
         headline: 'THE FORENSIC EVIDENCE',
         highlight: 'MICROSCOPIC ANALYSIS',
-        subline: caption.slice(0, 90) || 'ARCHIVAL LOGS CONFIRM A FORGOTTEN FORMULA',
-        voiceScript: caption.length > 20 ? caption.slice(0, 160) : `Forensic material analysis revealed the ancient compound reacted with water to seal fissures automatically.`,
+        subline: 'ARCHIVAL LOGS CONFIRM A FORGOTTEN FORMULA',
+        voiceScript: sc2Voice,
         visualTheme: 'classified-dossier',
         accentColor: '#0284c7',
         pacingEffect: 'zoom-in',
@@ -517,12 +534,12 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       {
         id: `sc-gen-3`,
         order: 3,
-        durationSeconds: 4,
+        durationSeconds: calcSceneDur(sc3Voice, 8.5),
         hookText: 'THE VERDICT',
         headline: 'CASE RECORD CLOSED',
         highlight: 'DECODED ARCHIVE',
         subline: 'FOLLOW @THEUNTOLDARCH FOR DAILY HISTORICAL DOSSIERS',
-        voiceScript: `Modern engineers are now copying this exact method. Follow for more declassified records.`,
+        voiceScript: sc3Voice,
         visualTheme: 'satellite-telemetry',
         accentColor: '#d4af37',
         pacingEffect: 'subtle-drift',

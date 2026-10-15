@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Play, Pause, Volume2, VolumeX, Heart, MessageCircle, Send, Bookmark, 
   Music, Eye, Share2, Sparkles, Check, Download, Calendar, Layers, ShieldCheck,
@@ -99,13 +99,12 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   const [exported, setExported] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState<number>(1.20);
+  const [playbackRate, setPlaybackRate] = useState<number>(1.0);
   const [copiedShare, setCopiedShare] = useState<boolean>(false);
   const [floatingHearts, setFloatingHearts] = useState<Array<{ id: number; x: number; y: number }>>([]);
   const clickTimerRef = useRef<number | null>(null);
 
-  const duration = reel.duration || 8;
-  const scenes = reel.scenes && reel.scenes.length > 0 ? reel.scenes : [];
+  const rawScenes = reel.scenes && reel.scenes.length > 0 ? reel.scenes : [];
   const timerRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hasGeneratedVideo = Boolean(reel.videoUrl);
@@ -113,6 +112,45 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
   const [activeWordIndex, setActiveWordIndex] = useState<number>(0);
   const speechBoundaryActiveRef = useRef<boolean>(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  // Dynamically calibrate effective scene durations based on actual narration length at 1.0x
+  // Guarantees narrator never leaves sentences incomplete and entire script is fully spoken
+  const effectiveScenes = useMemo(() => {
+    if (rawScenes.length === 0) return [];
+    return rawScenes.map((sc) => {
+      const narration = sc?.voiceScript || sc?.voiceText || sc?.headline || sc?.hookText || sc?.text || '';
+      const wordCount = narration.trim().split(/\s+/).filter(Boolean).length;
+      // Normal human conversational tempo is ~2.2 words/second. With 1.2s breathing room:
+      const naturalDuration = wordCount > 0 
+        ? Number(((wordCount / (2.2 * (playbackRate || 1.0))) + 1.2).toFixed(1)) 
+        : 7.0;
+      return {
+        ...sc,
+        durationSeconds: Math.max(Number(sc.durationSeconds || 0), naturalDuration)
+      };
+    });
+  }, [rawScenes, playbackRate]);
+
+  // Backward compatibility alias for scenes across UI renderers
+  const scenes = effectiveScenes;
+
+  const totalEffectiveDuration = useMemo(() => {
+    if (hasGeneratedVideo && reel.duration) return reel.duration;
+    const sum = effectiveScenes.reduce((acc, s) => acc + s.durationSeconds, 0);
+    return Math.max(sum, reel.duration || 8);
+  }, [hasGeneratedVideo, reel.duration, effectiveScenes]);
+
+  const duration = totalEffectiveDuration;
+
+  const sceneStartTimes = useMemo(() => {
+    const starts: number[] = [];
+    let acc = 0;
+    for (const sc of effectiveScenes) {
+      starts.push(acc);
+      acc += sc.durationSeconds;
+    }
+    return starts;
+  }, [effectiveScenes]);
 
   // Load and cache browser voices as soon as they become ready
   useEffect(() => {
@@ -137,11 +175,11 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
   // Jump directly to a specific scene
   const jumpToScene = (targetIdx: number) => {
-    if (scenes.length === 0 || targetIdx < 0 || targetIdx >= scenes.length) return;
-    let targetTime = 0;
-    for (let i = 0; i < targetIdx; i++) {
-      targetTime += scenes[i]?.durationSeconds || (duration / scenes.length);
+    if (effectiveScenes.length === 0 || targetIdx < 0 || targetIdx >= effectiveScenes.length) return;
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
     }
+    const targetTime = sceneStartTimes[targetIdx] || 0;
     setCurrentTime(targetTime + 0.02);
     setCurrentSceneIndex(targetIdx);
     setActiveWordIndex(0);
@@ -166,7 +204,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         jumpToScene(Math.max(0, currentSceneIndex - 1));
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        jumpToScene(Math.min(scenes.length - 1, currentSceneIndex + 1));
+        jumpToScene(Math.min(effectiveScenes.length - 1, currentSceneIndex + 1));
       } else if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
         setIsMuted(prev => !prev);
@@ -181,7 +219,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, currentSceneIndex, scenes.length]);
+  }, [onClose, currentSceneIndex, effectiveScenes.length]);
 
   // Sync beats with audio synthesizer
   useEffect(() => {
@@ -198,28 +236,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
   // Playback timer loop with dynamic rate scaling
   useEffect(() => {
-    if (isPlaying) {
-      if (!hasGeneratedVideo && !isMuted && reel.audio) {
-        playTrendingAudioTrack(reel.audio.synthPreset, reel.audio.bpm, reel.duration);
-      }
-
-      if (hasGeneratedVideo && videoRef.current) {
-        videoRef.current.playbackRate = playbackRate;
-        videoRef.current.play().catch(() => {});
-      }
-
-      const baseInterval = 50;
-      timerRef.current = window.setInterval(() => {
-        setCurrentTime(prev => {
-          const next = prev + (baseInterval / 1000) * (playbackRate / 1.20);
-          if (next >= duration) {
-            // Loop back seamlessly
-            return 0;
-          }
-          return next;
-        });
-      }, baseInterval);
-    } else {
+    if (!isPlaying) {
       stopAudioTrack();
       if (hasGeneratedVideo && videoRef.current) {
         videoRef.current.pause();
@@ -228,6 +245,53 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
+      return;
+    }
+
+    if (!hasGeneratedVideo && !isMuted && reel.audio) {
+      playTrendingAudioTrack(reel.audio.synthPreset, reel.audio.bpm, totalEffectiveDuration);
+    }
+
+    if (hasGeneratedVideo && videoRef.current) {
+      videoRef.current.playbackRate = playbackRate;
+      videoRef.current.play().catch(() => {});
+
+      const baseInterval = 50;
+      timerRef.current = window.setInterval(() => {
+        if (videoRef.current) {
+          const t = videoRef.current.currentTime;
+          setCurrentTime(t);
+          let acc = 0;
+          for (let i = 0; i < effectiveScenes.length; i++) {
+            acc += effectiveScenes[i].durationSeconds;
+            if (t <= acc || i === effectiveScenes.length - 1) {
+              setCurrentSceneIndex(i);
+              break;
+            }
+          }
+        }
+      }, baseInterval);
+    } else {
+      // In preview mode, speech synthesis drives scene transitions!
+      // Timer advances currentTime within current scene window without cutting off narration
+      const baseInterval = 50;
+      timerRef.current = window.setInterval(() => {
+        setCurrentTime(prev => {
+          const scIdx = currentSceneIndex;
+          const scStart = sceneStartTimes[scIdx] || 0;
+          const scDur = effectiveScenes[scIdx]?.durationSeconds || 8;
+          const scEnd = scStart + scDur;
+          const advance = (baseInterval / 1000) * playbackRate;
+          const next = prev + advance;
+          if (next >= scEnd - 0.1 && speechBoundaryActiveRef.current) {
+            return scEnd - 0.1;
+          }
+          if (next >= totalEffectiveDuration) {
+            return totalEffectiveDuration;
+          }
+          return next;
+        });
+      }, baseInterval);
     }
 
     return () => {
@@ -235,20 +299,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         clearInterval(timerRef.current);
       }
     };
-  }, [isPlaying, isMuted, duration, reel.audio, reel.duration, hasGeneratedVideo, playbackRate]);
-
-  // Update current scene based on currentTime
-  useEffect(() => {
-    if (scenes.length === 0) return;
-    let accumulated = 0;
-    for (let i = 0; i < scenes.length; i++) {
-      accumulated += scenes[i].durationSeconds;
-      if (currentTime <= accumulated || i === scenes.length - 1) {
-        setCurrentSceneIndex(i);
-        break;
-      }
-    }
-  }, [currentTime, scenes]);
+  }, [isPlaying, isMuted, totalEffectiveDuration, reel.audio, hasGeneratedVideo, playbackRate, currentSceneIndex, effectiveScenes, sceneStartTimes]);
 
   // Browser Speech Synthesis preview fallback with Word-Level Boundary Event Sync
   useEffect(() => {
@@ -260,7 +311,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       return;
     }
 
-    const currentScene = scenes[currentSceneIndex];
+    const currentScene = effectiveScenes[currentSceneIndex];
     const narration = currentScene?.voiceScript || currentScene?.voiceText || currentScene?.headline || currentScene?.hookText || currentScene?.text;
     if (narration) {
       window.speechSynthesis.cancel();
@@ -303,7 +354,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       if (matureVoice) {
         utterance.voice = matureVoice;
       }
-      utterance.rate = playbackRate || 1.20; // 1.20x default crisp, modern tempo
+      utterance.rate = playbackRate || 1.0; // 1.0x default natural human tempo
       utterance.pitch = 1.0; // Natural, un-warped human voice pitch
 
       speechBoundaryActiveRef.current = true;
@@ -320,10 +371,29 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
       utterance.onend = () => {
         speechBoundaryActiveRef.current = false;
+        // Sentence 100% finished! Give a natural 700ms pause, then advance to next scene
+        setTimeout(() => {
+          if (!hasGeneratedVideo) {
+            setCurrentSceneIndex(curr => {
+              const nextIdx = curr + 1;
+              if (nextIdx < effectiveScenes.length) {
+                const nextStartTime = sceneStartTimes[nextIdx] || 0;
+                setCurrentTime(nextStartTime);
+                return nextIdx;
+              } else {
+                // Loop back to scene 0 seamlessly
+                setCurrentTime(0);
+                return 0;
+              }
+            });
+          }
+        }, 700);
       };
 
-      utterance.onerror = () => {
-        speechBoundaryActiveRef.current = false;
+      utterance.onerror = (e) => {
+        if (e.error !== 'canceled' && e.error !== 'interrupted') {
+          speechBoundaryActiveRef.current = false;
+        }
       };
 
       window.speechSynthesis.speak(utterance);
@@ -331,11 +401,8 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
     return () => {
       speechBoundaryActiveRef.current = false;
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
     };
-  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, scenes, playbackRate, availableVoices]);
+  }, [isPlaying, isMuted, hasGeneratedVideo, currentSceneIndex, effectiveScenes, playbackRate, availableVoices, sceneStartTimes]);
 
   // Continuous sync of active word index across scenes and video playback
   useEffect(() => {
@@ -349,7 +416,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       return;
     }
 
-    const currentScene = scenes[currentSceneIndex];
+    const currentScene = effectiveScenes[currentSceneIndex];
     const narration = currentScene?.voiceScript || currentScene?.voiceText || currentScene?.headline || currentScene?.hookText || currentScene?.text || reel.title || '';
     const words = narration.replace(/\*\*/g, '').trim().split(/\s+/).filter(Boolean);
     if (!words.length) {
@@ -357,16 +424,13 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       return;
     }
 
-    let sceneStartTime = 0;
-    for (let i = 0; i < currentSceneIndex; i++) {
-      sceneStartTime += scenes[i]?.durationSeconds || (duration / (scenes.length || 1));
-    }
-    const sceneDuration = currentScene?.durationSeconds || (duration / (scenes.length || 1));
+    const sceneStartTime = sceneStartTimes[currentSceneIndex] || 0;
+    const sceneDuration = currentScene?.durationSeconds || 8;
     const sceneElapsed = Math.max(0, currentTime - sceneStartTime);
     const progress = Math.min(0.999, Math.max(0, sceneElapsed / sceneDuration));
     const calculatedWordIdx = Math.floor(progress * words.length);
     setActiveWordIndex(calculatedWordIdx);
-  }, [currentTime, currentSceneIndex, scenes, duration, isPlaying, hasGeneratedVideo, reel.title]);
+  }, [currentTime, currentSceneIndex, effectiveScenes, sceneStartTimes, isPlaying, hasGeneratedVideo, reel.title]);
 
   const activeScene = scenes[currentSceneIndex] || scenes[0];
 

@@ -163,14 +163,14 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     if (narrationText) {
       try {
         const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice, rate: '+20%' });
+        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice, rate: '+0%' });
         audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
         console.warn(`[Reel Video Pipeline] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
         const headline = String(sc?.headline || sc?.hookText || sc?.text || reel?.title || '').trim();
         if (headline) {
           try {
-            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale, rate: '+20%' });
+            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale, rate: '+0%' });
             audioDur = await getAudioDuration(segPath);
           } catch (headErr) {
             console.error(`[Reel Video Pipeline] Headline fallback also failed for scene ${i + 1}:`, headErr);
@@ -182,7 +182,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
       realSpeechCount++;
-      const sceneDur = Math.max(audioDur + 0.8, 6.0);
+      const sceneDur = Math.max(audioDur + 1.0, 6.0);
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);

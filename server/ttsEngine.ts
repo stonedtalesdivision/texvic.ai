@@ -260,7 +260,7 @@ export async function generateSpeech(
   // Free, unlimited, zero quota limits, 1.20x speed for captivating pacing
   // =========================================================================
   const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '+20%';   // 1.20x default speed as requested
+  const rate = options.rate || '+0%';   // 1.0x natural human speech rate
   const pitch = options.pitch || '+0Hz'; // 100% natural, un-warped human pitch
 
   const tempTextFile = path.join(activeTtsDir, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
@@ -294,7 +294,7 @@ export async function generateSpeech(
         if (fsSync.existsSync(targetPath)) {
           const stat = await fs.stat(targetPath);
           if (stat.size >= 500) {
-            console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Edge Neural TTS (${voiceToUse} @ 1.20x).`);
+            console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Edge Neural TTS (${voiceToUse} @ 1.0x).`);
             return targetPath;
           }
           try { await fs.unlink(targetPath); } catch {}
@@ -412,11 +412,11 @@ export async function generateSpeechViaHttp(
     }
 
     if (chunkFiles.length === 1) {
-      // Standardize to broadcast 44.1kHz stereo MP3 at 1.20x speed with subtle warm EQ
+      // Standardize to broadcast 44.1kHz stereo MP3 at 1.0x natural tempo with subtle warm EQ
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', chunkFiles[0],
-        '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
+        '-af', 'atempo=1.00,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
         '-c:a', 'libmp3lame',
         '-ar', '44100',
         '-ac', '2',
@@ -424,7 +424,7 @@ export async function generateSpeechViaHttp(
         outputPath
       ]);
     } else {
-      // Concatenate all chunks and normalize at clean 1.20x speed
+      // Concatenate all chunks and normalize at clean 1.0x natural tempo
       const concatList = `${tempBase}-list.txt`;
       const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
       await fs.writeFile(concatList, listContent, 'utf8');
@@ -435,7 +435,7 @@ export async function generateSpeechViaHttp(
           '-f', 'concat',
           '-safe', '0',
           '-i', concatList,
-          '-af', 'atempo=1.20,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
+          '-af', 'atempo=1.00,equalizer=f=120:width_type=o:width=1.5:g=3.0,aformat=sample_rates=44100:channel_layouts=stereo',
           '-c:a', 'libmp3lame',
           '-ar', '44100',
           '-ac', '2',
