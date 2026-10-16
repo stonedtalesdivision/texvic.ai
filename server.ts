@@ -4879,12 +4879,9 @@ function initAutonomousDaemon() {
             AND status != 'publishing'
             AND status != 'draft'
             AND ig_media_id IS NULL
-            AND (
-              status = 'publish_queued'
-              OR (status = 'scheduled' AND scheduled_time IS NOT NULL AND datetime(scheduled_time) <= datetime(?))
-            )
+            AND status = 'publish_queued'
           ORDER BY created_at ASC LIMIT 1
-        `).get(nowIso) as any;
+        `).get() as any;
 
         if (stalledReel && !activePublishingReels.has(stalledReel.id)) {
           console.log(`[Autonomous 24x7 Daemon] Found pending reel "${stalledReel.title}" (${stalledReel.id}). Publishing to ensure scheduled/queued posts are delivered...`);

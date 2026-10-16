@@ -210,6 +210,7 @@ try { db.exec(`ALTER TABLE agent_activity_logs ADD COLUMN reviewed_by TEXT DEFAU
 try { db.exec(`ALTER TABLE posts ADD COLUMN ig_media_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE posts ADD COLUMN permalink TEXT`); } catch {}
 try { db.exec(`ALTER TABLE posts ADD COLUMN publish_timestamp TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN scheduled_time TEXT`); } catch {}
 
 // Seed Default Lead Magnet Keyword Triggers
 try {
