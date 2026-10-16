@@ -337,7 +337,8 @@ export async function renderReelVideo(rawReel: any, options: { forceReRender?: b
   const totalReelDuration = prepared.scenes.reduce((sum: number, s: any) => sum + s.duration, 0);
   db.prepare(`
     UPDATE reels
-    SET status = 'video_ready', video_url = ?, duration = ?, scenes_json = ?, updated_at = ?
+    SET status = CASE WHEN status = 'published' OR ig_media_id IS NOT NULL THEN 'published' ELSE 'video_ready' END,
+        video_url = ?, duration = ?, scenes_json = ?, updated_at = ?
     WHERE id = ?
   `).run(finalUrl, totalReelDuration, JSON.stringify(prepared.scenes), new Date().toISOString(), reel.id);
 

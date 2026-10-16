@@ -1279,7 +1279,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         {/* Action Buttons */}
         <div className="flex flex-col gap-2.5 pt-2 border-t border-white/10">
           {/* Prominent Publish Now Button or Published Live Badge */}
-          {reel.status === 'published' ? (
+          {reel.status === 'published' || Boolean(reel.instagramPostId) || Boolean(reel.ig_media_id) ? (
             <div className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center justify-between shadow-sm">
               <span className="flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />

@@ -173,6 +173,15 @@ export function startJobWorker() {
               const account = accountQuery.get('instagram_primary') as any;
 
               if (reel && account?.access_token && account?.account_id) {
+                // Idempotency guard: prevent duplicate publishing if reel was already published
+                if (reel.status === 'published' || Boolean(reel.ig_media_id)) {
+                  console.warn(`[Job Queue] ⚠️ Scheduled reel "${reel.title || reel.id}" is ALREADY published (IG Media ID: ${reel.ig_media_id}). Skipping duplicate publish.`);
+                  break;
+                }
+
+                // In-flight state guard
+                db.prepare(`UPDATE reels SET status = 'publishing', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), reel.id);
+
                 let videoUrl = payload.videoUrl || reel.video_url || '';
                 if (!videoUrl) {
                   console.info(`[Job Queue] Scheduled reel "${reel.title || reel.id}" has no video yet. Rendering on-the-fly...`);

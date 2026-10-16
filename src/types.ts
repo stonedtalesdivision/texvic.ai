@@ -67,6 +67,8 @@ export interface ReelItem {
   videoTemplateId: string;
   videoUrl?: string;
   instagramPostId?: string;
+  ig_media_id?: string;
+  ig_container_id?: string;
   permalink?: string;
   publishTimestamp?: string;
 }
@@ -93,6 +95,7 @@ export interface PostItem {
   createdAt: string;
   engagementScore: number;
   instagramPostId?: string;
+  ig_media_id?: string;
   permalink?: string;
   publishTimestamp?: string;
 }

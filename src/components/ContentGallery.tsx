@@ -194,7 +194,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
             const isDownloaded = downloadSuccessId === reel.id;
             const isPublishing = publishingId === reel.id;
             const isDeleting = deletingId === reel.id;
-            const isPublished = reel.status === 'published';
+            const isPublished = reel.status === 'published' || Boolean(reel.instagramPostId) || Boolean(reel.ig_media_id);
 
             return (
               <div
@@ -351,7 +351,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
             const isDownloaded = downloadSuccessId === post.id;
             const isPublishing = publishingId === post.id;
             const isDeleting = deletingId === post.id;
-            const isPublished = post.status === 'published';
+            const isPublished = post.status === 'published' || Boolean(post.instagramPostId) || Boolean(post.ig_media_id);
 
             return (
               <div
@@ -644,7 +644,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                 {/* Carousel Modal Actions: Publish Now, Schedule, Delete */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800 max-w-md mx-auto">
                   <div className="flex items-center gap-2 flex-1">
-                    {activeModalPost.status === 'published' ? (
+                    {activeModalPost.status === 'published' || Boolean(activeModalPost.instagramPostId) || Boolean(activeModalPost.ig_media_id) ? (
                       <span className="py-2 px-3 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
                         <CheckCircle className="w-4 h-4 text-emerald-400" />
                         Published
