@@ -452,7 +452,7 @@ if (!existingConfig) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   insertConfig.run(
-    'default_config', 1, 180, 'AI Tech & Breakthroughs', 'idle', null,
+    'default_config', 1, 180, 'Documentary Storytelling: Heists, Forbidden Infrastructure & Global Mysteries', 'idle', null,
     new Date(Date.now() + 180 * 60000).toISOString(),
     JSON.stringify({
       topHookPattern: "3-Second Bold Contrarian Interruption",

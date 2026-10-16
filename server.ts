@@ -574,6 +574,16 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     const dynamicDuration = sceneDurations[index] || Number(scene.durationSeconds || 8.0);
     const isPortrait = (asset.width === 1080 && asset.height === 1920) || asset.source === "ffmpeg-autonomous-visual-producer";
     const narrationText = extractSceneNarration(scene, index, prepared.assets.length, reel);
+    
+    // Choose clean, contextual on-screen caption matching what is spoken (no generic template clichés)
+    const onScreenPhrase = (() => {
+      const candidate = String(scene.highlight || scene.subline || scene.hookText || scene.secondaryText || scene.text || narrationText || '').trim();
+      if (!candidate || /^(the evidence|the outcome|the untold evidence|who do you believe\??|documented record)$/i.test(candidate)) {
+        return narrationText ? narrationText.slice(0, 70).replace(/[\.\,\:\;]+$/, '') : (scene.headline || reel?.title || '');
+      }
+      return candidate.slice(0, 70).replace(/[\.\,\:\;]+$/, '');
+    })();
+
     return {
       ...scene,
       assetId: asset.id,
@@ -582,7 +592,8 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
       zoom: isPortrait ? 1 : Number(scene.pacingEffect === "zoom-in" ? 1.05 : 1),
       speed: 1,
       transition: "cut",
-      text: scene.headline || scene.hookText || scene.secondaryText || scene.text || narrationText,
+      headline: scene.headline || (index === 0 ? (reel?.title?.slice(0, 24)?.toUpperCase() || 'SPECIAL DOSSIER') : `FILE PART ${index + 1}`),
+      text: onScreenPhrase,
       voiceScript: scene.voiceScript || narrationText,
       voiceText: scene.voiceText || narrationText
     };
@@ -3672,37 +3683,48 @@ app.post("/api/reset", (req, res) => {
 
 const AUTONOMOUS_AUDIO_TRACKS = [
   {
-    id: "sarlx-original-cyber-pulse",
-    title: "SARLX Original — Cyber Pulse",
-    artist: "SARLX.Ai",
-    bpm: 142,
-    category: "Original Electronic",
+    id: "echoes-of-time",
+    title: "Echoes of Time",
+    artist: "Kevin MacLeod",
+    bpm: 72,
+    category: "Mysterious Ambient",
     duration: 30,
-    mood: "High Energy & Driving",
-    dropTimestamp: 2.2,
-    synthPreset: "cyber-synth"
+    mood: "Mysterious, Ancient History & Suspense",
+    dropTimestamp: 2.5,
+    synthPreset: "ambient-drone"
   },
   {
-    id: "sarlx-original-bass-drive",
-    title: "SARLX Original — Bass Drive",
-    artist: "SARLX.Ai",
-    bpm: 128,
-    category: "Original Trap / Bass",
+    id: "dark-walk",
+    title: "Dark Walk",
+    artist: "Kevin MacLeod",
+    bpm: 85,
+    category: "Investigative Noir",
     duration: 30,
-    mood: "Hyped / Dramatic Cut",
-    dropTimestamp: 1.8,
-    synthPreset: "trap-bass"
+    mood: "Classified Dossier & Forensic Heist",
+    dropTimestamp: 2.0,
+    synthPreset: "investigative-noir"
   },
   {
-    id: "sarlx-original-neon-groove",
-    title: "SARLX Original — Neon Groove",
-    artist: "SARLX.Ai",
-    bpm: 124,
-    category: "Original Deep House",
+    id: "the-dread",
+    title: "The Dread",
+    artist: "Kevin MacLeod",
+    bpm: 60,
+    category: "Dark Ambient Suspense",
     duration: 30,
-    mood: "Luxury / Smooth Rhythm",
-    dropTimestamp: 3.2,
-    synthPreset: "deep-house"
+    mood: "Ominous & Chilling Historical Anomaly",
+    dropTimestamp: 2.0,
+    synthPreset: "dark-drone"
+  },
+  {
+    id: "giant-wyrm",
+    title: "Giant Wyrm",
+    artist: "Kevin MacLeod",
+    bpm: 70,
+    category: "Dark Cinematic",
+    duration: 30,
+    mood: "Deep Oceanic & Monolithic Power",
+    dropTimestamp: 3.0,
+    synthPreset: "cinematic-strings"
   }
 ];
 
@@ -4815,6 +4837,14 @@ function initAutonomousDaemon() {
     const fixedPosts = db.prepare(`UPDATE posts SET status = 'published', updated_at = ? WHERE ig_media_id IS NOT NULL AND status != 'published'`).run(new Date().toISOString());
     if (fixedPosts.changes > 0) {
       console.log(`[Autonomous 24x7 Daemon] Startup self-healed ${fixedPosts.changes} post(s) that were already posted to Instagram.`);
+    }
+
+    // Self-heal target_niche to match @theuntoldarch documentary profile if it is set to legacy tech default
+    const currentCfg = db.prepare('SELECT target_niche FROM autonomous_config WHERE id = ?').get('default_config') as any;
+    if (!currentCfg || currentCfg.target_niche === 'Must-Know AI Tools & Daily Productivity' || currentCfg.target_niche === 'AI Tech & Breakthroughs') {
+      db.prepare(`UPDATE autonomous_config SET target_niche = ?, updated_at = ? WHERE id = 'default_config'`)
+        .run(THEME_PAGE_PROFILE.niche, new Date().toISOString());
+      console.log(`[Autonomous 24x7 Daemon] Startup self-healed target_niche to "${THEME_PAGE_PROFILE.niche}".`);
     }
   } catch (healErr) {
     console.warn('[Autonomous 24x7 Daemon] Startup self-healing check warning:', healErr);

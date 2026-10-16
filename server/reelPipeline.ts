@@ -34,92 +34,119 @@ export function normalizeVideoUrl(videoUrl: string): string {
 }
 
 /**
+ * Sanitizes voice narration text for natural, fluid TTS speech:
+ * - Strips timecodes (e.g. "00:14:", "12:30 PM:") so TTS doesn't read out numbers and colons
+ * - Strips bullet markers & numbers at the start of sentences
+ * - Strips all unicode emojis and variation selectors
+ * - Converts symbols into spoken words ("&" -> "and", "%" -> "percent")
+ * - Cleans redundant punctuation, brackets, colons, and whitespace
+ */
+export function sanitizeNarrationForTTS(text: string): string {
+  if (!text) return '';
+  return String(text)
+    // Strip timecode prefixes at start of text or after punctuation
+    .replace(/(^|[\.\?\!\n])\s*\d{1,2}:\d{2}(:\d{2})?(\s*(am|pm))?(\s*[:\-\—])?\s*/gi, '$1 ')
+    // Strip bullet markers & numbers at start of lines: "• ", "- ", "* ", "1. ", "[A] "
+    .replace(/(^|[\.\?\!\n])\s*([•\-\*]|\d+[\.\)])\s*/g, '$1 ')
+    // Strip all unicode emojis and variation selectors
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{FE00}-\u{FE0F}]/gu, '')
+    // Expand awkward symbols
+    .replace(/\s*&\s*/g, ' and ')
+    .replace(/\s*%\s*/g, ' percent ')
+    .replace(/\$(\d+)/g, '$1 dollars')
+    // Strip bracketed markers
+    .replace(/\[(?:A|B)\]/gi, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/#\w+/g, '')
+    // Clean redundant colons into natural commas
+    .replace(/\s*:\s*/g, ', ')
+    // Clean duplicate dots and spaces
+    .replace(/\.{2,}/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Extracts rich, spoken narrative text for any scene across all state variants:
  * 1. AI generated scene with direct voiceScript/voiceText
  * 2. Scene with headline, highlight, subline, hookText, secondaryText, text
  * 3. Re-hydrated or stripped scene where full story lives in reel.caption
  */
 export function extractSceneNarration(sc: any, sceneIndex: number, totalScenes: number, reel?: any): string {
+  let rawText = '';
+
   // 1. Direct explicit voiceover text
   const directVoice = String(sc?.voiceScript || sc?.voiceText || '').trim();
-  if (directVoice.length >= 10) return directVoice;
+  if (directVoice.length >= 10) {
+    rawText = directVoice;
+  } else {
+    // 2. Combined scene headline, highlight, subline, hookText, secondaryText, text
+    const parts = [
+      sc?.headline,
+      sc?.highlight,
+      sc?.subline,
+      sc?.hookText,
+      sc?.secondaryText,
+      sc?.text
+    ]
+      .map(p => String(p || '').trim())
+      .filter(p => p.length > 0);
 
-  // 2. Combined scene headline, highlight, subline, hookText, secondaryText, text
-  const parts = [
-    sc?.headline,
-    sc?.highlight,
-    sc?.subline,
-    sc?.hookText,
-    sc?.secondaryText,
-    sc?.text
-  ]
-    .map(p => String(p || '').trim())
-    .filter(p => p.length > 0);
+    const uniqueParts = [...new Set(parts)];
+    const combined = uniqueParts.join('. ').replace(/\.\.+/g, '.').trim();
 
-  const uniqueParts = [...new Set(parts)];
-  const combined = uniqueParts.join('. ').replace(/\.\.+/g, '.').trim();
+    // If combined scene text is substantial, use it
+    if (combined.length >= 25) {
+      rawText = combined;
+    } else if (reel?.caption) {
+      // 3. Fallback to extracting narrative story from reel.caption if present
+      let storyText = String(reel.caption)
+        .split(/🗳️|Drop \[A\]|Vote below|Follow @|📌 Save|🚀 Share/i)[0]
+        .replace(/#\w+/g, '')
+        .replace(/https?:\/\/\S+/g, '')
+        .trim();
 
-  // If combined scene text is substantial, use it
-  if (combined.length >= 25) {
-    return combined;
-  }
+      // Look for bullet lines first
+      const bulletLines = storyText
+        .split('\n')
+        .map(line => line.replace(/^[\s•\-\*]+/, '').replace(/^\d+[\.\)]\s*/, '').trim())
+        .filter(line => line.length >= 15 && !line.endsWith(':') && !/^(here’s how|here is the breakdown|the timeline unfolded|inside the)/i.test(line));
 
-  // 3. Fallback to extracting narrative story from reel.caption if present
-  if (reel?.caption) {
-    let storyText = String(reel.caption)
-      .split(/🗳️|Drop \[A\]|Vote below|Follow @|📌 Save|🚀 Share/i)[0]
-      .replace(/#\w+/g, '')
-      .replace(/https?:\/\/\S+/g, '')
-      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '')
-      .trim();
+      // Look for story paragraphs
+      const paragraphs = storyText
+        .split(/\n\s*\n/)
+        .map(p => p.replace(/[\r\n]+/g, ' ').replace(/^[\s•\-\*]+/, '').trim())
+        .filter(p => p.length >= 25 && !p.endsWith(':') && !/^(here’s how|here is the breakdown|inside the)/i.test(p));
 
-    // Look for bullet lines first (e.g. "• 20+ rare artifacts...", "- The Plateau's...", "• Project Greek Island...")
-    const bulletLines = storyText
-      .split('\n')
-      .map(line => line.replace(/^[\s•\-\*]+/, '').replace(/^\d+[\.\)]\s*/, '').trim())
-      .filter(line => line.length >= 15 && !line.endsWith(':') && !/^(here’s how|here is the breakdown|the timeline unfolded|inside the)/i.test(line));
-
-    // Look for story paragraphs
-    const paragraphs = storyText
-      .split(/\n\s*\n/)
-      .map(p => p.replace(/[\r\n]+/g, ' ').replace(/^[\s•\-\*]+/, '').trim())
-      .filter(p => p.length >= 25 && !p.endsWith(':') && !/^(here’s how|here is the breakdown|inside the)/i.test(p));
-
-    // If bullet lines match scene count, use bullet line for this scene
-    if (bulletLines.length >= totalScenes && bulletLines[sceneIndex]) {
-      return bulletLines[sceneIndex];
-    }
-
-    // If paragraphs match or exceed scene count
-    if (paragraphs.length >= totalScenes && paragraphs[sceneIndex]) {
-      return paragraphs[sceneIndex];
-    }
-
-    // If paragraphs exist, distribute across scenes
-    if (paragraphs.length > 0) {
-      if (sceneIndex === 0) {
-        return paragraphs[0];
-      } else if (bulletLines.length > 0 && bulletLines[sceneIndex - 1]) {
-        return bulletLines[sceneIndex - 1];
-      } else if (paragraphs[sceneIndex]) {
-        return paragraphs[sceneIndex];
-      } else {
-        return paragraphs[paragraphs.length - 1];
+      if (bulletLines.length >= totalScenes && bulletLines[sceneIndex]) {
+        rawText = bulletLines[sceneIndex];
+      } else if (paragraphs.length >= totalScenes && paragraphs[sceneIndex]) {
+        rawText = paragraphs[sceneIndex];
+      } else if (paragraphs.length > 0) {
+        if (sceneIndex === 0) {
+          rawText = paragraphs[0];
+        } else if (bulletLines.length > 0 && bulletLines[sceneIndex - 1]) {
+          rawText = bulletLines[sceneIndex - 1];
+        } else if (paragraphs[sceneIndex]) {
+          rawText = paragraphs[sceneIndex];
+        } else {
+          rawText = paragraphs[paragraphs.length - 1];
+        }
+      } else if (storyText.length >= 20) {
+        rawText = storyText;
       }
     }
 
-    if (storyText.length >= 20) {
-      return storyText;
+    if (!rawText && combined.length > 0) {
+      rawText = combined;
+    }
+
+    if (!rawText) {
+      rawText = String(reel?.title || 'The Untold Archive Special Report').trim();
     }
   }
 
-  // 4. Combined parts even if short
-  if (combined.length > 0) {
-    return combined;
-  }
-
-  // 5. Ultimate fallback: Title
-  return String(reel?.title || 'The Untold Archive Special Report').trim();
+  return sanitizeNarrationForTTS(rawText);
 }
 
 export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: any[]; musicPath: string; voicePath?: string }> {

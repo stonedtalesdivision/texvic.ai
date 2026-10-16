@@ -763,26 +763,38 @@ export async function constructDocumentaryReelPackage(
   };
 
   const cleanHook = selectedHook.hookText.trim().replace(/\.+$/, '');
-  const scene1Script = `${cleanHook}. Behind this verified record lies an operation that changed what historians thought was possible.`;
+  const scene1Script = `${cleanHook}. Behind this declassified file lies an event that pushed global systems to the brink.`;
 
+  const fact0Raw = dossier.verifiedFacts[0] ? dossier.verifiedFacts[0].trim().replace(/\.+$/, '') : dossier.centralPremise;
   const fact1Raw = dossier.verifiedFacts[1] ? dossier.verifiedFacts[1].trim().replace(/\.+$/, '') : '';
   const scene2Script = fact1Raw
-    ? `Official records confirmed that ${fact1Raw.charAt(0).toLowerCase() + fact1Raw.slice(1)}. When investigators pieced together the timeline, the evidence pointed to an outcome few predicted.`
-    : `Declassified evidence documented the exact physical timeline, proving the event was neither an anomaly nor an accident.`;
+    ? `According to primary investigation logs, ${fact1Raw.charAt(0).toLowerCase() + fact1Raw.slice(1)}. Telemetry and personnel on the ground confirmed the situation was rapidly escalating.`
+    : `Primary logs documented the exact operational sequence, confirming the situation was rapidly escalating.`;
 
   const fact2Raw = dossier.verifiedFacts[2] ? dossier.verifiedFacts[2].trim().replace(/\.+$/, '') : '';
   const scene3Script = fact2Raw
-    ? `The final consequence was undeniable: ${fact2Raw}. Today, it stands as a documented testament to what was hidden in plain sight.`
-    : `Today, this verified event stands as documented proof that the most extraordinary operations leave permanent marks on history.`;
+    ? `The critical turning point came when ${fact2Raw.charAt(0).toLowerCase() + fact2Raw.slice(1)}. A single choice altered the course of what followed.`
+    : `A single critical choice altered the course of what followed, defying standard protocol.`;
 
-  // Generate 3 scenes aligned with documentary standards
+  const scene4Script = dossier.uncertaintiesOrLimits[0]
+    ? `The aftermath was profound: ${dossier.uncertaintiesOrLimits[0].trim().replace(/\.+$/, '')}. Today, it stands as documented proof of how close history came to a different ending. What would you have done?`
+    : `Today, declassified archives reveal how close history came to an entirely different ending. What would you have done in their position?`;
+
+  // Dynamically generate punchy, relevant headlines (NO generic template clichés like "THE EVIDENCE")
+  const subjectWords = dossier.subject.split(/[:\-\—]/)[0].trim().split(/\s+/).slice(0, 3).join(' ').toUpperCase();
+  const scene1Headline = subjectWords || 'DECLASSIFIED DOSSIER';
+  const scene2Headline = 'DOCUMENTED RECORD';
+  const scene3Headline = 'THE TURNING POINT';
+  const scene4Headline = 'HISTORICAL VERDICT';
+
+  // Generate 4 cohesive scenes completing the full narrative arc
   const scenes: CuratedScene[] = [
     {
       order: 1,
-      durationSeconds: calcDuration(scene1Script, 9.0),
-      headline: dossier.subject.split(':')[0].slice(0, 24).toUpperCase(),
-      highlight: dossier.verifiedFacts[0]?.slice(0, 38).toUpperCase() || 'DOCUMENTED RECORD',
-      subline: dossier.centralPremise,
+      durationSeconds: calcDuration(scene1Script, 7.5),
+      headline: scene1Headline,
+      highlight: fact0Raw.slice(0, 36).toUpperCase(),
+      subline: cleanHook,
       voiceScript: scene1Script,
       bRollKeywords: ['historical archive documentary', 'investigative evidence files', 'vintage photography'],
       archivalQuery: dossier.subject.split(':')[0],
@@ -794,10 +806,10 @@ export async function constructDocumentaryReelPackage(
     },
     {
       order: 2,
-      durationSeconds: calcDuration(scene2Script, 10.0),
-      headline: 'THE EVIDENCE',
-      highlight: dossier.verifiedFacts[1]?.slice(0, 38).toUpperCase() || 'RECOVERED TIMELINE',
-      subline: dossier.verifiedFacts[1] || 'Official records reveal the precise timeline reconstructed by investigators.',
+      durationSeconds: calcDuration(scene2Script, 8.0),
+      headline: scene2Headline,
+      highlight: fact1Raw ? fact1Raw.slice(0, 36).toUpperCase() : 'INCIDENT TIMELINE',
+      subline: fact1Raw || 'Official investigation records documented the exact sequence of events.',
       voiceScript: scene2Script,
       bRollKeywords: ['archival documents inspection', 'historical evidence analysis', 'macro record examination'],
       archivalQuery: dossier.citations[0]?.sourceName || dossier.subject,
@@ -809,11 +821,26 @@ export async function constructDocumentaryReelPackage(
     },
     {
       order: 3,
-      durationSeconds: calcDuration(scene3Script, 9.0),
-      headline: 'THE OUTCOME',
-      highlight: dossier.verifiedFacts[2]?.slice(0, 38).toUpperCase() || 'HISTORICAL AFTERMATH',
-      subline: dossier.uncertaintiesOrLimits[0] || 'The documented lessons remain active across modern security and intelligence.',
+      durationSeconds: calcDuration(scene3Script, 8.0),
+      headline: scene3Headline,
+      highlight: fact2Raw ? fact2Raw.slice(0, 36).toUpperCase() : 'CRITICAL RESOLUTION',
+      subline: fact2Raw || 'A single decision changed the outcome of the entire operation.',
       voiceScript: scene3Script,
+      bRollKeywords: ['tactical control room', 'decision point documentary', 'historical turning point'],
+      archivalQuery: dossier.subject,
+      imagePrompt: `Cinematic high-contrast documentary visual representing the turning point of ${dossier.subject}. Dramatic rim lighting, deep shadows, authentic mid-century or modern investigative tone. NO text.`,
+      visualTheme: 'minimal-dark',
+      visualFormat: 'full-bleed-cinematic',
+      accentColor: BRAND_PALETTE.antiqueGold,
+      pacingEffect: 'subtle-drift'
+    },
+    {
+      order: 4,
+      durationSeconds: calcDuration(scene4Script, 7.5),
+      headline: scene4Headline,
+      highlight: 'THE AFTERMATH',
+      subline: 'What would you have done in this position?',
+      voiceScript: scene4Script,
       bRollKeywords: ['aerial drone cinematic landscape', 'modern historical site', 'documentary aftermath'],
       archivalQuery: dossier.subject,
       imagePrompt: `Cinematic wide-angle documentary shot of the modern location or museum conservation of ${dossier.subject}. Dusk lighting, deep shadow contrast, quiet contemplative historical atmosphere. NO text.`,
@@ -824,18 +851,21 @@ export async function constructDocumentaryReelPackage(
     }
   ];
 
-  // Craft high-converting, honest SEO caption
+  // Craft high-converting, honest SEO caption with engaging discussion CTA
   const captionLines = [
     `The documented story behind ${dossier.subject}:`,
     '',
     `• ${dossier.verifiedFacts[0] || dossier.centralPremise}`,
     dossier.verifiedFacts[1] ? `• ${dossier.verifiedFacts[1]}` : '',
     dossier.verifiedFacts[2] ? `• ${dossier.verifiedFacts[2]}` : '',
+    dossier.uncertaintiesOrLimits[0] ? `• ${dossier.uncertaintiesOrLimits[0]}` : '',
     '',
-    dossier.citations[0] ? `Sources: ${dossier.citations.map(c => c.sourceName).join(' | ')}` : 'Source: Official Archive & Primary Documentation',
+    dossier.citations[0] ? `Source: ${dossier.citations.map(c => c.sourceName).join(' | ')}` : 'Source: Official Archive & Primary Documentation',
     '',
-    `Follow ${brandHandle} for daily evidence-led documentary deep-dives into untold world history, secret infrastructure, and scientific breakthroughs.`,
-    'Save this reference for your next deep dive 📌'
+    '💬 What would you have done in this situation? Drop your perspective below 👇',
+    '📌 Save this archive file so you don\'t lose it | 🚀 Share with a history enthusiast',
+    '',
+    `Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜`
   ].filter(line => line !== null && line !== undefined);
 
   const caption = captionLines.join('\n');
