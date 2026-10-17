@@ -184,6 +184,7 @@ export function ownerAuthMiddleware(req: Request, res: Response, next: NextFunct
   const origin = req.headers.origin ? String(req.headers.origin) : '';
   const secFetchSite = req.headers['sec-fetch-site'] ? String(req.headers['sec-fetch-site']) : '';
   const currentHost = String(req.get('host') || '').toLowerCase();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').toLowerCase();
 
   if (origin) {
     try {
@@ -194,10 +195,18 @@ export function ownerAuthMiddleware(req: Request, res: Response, next: NextFunct
       }
       const isAllowedOrigin =
         originHost === currentHost ||
+        (forwardedHost && (originHost === forwardedHost || originHost === forwardedHost.split(':')[0])) ||
         (appUrlHost && originHost === appUrlHost) ||
+        originHost.endsWith('.trycloudflare.com') ||
+        originHost.endsWith('.cloudflarestream.com') ||
+        originHost === 'texvic.ai' ||
+        originHost.endsWith('.texvic.ai') ||
         originHost === 'texvic.tech' ||
-        originHost.endsWith('.texvic.tech');
-      if (!isAllowedOrigin) {
+        originHost.endsWith('.texvic.tech') ||
+        originHost.startsWith('localhost') ||
+        originHost.startsWith('127.0.0.1');
+
+      if (!isAllowedOrigin && !hasValidSession(req)) {
         res.status(403).json({ success: false, error: "Cross-origin request rejected." });
         return;
       }
@@ -205,7 +214,7 @@ export function ownerAuthMiddleware(req: Request, res: Response, next: NextFunct
       res.status(403).json({ success: false, error: "Malformed Origin header." });
       return;
     }
-  } else if (secFetchSite === 'cross-site') {
+  } else if (secFetchSite === 'cross-site' && !hasValidSession(req)) {
     res.status(403).json({ success: false, error: "Cross-site request rejected." });
     return;
   }

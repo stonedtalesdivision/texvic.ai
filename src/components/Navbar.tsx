@@ -238,7 +238,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button type="button" onClick={() => setActiveTab('swarm')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${activeTab === 'swarm' ? 'bg-gradient-to-r from-cyan-500/25 via-sky-500/20 to-blue-500/20 text-cyan-200 border border-cyan-500/40 shadow-sm' : 'text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10'}`}>
           <Users className="w-3.5 h-3.5 text-cyan-400" />
           <span>Agent Swarm (Interactions)</span>
-          <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-cyan-500/30 text-cyan-200 border border-cyan-400/30">3</span>
+          <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-cyan-500/30 text-cyan-200 border border-cyan-400/30">Active</span>
         </button>
 
         <button type="button" onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${activeTab === 'analytics' ? 'bg-slate-800 text-white shadow-sm border border-slate-700' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}><BarChart3 className="w-3.5 h-3.5 text-sky-400" />Growth & Strategy</button>

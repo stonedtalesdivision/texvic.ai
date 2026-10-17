@@ -397,14 +397,15 @@ function cleanGeneratedText(raw: string): string {
 }
 
 // Generate authentic, contextual comments for @theuntoldarch ($0 cost)
-export async function generateAgentComment(topic: string, niche: string, tone = 'intriguing_historian'): Promise<string> {
+export async function generateAgentComment(topic: string, niche: string, tone = 'intriguing_historian', directive?: string): Promise<string> {
+  const directiveClause = directive ? `\n6. Operational Directive: Execute this specialized engagement objective: "${directive.trim()}" (keep it conversational, authentic, and invite dialogue).` : '';
   const prompt = `Write a short, captivating, highly authentic comment (1 to 2 sentences max) under an Instagram Reel about "${topic}" in the "${niche}" niche.
 Requirements:
 1. Speak as an investigative archival researcher and history enthusiast for @theuntoldarch.
 2. Provide a genuine, thought-provoking archival insight, timeline observation, or curious question.
 3. Sound completely natural, intriguing, and authentic — NOT like an automated bot, marketing promotion, or tech software engineer.
 4. Strictly NO hashtags. Strictly NO software, AI tools, or coding jargon.
-5. Return ONLY the final comment string. Do NOT output any thinking process or preamble.`;
+5. Return ONLY the final comment string. Do NOT output any thinking process or preamble.${directiveClause}`;
 
   // 1. Try Nemotron if key available
   if (process.env.NEMOTRON_API_KEY) {
@@ -884,7 +885,7 @@ export async function executeAgentAction(agentId: string): Promise<AgentActivity
       payloadText = await generateEngagementPrompt(target.niche, target.caption);
     } else {
       actionType = 'comment';
-      payloadText = await generateAgentComment(target.niche, target.caption, agent.config?.tone);
+      payloadText = await generateAgentComment(target.niche, target.caption, agent.config?.tone, agent.config?.missionDirective);
     }
     console.info(`[${agent.name}] Generated custom action (${actionType}) for reel: ${target.url}`);
   }

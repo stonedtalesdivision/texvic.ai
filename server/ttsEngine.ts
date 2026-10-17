@@ -255,9 +255,23 @@ export async function generateSpeech(
   const targetPath = outputPath || path.join(activeTtsDir, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
 
   // =========================================================================
-  // Tier 1 (DEFAULT): Microsoft Edge Neural TTS (Natural Male Neural Core)
+  // Tier 1: Gemini 3.8 Flash TTS (Deep Hollywood Charon / Fenrir Documentary Baritone)
+  // Highly reliable studio-grade male narrator with zero local Python/CLI dependencies
+  // =========================================================================
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
+    try {
+      const geminiVoice = options.voice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(options.voice)
+        ? options.voice
+        : resolveGeminiVoiceForTopic('', '');
+      return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
+    } catch (geminiErr: any) {
+      console.warn('[TTS Engine] Tier 1 Gemini TTS unavailable, trying Edge Neural TTS:', geminiErr?.message || geminiErr);
+    }
+  }
+
+  // =========================================================================
+  // Tier 2: Microsoft Edge Neural TTS (Natural Male Neural Voices)
   // Deep adult male documentary baritones: Christopher / Guy / Eric / Andrew / Brian / Ryan
-  // Free, unlimited, zero quota limits, 1.20x speed for captivating pacing
   // =========================================================================
   const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
   const rate = options.rate || '+0%';   // 1.0x natural human speech rate
@@ -310,24 +324,8 @@ export async function generateSpeech(
   }
 
   // =========================================================================
-  // Tier 2: Gemini 3.8 Flash TTS (Deep Hollywood Charon / Fenrir Baritone)
-  // Invoked only if Edge-TTS network candidates fail
-  // =========================================================================
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
-    try {
-      const geminiVoice = options.voice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(options.voice)
-        ? options.voice
-        : 'Charon'; // Charon: Deepest authoritative male documentary narrator
-      console.log(`[TTS Engine] Falling back to Tier 2 Gemini 3.8 Flash TTS (${geminiVoice})...`);
-      return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
-    } catch (geminiErr: any) {
-      console.warn('[TTS Engine] Tier 2 Gemini TTS also unavailable:', geminiErr?.message || geminiErr);
-    }
-  }
-
-  // =========================================================================
   // Tier 3: Pure HTTPS Web TTS Fallback (Emergency Offline VPS Fallback)
-  // Clean 1.20x pacing, NO chipmunk or child formant warping
+  // Clean broadcast normalization, ZERO chipmunk or pitch warping
   // =========================================================================
   console.warn('[TTS Engine] Invoking Tier 3 HTTPS Web TTS fallback...');
   return await generateSpeechViaHttp(cleanedText, targetPath);
@@ -336,7 +334,7 @@ export async function generateSpeech(
 /**
  * Tier 3: Zero-dependency, pure Node.js HTTPS Web TTS fallback.
  * Uses standard HTTPS requests with zero API keys and zero Python dependencies.
- * Chunks long text at natural punctuation boundaries, downloads audio, and normalizes with ffmpeg.
+ * Chunks long text at natural punctuation boundaries, downloads audio, and normalizes cleanly with ffmpeg.
  */
 export async function generateSpeechViaHttp(
   text: string,
@@ -411,14 +409,14 @@ export async function generateSpeechViaHttp(
       chunkFiles.push(chunkPath);
     }
 
-    // Male formant filter: asetrate lowers pitch by 22%, atempo compensates tempo back to 1.0x, equalizer adds chest depth
-    const maleFormantFilter = 'asetrate=44100*0.78,aresample=44100,atempo=1.28,equalizer=f=120:width_type=o:width=1.5:g=4.0,aformat=sample_rates=44100:channel_layouts=stereo';
+    // Clean broadcast filter: smooth EQ warmth & compression, NEVER warp pitch or sample rate
+    const cleanBroadcastFilter = 'volume=1.20,equalizer=f=140:width_type=o:width=1.2:g=2.5,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6,aformat=sample_rates=44100:channel_layouts=stereo';
 
     if (chunkFiles.length === 1) {
       await execFileAsync('ffmpeg', [
         '-y',
         '-i', chunkFiles[0],
-        '-af', maleFormantFilter,
+        '-af', cleanBroadcastFilter,
         '-c:a', 'libmp3lame',
         '-ar', '44100',
         '-ac', '2',
@@ -436,7 +434,7 @@ export async function generateSpeechViaHttp(
           '-f', 'concat',
           '-safe', '0',
           '-i', concatList,
-          '-af', maleFormantFilter,
+          '-af', cleanBroadcastFilter,
           '-c:a', 'libmp3lame',
           '-ar', '44100',
           '-ac', '2',
@@ -448,13 +446,158 @@ export async function generateSpeechViaHttp(
       }
     }
 
-    console.log(`[TTS Engine] Voiceover synthesized via Tier 3 HTTPS Web TTS with male formant tuning (${chunkFiles.length} chunk(s)).`);
+    console.log(`[TTS Engine] Voiceover synthesized via Tier 3 HTTPS Web TTS (${chunkFiles.length} chunk(s)).`);
     return outputPath;
   } finally {
     for (const f of chunkFiles) {
       await fs.unlink(f).catch(() => {});
     }
   }
+}
+
+/**
+ * Cohesive Reel Speech Synthesizer:
+ * Enforces ONE consistent voice and ONE consistent provider across ALL scenes in the reel.
+ * If any scene fails or hits rate-limits, ALL scenes roll over together to the fallback engine.
+ * Never allows voice or engine switching between scenes within a single reel.
+ */
+export async function generateCohesiveReelSpeech(
+  sceneTexts: string[],
+  options: { topic?: string; mood?: string; voice?: string } = {}
+): Promise<{
+  sceneAudioPaths: string[];
+  sceneDurations: number[];
+  masterAudioPath: string;
+  totalDuration: number;
+  voiceUsed: string;
+}> {
+  const activeTtsDir = await ensureTtsDir();
+  const cleanedTexts = sceneTexts.map(t => humanizeSpeechText(t)).filter(Boolean);
+
+  if (cleanedTexts.length === 0) {
+    throw new Error('generateCohesiveReelSpeech: No valid scene texts provided.');
+  }
+
+  // 1. Try Gemini 3.8 Flash TTS for ALL scenes with a single locked voice
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
+    const geminiVoice = resolveGeminiVoiceForTopic(options.topic || '', options.mood || '');
+    try {
+      console.log(`[TTS Engine] 🔒 Attempting locked Gemini 3.8 Flash TTS (${geminiVoice}) for all ${cleanedTexts.length} scene(s)...`);
+      const paths: string[] = [];
+      const durations: number[] = [];
+
+      for (let i = 0; i < cleanedTexts.length; i++) {
+        const segPath = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+        await generateSpeechWithGemini(cleanedTexts[i], segPath, geminiVoice);
+        const dur = await getAudioDuration(segPath);
+        paths.push(segPath);
+        durations.push(dur);
+      }
+
+      const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+      await concatenateAudioTracks(paths, masterPath);
+      const totalDur = await getAudioDuration(masterPath);
+
+      console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Gemini (${geminiVoice}): ${totalDur.toFixed(1)}s across ${paths.length} scene(s).`);
+      return {
+        sceneAudioPaths: paths,
+        sceneDurations: durations,
+        masterAudioPath: masterPath,
+        totalDuration: totalDur,
+        voiceUsed: `Gemini-${geminiVoice}`
+      };
+    } catch (geminiErr: any) {
+      console.warn(`[TTS Engine] Gemini bulk synthesis failed (${geminiErr?.message || geminiErr}). Rolling over ENTIRE reel to Edge Neural TTS...`);
+    }
+  }
+
+  // 2. Try Edge Neural TTS for ALL scenes with a single locked candidate voice
+  const primaryEdgeVoice = options.voice || resolveBestVoiceForTopic(options.topic || '', options.mood || '');
+  const candidateVoices = [
+    primaryEdgeVoice,
+    CREATOR_VOICES.deepDocumentaryMale,
+    CREATOR_VOICES.cinematicStorytellerMale,
+    CREATOR_VOICES.authorityMale,
+    CREATOR_VOICES.britishNarratorMale
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+  for (const edgeVoice of candidateVoices) {
+    try {
+      console.log(`[TTS Engine] 🔒 Attempting locked Edge Neural TTS (${edgeVoice}) for all ${cleanedTexts.length} scene(s)...`);
+      const paths: string[] = [];
+      const durations: number[] = [];
+      let success = true;
+
+      for (let i = 0; i < cleanedTexts.length; i++) {
+        const segPath = path.join(activeTtsDir, `edge-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+        const tempText = path.join(activeTtsDir, `edge-text-${Date.now()}-${i}.txt`);
+        await fs.writeFile(tempText, cleanedTexts[i], 'utf8');
+
+        try {
+          await executeEdgeTTS([
+            '--file', tempText,
+            '--write-media', segPath,
+            '--voice', edgeVoice,
+            '--rate', '+0%',
+            '--pitch', '-4Hz'
+          ], 25000);
+
+          if (fsSync.existsSync(segPath) && (await fs.stat(segPath)).size >= 500) {
+            const dur = await getAudioDuration(segPath);
+            paths.push(segPath);
+            durations.push(dur);
+          } else {
+            success = false;
+            break;
+          }
+        } finally {
+          await fs.unlink(tempText).catch(() => {});
+        }
+      }
+
+      if (success && paths.length === cleanedTexts.length) {
+        const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+        await concatenateAudioTracks(paths, masterPath);
+        const totalDur = await getAudioDuration(masterPath);
+
+        console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Edge Neural TTS (${edgeVoice}): ${totalDur.toFixed(1)}s.`);
+        return {
+          sceneAudioPaths: paths,
+          sceneDurations: durations,
+          masterAudioPath: masterPath,
+          totalDuration: totalDur,
+          voiceUsed: edgeVoice
+        };
+      }
+    } catch (edgeErr: any) {
+      console.warn(`[TTS Engine] Edge voice "${edgeVoice}" failed for batch:`, edgeErr?.message || edgeErr);
+    }
+  }
+
+  // 3. Fallback: Pure HTTPS Web TTS (Consistent clean narrator for all scenes)
+  console.warn(`[TTS Engine] Rolling over ENTIRE reel to clean Web TTS fallback...`);
+  const paths: string[] = [];
+  const durations: number[] = [];
+
+  for (let i = 0; i < cleanedTexts.length; i++) {
+    const segPath = path.join(activeTtsDir, `web-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+    await generateSpeechViaHttp(cleanedTexts[i], segPath);
+    const dur = await getAudioDuration(segPath);
+    paths.push(segPath);
+    durations.push(dur);
+  }
+
+  const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+  await concatenateAudioTracks(paths, masterPath);
+  const totalDur = await getAudioDuration(masterPath);
+
+  return {
+    sceneAudioPaths: paths,
+    sceneDurations: durations,
+    masterAudioPath: masterPath,
+    totalDuration: totalDur,
+    voiceUsed: 'CleanWebNarrator'
+  };
 }
 
 /**

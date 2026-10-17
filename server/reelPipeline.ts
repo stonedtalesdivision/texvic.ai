@@ -6,7 +6,7 @@ import { ensureAutonomousAudioAsset } from './autonomousAudio.js';
 import { composeReel } from './reelComposer.js';
 import dotenv from 'dotenv';
 import { createVideoJob, saveVideoOutput, createMediaSignature } from './videoEngine.js';
-import { generateSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
+import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
 
 export function normalizeVideoUrl(videoUrl: string): string {
   if (!videoUrl) return '';
@@ -177,23 +177,42 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
   }
 
   const rawScenes = Array.isArray(reel.scenes) ? reel.scenes : [];
+  // Extract narration text for each scene
+  const narrationTexts: string[] = rawScenes.map((sc: any, i: number) => 
+    extractSceneNarration(sc, i, rawScenes.length, reel)
+  );
+
+  let cohesiveResult: any = null;
+  const hasNarration = narrationTexts.some(t => t && t.trim().length > 0);
+  if (hasNarration) {
+    try {
+      cohesiveResult = await generateCohesiveReelSpeech(narrationTexts, {
+        topic: reel?.title || reel?.niche,
+        mood: reel?.audio?.mood
+      });
+      console.log(`[Reel Video Pipeline] 🎙️ Cohesive voice locked: "${cohesiveResult.voiceUsed}" across ${cohesiveResult.sceneAudioPaths.length} scene(s).`);
+    } catch (bulkErr) {
+      console.warn('[Reel Video Pipeline] Cohesive TTS failed, falling back to scene loop:', bulkErr);
+    }
+  }
+
   const voiceSegments: string[] = [];
   const sceneDurations: number[] = [];
-
   let realSpeechCount = 0;
+
   for (let i = 0; i < rawScenes.length; i++) {
     const sc = rawScenes[i];
-    const narrationText = extractSceneNarration(sc, i, rawScenes.length, reel);
-    let segPath: string | null = null;
-    let audioDur = 0;
+    let segPath: string | null = cohesiveResult?.sceneAudioPaths?.[i] || null;
+    let audioDur = cohesiveResult?.sceneDurations?.[i] || 0;
 
-    if (narrationText) {
+    // Fallback if cohesive generation was missing for this specific scene
+    if (!segPath && narrationTexts[i]) {
       try {
         const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice, rate: '+0%' });
+        segPath = await generateSpeech(narrationTexts[i], undefined, { voice: selectedVoice, rate: '+0%' });
         audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
-        console.warn(`[Reel Video Pipeline] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
+        console.warn(`[Reel Video Pipeline] Primary voiceover fallback failed for scene ${i + 1}:`, segErr);
         const headline = String(sc?.headline || sc?.hookText || sc?.text || reel?.title || '').trim();
         if (headline) {
           try {
@@ -206,7 +225,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       }
     }
 
-    // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
+    // Calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
       realSpeechCount++;
       const sceneDur = Math.max(audioDur + 1.0, 6.0);
@@ -215,7 +234,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       sceneDurations.push(sceneDur);
       console.log(`[Reel Video Pipeline] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
     } else {
-      // Create a synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
+      // Synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
       const fallbackDur = Math.max(Number(sc?.durationSeconds || 8.0), 6.0);
       const silentSeg = await generateSilentAudioSegment(fallbackDur);
       voiceSegments.push(silentSeg);

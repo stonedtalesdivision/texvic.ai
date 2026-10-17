@@ -193,10 +193,10 @@ export function auditReelPackage(pkg: Partial<CuratedReelPackage>): EditorialAud
     score -= 25;
   }
 
-  // 2. Scene Count
+  // 2. Scene Count (Support 3 to 8 scene documentary arcs)
   const scenes = pkg.scenes || [];
-  if (scenes.length !== 3) {
-    rejectionReasons.push(`Expected exactly 3 scenes, found ${scenes.length}.`);
+  if (scenes.length < 3 || scenes.length > 8) {
+    rejectionReasons.push(`Expected between 3 and 8 scenes, found ${scenes.length}.`);
     score -= 30;
   }
 

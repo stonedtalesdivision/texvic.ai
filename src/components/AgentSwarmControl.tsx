@@ -720,9 +720,17 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
           config: { missionDirective: newAgentDirective.trim() || newAgentRole.trim() }
         })
       });
-      const data = await res.json();
-      if (data.success && data.agent) {
-        setAgents(prev => [...prev, data.agent]);
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = { error: `Server returned HTTP ${res.status}` };
+      }
+      if (res.ok && data.success && data.agent) {
+        setAgents(prev => {
+          const exists = prev.some(a => a.id === data.agent.id);
+          return exists ? prev.map(a => a.id === data.agent.id ? data.agent : a) : [...prev, data.agent];
+        });
         onShowToast(`✅ Deployed ${data.agent.name} to the active swarm!`);
         setShowCreateModal(false);
         setNewAgentName('');
@@ -731,10 +739,12 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
         setNewAgentDirective('');
         fetchSwarmState();
       } else {
-        onShowToast(data.error || 'Failed to create agent');
+        console.error('[Agent Commission Error]', res.status, data);
+        onShowToast(data.error || `Failed to create agent (HTTP ${res.status})`);
       }
-    } catch {
-      onShowToast('Could not commission new agent');
+    } catch (err: any) {
+      console.error('[Agent Commission Network Error]', err);
+      onShowToast(err?.message || 'Could not commission new agent');
     } finally {
       setCreatingAgent(false);
     }
@@ -834,7 +844,7 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-bold tracking-wide uppercase">
               <Users className="w-3.5 h-3.5" />
-              Autonomous Swarm Deployed • 4 Agents (1 Manager + 3 Specialists)
+              Autonomous Swarm Deployed • {agents.length} Agents ({workerAgents.length} Operatives + 1 Sentinel)
             </div>
             <h1 className="text-2xl lg:text-3xl font-black text-white tracking-tight flex items-center gap-3">
               Instagram Interaction & Community Swarm
