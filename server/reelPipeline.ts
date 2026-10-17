@@ -205,23 +205,15 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     let segPath: string | null = cohesiveResult?.sceneAudioPaths?.[i] || null;
     let audioDur = cohesiveResult?.sceneDurations?.[i] || 0;
 
-    // Fallback if cohesive generation was missing for this specific scene
+    // Fallback only if cohesive synthesis was completely absent for this specific scene
+    // Strictly locks to deepDocumentaryMale so no scene can EVER change voice or gender
     if (!segPath && narrationTexts[i]) {
       try {
-        const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        segPath = await generateSpeech(narrationTexts[i], undefined, { voice: selectedVoice, rate: '+0%' });
+        const lockedMaleVoice = cohesiveResult?.voiceUsed || CREATOR_VOICES.deepDocumentaryMale;
+        segPath = await generateSpeech(narrationTexts[i], undefined, { voice: lockedMaleVoice, rate: '+0%' });
         audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
-        console.warn(`[Reel Video Pipeline] Primary voiceover fallback failed for scene ${i + 1}:`, segErr);
-        const headline = String(sc?.headline || sc?.hookText || sc?.text || reel?.title || '').trim();
-        if (headline) {
-          try {
-            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale, rate: '+0%' });
-            audioDur = await getAudioDuration(segPath);
-          } catch (headErr) {
-            console.error(`[Reel Video Pipeline] Headline fallback also failed for scene ${i + 1}:`, headErr);
-          }
-        }
+        console.warn(`[Reel Video Pipeline] Voiceover fallback failed for scene ${i + 1}:`, segErr);
       }
     }
 

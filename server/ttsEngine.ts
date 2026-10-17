@@ -465,16 +465,18 @@ export async function generateCohesiveReelSpeech(
   sceneTexts: string[],
   options: { topic?: string; mood?: string; voice?: string } = {}
 ): Promise<{
-  sceneAudioPaths: string[];
+  sceneAudioPaths: (string | null)[];
   sceneDurations: number[];
   masterAudioPath: string;
   totalDuration: number;
   voiceUsed: string;
 }> {
   const activeTtsDir = await ensureTtsDir();
-  const cleanedTexts = sceneTexts.map(t => humanizeSpeechText(t)).filter(Boolean);
+  // Strictly preserve the 1-to-1 array mapping with scenes (never filter out empty elements!)
+  const cleanedTexts = sceneTexts.map(t => (t ? humanizeSpeechText(t) : ''));
+  const hasAnySpeech = cleanedTexts.some(t => t && t.trim().length > 0);
 
-  if (cleanedTexts.length === 0) {
+  if (!hasAnySpeech) {
     throw new Error('generateCohesiveReelSpeech: No valid scene texts provided.');
   }
 
@@ -482,85 +484,140 @@ export async function generateCohesiveReelSpeech(
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     const geminiVoice = resolveGeminiVoiceForTopic(options.topic || '', options.mood || '');
     try {
-      console.log(`[TTS Engine] 🔒 Attempting locked Gemini 3.8 Flash TTS (${geminiVoice}) for all ${cleanedTexts.length} scene(s)...`);
-      const paths: string[] = [];
+      console.log(`[TTS Engine] 🔒 Attempting locked Gemini 3.8 Flash TTS (${geminiVoice}) across all ${cleanedTexts.length} scene(s)...`);
+      const paths: (string | null)[] = [];
       const durations: number[] = [];
+      let allGeminiSuccess = true;
 
       for (let i = 0; i < cleanedTexts.length; i++) {
+        const text = cleanedTexts[i];
+        if (!text || text.trim().length === 0) {
+          paths.push(null);
+          durations.push(0);
+          continue;
+        }
+
         const segPath = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
-        await generateSpeechWithGemini(cleanedTexts[i], segPath, geminiVoice);
-        const dur = await getAudioDuration(segPath);
-        paths.push(segPath);
-        durations.push(dur);
+        let sceneSuccess = false;
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await generateSpeechWithGemini(text, segPath, geminiVoice);
+            if (fsSync.existsSync(segPath) && (await fs.stat(segPath)).size >= 500) {
+              const dur = await getAudioDuration(segPath);
+              paths.push(segPath);
+              durations.push(dur);
+              sceneSuccess = true;
+              break;
+            }
+          } catch (e: any) {
+            console.warn(`[TTS Engine] Gemini attempt ${attempt + 1} for scene ${i + 1} failed:`, e?.message || e);
+            await new Promise(r => setTimeout(r, 600));
+          }
+        }
+
+        if (!sceneSuccess) {
+          allGeminiSuccess = false;
+          break;
+        }
       }
 
-      const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
-      await concatenateAudioTracks(paths, masterPath);
-      const totalDur = await getAudioDuration(masterPath);
+      if (allGeminiSuccess && paths.length === cleanedTexts.length) {
+        const validPaths = paths.filter((p): p is string => Boolean(p));
+        const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+        await concatenateAudioTracks(validPaths, masterPath);
+        const totalDur = await getAudioDuration(masterPath);
 
-      console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Gemini (${geminiVoice}): ${totalDur.toFixed(1)}s across ${paths.length} scene(s).`);
-      return {
-        sceneAudioPaths: paths,
-        sceneDurations: durations,
-        masterAudioPath: masterPath,
-        totalDuration: totalDur,
-        voiceUsed: `Gemini-${geminiVoice}`
-      };
+        console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Gemini (${geminiVoice}): ${totalDur.toFixed(1)}s across ${validPaths.length} scene(s).`);
+        return {
+          sceneAudioPaths: paths,
+          sceneDurations: durations,
+          masterAudioPath: masterPath,
+          totalDuration: totalDur,
+          voiceUsed: `Gemini-${geminiVoice}`
+        };
+      }
     } catch (geminiErr: any) {
       console.warn(`[TTS Engine] Gemini bulk synthesis failed (${geminiErr?.message || geminiErr}). Rolling over ENTIRE reel to Edge Neural TTS...`);
     }
   }
 
   // 2. Try Edge Neural TTS for ALL scenes with a single locked candidate voice
+  // Every candidate voice is an authentic, deep adult MALE documentary narrator
   const primaryEdgeVoice = options.voice || resolveBestVoiceForTopic(options.topic || '', options.mood || '');
   const candidateVoices = [
     primaryEdgeVoice,
-    CREATOR_VOICES.deepDocumentaryMale,
-    CREATOR_VOICES.cinematicStorytellerMale,
-    CREATOR_VOICES.authorityMale,
-    CREATOR_VOICES.britishNarratorMale
+    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
+    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
+    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
+    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
+    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
+    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
   ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   for (const edgeVoice of candidateVoices) {
     try {
-      console.log(`[TTS Engine] 🔒 Attempting locked Edge Neural TTS (${edgeVoice}) for all ${cleanedTexts.length} scene(s)...`);
-      const paths: string[] = [];
+      console.log(`[TTS Engine] 🔒 Attempting locked Edge Neural MALE TTS (${edgeVoice}) across all ${cleanedTexts.length} scene(s)...`);
+      const paths: (string | null)[] = [];
       const durations: number[] = [];
       let success = true;
 
       for (let i = 0; i < cleanedTexts.length; i++) {
+        const text = cleanedTexts[i];
+        if (!text || text.trim().length === 0) {
+          paths.push(null);
+          durations.push(0);
+          continue;
+        }
+
         const segPath = path.join(activeTtsDir, `edge-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
         const tempText = path.join(activeTtsDir, `edge-text-${Date.now()}-${i}.txt`);
-        await fs.writeFile(tempText, cleanedTexts[i], 'utf8');
+        await fs.writeFile(tempText, text, 'utf8');
 
-        try {
-          await executeEdgeTTS([
-            '--file', tempText,
-            '--write-media', segPath,
-            '--voice', edgeVoice,
-            '--rate', '+0%',
-            '--pitch', '-4Hz'
-          ], 25000);
+        let sceneSuccess = false;
+        // Up to 3 attempts with 600ms backoff so transient socket closes recover cleanly
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await executeEdgeTTS([
+              '--file', tempText,
+              '--write-media', segPath,
+              '--voice', edgeVoice,
+              '--rate', '+0%',
+              '--pitch', '-4Hz'
+            ], 28000);
 
-          if (fsSync.existsSync(segPath) && (await fs.stat(segPath)).size >= 500) {
-            const dur = await getAudioDuration(segPath);
-            paths.push(segPath);
-            durations.push(dur);
-          } else {
-            success = false;
-            break;
+            if (fsSync.existsSync(segPath) && (await fs.stat(segPath)).size >= 500) {
+              const dur = await getAudioDuration(segPath);
+              paths.push(segPath);
+              durations.push(dur);
+              sceneSuccess = true;
+              break;
+            }
+          } catch (edgeAttemptErr: any) {
+            console.warn(`[TTS Engine] Voice ${edgeVoice} scene ${i + 1} attempt ${attempt + 1} error:`, edgeAttemptErr?.message || edgeAttemptErr);
+            await new Promise(r => setTimeout(r, 600));
           }
-        } finally {
-          await fs.unlink(tempText).catch(() => {});
         }
+
+        await fs.unlink(tempText).catch(() => {});
+
+        if (!sceneSuccess) {
+          console.warn(`[TTS Engine] Voice ${edgeVoice} failed on scene ${i + 1}. Abandoning this voice to guarantee zero mid-reel voice switching.`);
+          success = false;
+          break;
+        }
+
+        // Small 350ms delay between consecutive scenes to prevent Microsoft Edge WebSocket rate limiting
+        await new Promise(r => setTimeout(r, 350));
       }
 
       if (success && paths.length === cleanedTexts.length) {
+        const validPaths = paths.filter((p): p is string => Boolean(p));
         const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
-        await concatenateAudioTracks(paths, masterPath);
+        await concatenateAudioTracks(validPaths, masterPath);
         const totalDur = await getAudioDuration(masterPath);
 
-        console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Edge Neural TTS (${edgeVoice}): ${totalDur.toFixed(1)}s.`);
+        console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Edge Neural TTS (${edgeVoice}): ${totalDur.toFixed(1)}s across ${validPaths.length} scene(s).`);
         return {
           sceneAudioPaths: paths,
           sceneDurations: durations,
@@ -574,21 +631,29 @@ export async function generateCohesiveReelSpeech(
     }
   }
 
-  // 3. Fallback: Pure HTTPS Web TTS (Consistent clean narrator for all scenes)
+  // 3. Fallback: Pure HTTPS Web TTS (Consistent clean narrator for all scenes together)
   console.warn(`[TTS Engine] Rolling over ENTIRE reel to clean Web TTS fallback...`);
-  const paths: string[] = [];
+  const paths: (string | null)[] = [];
   const durations: number[] = [];
 
   for (let i = 0; i < cleanedTexts.length; i++) {
+    const text = cleanedTexts[i];
+    if (!text || text.trim().length === 0) {
+      paths.push(null);
+      durations.push(0);
+      continue;
+    }
+
     const segPath = path.join(activeTtsDir, `web-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
-    await generateSpeechViaHttp(cleanedTexts[i], segPath);
+    await generateSpeechViaHttp(text, segPath);
     const dur = await getAudioDuration(segPath);
     paths.push(segPath);
     durations.push(dur);
   }
 
+  const validPaths = paths.filter((p): p is string => Boolean(p));
   const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
-  await concatenateAudioTracks(paths, masterPath);
+  await concatenateAudioTracks(validPaths, masterPath);
   const totalDur = await getAudioDuration(masterPath);
 
   return {
