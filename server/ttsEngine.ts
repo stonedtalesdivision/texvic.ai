@@ -409,8 +409,8 @@ export async function generateSpeechViaHttp(
       chunkFiles.push(chunkPath);
     }
 
-    // Clean broadcast filter: smooth EQ warmth & compression, NEVER warp pitch or sample rate
-    const cleanBroadcastFilter = 'volume=1.20,equalizer=f=140:width_type=o:width=1.2:g=2.5,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6,aformat=sample_rates=44100:channel_layouts=stereo';
+    // Masculine documentary baritone filter: subtle pitch deepening to male vocal range + low-end warmth & compression
+    const cleanBroadcastFilter = 'aformat=sample_rates=44100,asetrate=44100*0.88,atempo=1.1364,equalizer=f=120:width_type=o:width=1.2:g=3.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6,channel_layouts=stereo';
 
     if (chunkFiles.length === 1) {
       await execFileAsync('ffmpeg', [
@@ -512,6 +512,11 @@ export async function generateCohesiveReelSpeech(
             }
           } catch (e: any) {
             console.warn(`[TTS Engine] Gemini attempt ${attempt + 1} for scene ${i + 1} failed:`, e?.message || e);
+            if (String(e?.message || e).includes('429') || String(e?.message || e).includes('RESOURCE_EXHAUSTED')) {
+              console.warn('[TTS Engine] Gemini TTS quota exhausted (429). Fast failing to Edge Neural TTS...');
+              allGeminiSuccess = false;
+              break;
+            }
             await new Promise(r => setTimeout(r, 600));
           }
         }
