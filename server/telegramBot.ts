@@ -252,26 +252,64 @@ export async function sendTelegramAlert(
 }
 
 /**
- * Notifies owner when a new Reel is successfully rendered and published to Instagram
+ * Notifies owner when a new Reel is successfully rendered and published simultaneously
+ * across Instagram, Facebook Page, and Facebook User Account
  */
 export async function notifyReelPublished(reel: {
   title?: string;
   niche?: string;
   permalink?: string;
   mediaId?: string;
+  fbPermalink?: string;
+  fbVideoId?: string;
+  fbAccountPermalink?: string;
+  fbAccountVideoId?: string;
+  platforms?: string[];
+  errors?: string[];
 }): Promise<void> {
   const title = reel.title || 'Untitled Documentary Reel';
   const niche = reel.niche || 'Untold History';
-  const permalink = reel.permalink || 'https://instagram.com';
+  const platforms = Array.isArray(reel.platforms) ? reel.platforms : [];
+
+  const platformLines: string[] = [];
+
+  if (reel.permalink) {
+    platformLines.push(`📸 <b>Instagram:</b> <a href="${reel.permalink}">${reel.permalink}</a>`);
+  } else if (platforms.includes('instagram')) {
+    platformLines.push(`📸 <b>Instagram:</b> <i>Published</i>`);
+  }
+
+  if (reel.fbPermalink) {
+    platformLines.push(`📄 <b>Facebook Page:</b> <a href="${reel.fbPermalink}">${reel.fbPermalink}</a>`);
+  } else if (platforms.includes('facebook_page')) {
+    platformLines.push(`📄 <b>Facebook Page:</b> <i>Published</i>`);
+  }
+
+  if (reel.fbAccountPermalink) {
+    platformLines.push(`👤 <b>Facebook Profile:</b> <a href="${reel.fbAccountPermalink}">${reel.fbAccountPermalink}</a>`);
+  } else if (platforms.includes('facebook_account')) {
+    platformLines.push(`👤 <b>Facebook Profile:</b> <i>Published</i>`);
+  }
+
+  const errorLines: string[] = [];
+  if (Array.isArray(reel.errors) && reel.errors.length > 0) {
+    reel.errors.forEach(err => {
+      errorLines.push(`⚠️ <i>Notice:</i> ${err}`);
+    });
+  }
 
   const message = [
-    `🎬 <b>NEW REEL PUBLISHED TO INSTAGRAM</b>`,
+    `🎬 <b>SIMULTANEOUS REEL PUBLISHED</b>`,
     ``,
     `📌 <b>Title:</b> ${title}`,
     `🏛️ <b>Niche:</b> ${niche}`,
-    `🔗 <b>Watch on Instagram:</b> <a href="${permalink}">${permalink}</a>`,
-    `💬 <i>Auto-kickstart CTA comment placed. Ready for algorithm indexing.</i>`
-  ].join('\n');
+    ``,
+    `🌐 <b>Live Destinations:</b>`,
+    platformLines.length > 0 ? platformLines.join('\n') : `<i>Published to active feeds</i>`,
+    errorLines.length > 0 ? `\n${errorLines.join('\n')}` : ``,
+    ``,
+    `💬 <i>Auto-kickstart CTA and cross-platform algorithms primed.</i>`
+  ].filter(line => line !== null && line !== undefined).join('\n');
 
   await sendTelegramAlert(message);
 }

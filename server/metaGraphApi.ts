@@ -16,6 +16,8 @@ export interface MetaAccountDetails {
   website?: string;
 }
 
+import fs from 'fs';
+
 export interface PublishReelResult {
   success: boolean;
   mediaId?: string;
@@ -24,8 +26,27 @@ export interface PublishReelResult {
   error?: string;
 }
 
+export interface PublishFacebookReelResult {
+  success: boolean;
+  videoId?: string;
+  permalink?: string;
+  error?: string;
+  platform: 'facebook_page' | 'facebook_account';
+}
+
+export interface FacebookAccountDetails {
+  id: string;
+  name: string;
+  username?: string;
+  link?: string;
+  profile_picture_url?: string;
+  followers_count?: number;
+  fan_count?: number;
+}
+
 const GRAPH_API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v26.0';
 const GRAPH_BASE_URL = `https://graph.instagram.com/${GRAPH_API_VERSION}`;
+const FB_GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const INSTAGRAM_OAUTH_URL = 'https://www.instagram.com/oauth/authorize';
 const INSTAGRAM_TOKEN_URL = 'https://api.instagram.com/oauth/access_token';
 
@@ -353,6 +374,345 @@ export async function publishReelToInstagram(
       success: false,
       error: err?.message || 'Network exception occurred during Instagram Reel publishing pipeline'
     };
+  }
+}
+
+/**
+ * Publishes a Reel simultaneously to a Facebook Page via Meta Graph API
+ * Pathway 1: 3-step Facebook Page Video Reels API (upload_phase=start -> binary bytes to rupload -> upload_phase=finish)
+ * Pathway 2: Resilient fallback to POST /{page_id}/videos with file_url
+ */
+export async function publishReelToFacebookPage(
+  pageId: string,
+  accessToken: string,
+  params: {
+    videoUrl: string;
+    caption: string;
+    title?: string;
+    localFilePath?: string;
+  }
+): Promise<PublishFacebookReelResult> {
+  if (!pageId || !accessToken) {
+    return {
+      success: false,
+      platform: 'facebook_page',
+      error: 'Missing Facebook Page credentials (pageId or accessToken).'
+    };
+  }
+
+  // Pre-flight probe video URL
+  if (params.videoUrl && params.videoUrl.startsWith('http')) {
+    const probe = await verifyPublicMediaUrl(params.videoUrl, 'video');
+    if (!probe.reachable && (!params.localFilePath || !fs.existsSync(params.localFilePath))) {
+      return {
+        success: false,
+        platform: 'facebook_page',
+        error: `Facebook Page Reel pre-flight validation failed: ${probe.error}`
+      };
+    }
+  }
+
+  // Read local video buffer if available to enable fast direct binary chunk upload
+  let videoBuffer: Buffer | null = null;
+  if (params.localFilePath && fs.existsSync(params.localFilePath)) {
+    try {
+      videoBuffer = fs.readFileSync(params.localFilePath);
+    } catch (err) {
+      console.warn(`[FB Page Reel] Failed to read local video file ${params.localFilePath}:`, err);
+    }
+  }
+
+  if (!videoBuffer && params.videoUrl && params.videoUrl.startsWith('http')) {
+    try {
+      const res = await fetch(params.videoUrl);
+      if (res.ok) {
+        videoBuffer = Buffer.from(await res.arrayBuffer());
+      }
+    } catch (err) {
+      console.warn(`[FB Page Reel] Could not fetch video buffer from URL:`, err);
+    }
+  }
+
+  // Attempt 1: Official 3-step Facebook Page Reels API
+  try {
+    console.log(`[FB Page Reel] Initiating 3-step Reels upload for Page ${pageId}...`);
+    const startUrl = `${FB_GRAPH_BASE_URL}/${pageId}/video_reels`;
+    const startBody = new URLSearchParams({
+      upload_phase: 'start',
+      access_token: accessToken
+    });
+
+    const startRes = await fetch(startUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: startBody.toString()
+    });
+
+    const startData = await startRes.json();
+    if (startRes.ok && startData.video_id && startData.upload_url && videoBuffer) {
+      console.log(`[FB Page Reel] Step 1 start successful. Video ID: ${startData.video_id}. Uploading binary chunk (${videoBuffer.length} bytes)...`);
+
+      const uploadRes = await fetch(startData.upload_url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `OAuth ${accessToken}`,
+          'offset': '0',
+          'file_size': String(videoBuffer.length),
+          'Content-Type': 'application/octet-stream'
+        },
+        body: new Uint8Array(videoBuffer)
+      });
+
+      if (!uploadRes.ok) {
+        console.warn(`[FB Page Reel] Step 2 binary upload returned HTTP ${uploadRes.status}`);
+      }
+
+      console.log(`[FB Page Reel] Step 3: Finishing and publishing reel...`);
+      const finishUrl = `${FB_GRAPH_BASE_URL}/${pageId}/video_reels`;
+      const finishBody = new URLSearchParams({
+        upload_phase: 'finish',
+        access_token: accessToken,
+        video_id: startData.video_id,
+        video_state: 'PUBLISHED',
+        description: params.caption
+      });
+      if (params.title) {
+        finishBody.set('title', params.title.slice(0, 255));
+      }
+
+      const finishRes = await fetch(finishUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: finishBody.toString()
+      });
+
+      const finishData = await finishRes.json();
+      if (finishRes.ok && finishData.success !== false) {
+        const videoId = startData.video_id;
+        let permalink = `https://www.facebook.com/reel/${videoId}`;
+        try {
+          const infoRes = await fetch(`${FB_GRAPH_BASE_URL}/${videoId}?fields=permalink_url&access_token=${encodeURIComponent(accessToken)}`);
+          const infoData = await infoRes.json();
+          if (infoData.permalink_url) permalink = infoData.permalink_url;
+        } catch {}
+
+        console.log(`[FB Page Reel] ✅ Published to Facebook Page via Reels API! Permalink: ${permalink}`);
+        return {
+          success: true,
+          platform: 'facebook_page',
+          videoId,
+          permalink
+        };
+      } else {
+        console.warn(`[FB Page Reel] Reels API finish phase returned:`, finishData);
+      }
+    } else {
+      console.warn(`[FB Page Reel] Reels API start phase failed:`, startData);
+    }
+  } catch (reelsApiErr) {
+    console.warn(`[FB Page Reel] Reels API exception, attempting fallback to videos endpoint:`, reelsApiErr);
+  }
+
+  // Attempt 2: Resilient fallback to POST /{page_id}/videos with file_url
+  try {
+    console.log(`[FB Page Reel] Attempting fallback to Facebook Page Videos API (POST /${pageId}/videos)...`);
+    const fallbackUrl = `${FB_GRAPH_BASE_URL}/${pageId}/videos`;
+    const fallbackBody = new URLSearchParams({
+      file_url: params.videoUrl,
+      description: params.caption,
+      published: 'true',
+      access_token: accessToken
+    });
+    if (params.title) {
+      fallbackBody.set('title', params.title.slice(0, 255));
+    }
+
+    const fallbackRes = await fetch(fallbackUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: fallbackBody.toString()
+    });
+
+    const fallbackData = await fallbackRes.json();
+    if (fallbackRes.ok && fallbackData.id) {
+      const videoId = fallbackData.id;
+      let permalink = `https://www.facebook.com/reel/${videoId}`;
+      try {
+        const infoRes = await fetch(`${FB_GRAPH_BASE_URL}/${videoId}?fields=permalink_url&access_token=${encodeURIComponent(accessToken)}`);
+        const infoData = await infoRes.json();
+        if (infoData.permalink_url) permalink = infoData.permalink_url;
+      } catch {}
+
+      console.log(`[FB Page Reel] ✅ Published to Facebook Page via Videos API! Permalink: ${permalink}`);
+      return {
+        success: true,
+        platform: 'facebook_page',
+        videoId,
+        permalink
+      };
+    }
+
+    return {
+      success: false,
+      platform: 'facebook_page',
+      error: fallbackData.error?.message || 'Failed to publish video to Facebook Page'
+    };
+  } catch (fallbackErr: any) {
+    return {
+      success: false,
+      platform: 'facebook_page',
+      error: fallbackErr?.message || 'Network exception publishing to Facebook Page'
+    };
+  }
+}
+
+/**
+ * Publishes a Reel / Video to a Facebook User Account (Profile) via Meta Graph API
+ * Endpoint: POST /{user_id}/videos with file_url or direct binary payload
+ */
+export async function publishReelToFacebookAccount(
+  userId: string,
+  accessToken: string,
+  params: {
+    videoUrl: string;
+    caption: string;
+    title?: string;
+    localFilePath?: string;
+  }
+): Promise<PublishFacebookReelResult> {
+  if (!userId || !accessToken) {
+    return {
+      success: false,
+      platform: 'facebook_account',
+      error: 'Missing Facebook User Account credentials (userId or accessToken).'
+    };
+  }
+
+  // Pre-flight probe video URL
+  if (params.videoUrl && params.videoUrl.startsWith('http')) {
+    const probe = await verifyPublicMediaUrl(params.videoUrl, 'video');
+    if (!probe.reachable && (!params.localFilePath || !fs.existsSync(params.localFilePath))) {
+      return {
+        success: false,
+        platform: 'facebook_account',
+        error: `Facebook Account Reel pre-flight validation failed: ${probe.error}`
+      };
+    }
+  }
+
+  try {
+    const targetId = userId === 'me' ? 'me' : userId;
+    console.log(`[FB Account Reel] Publishing video to Facebook User Account (${targetId})...`);
+
+    const url = `${FB_GRAPH_BASE_URL}/${targetId}/videos`;
+    const body = new URLSearchParams({
+      file_url: params.videoUrl,
+      description: params.caption,
+      published: 'true',
+      privacy: JSON.stringify({ value: 'EVERYONE' }),
+      access_token: accessToken
+    });
+    if (params.title) {
+      body.set('title', params.title.slice(0, 255));
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.id) {
+      return {
+        success: false,
+        platform: 'facebook_account',
+        error: data.error?.message || 'Failed to publish video to Facebook User Account'
+      };
+    }
+
+    const videoId = data.id;
+    let permalink = `https://www.facebook.com/reel/${videoId}`;
+    try {
+      const infoRes = await fetch(`${FB_GRAPH_BASE_URL}/${videoId}?fields=permalink_url&access_token=${encodeURIComponent(accessToken)}`);
+      const infoData = await infoRes.json();
+      if (infoData.permalink_url) permalink = infoData.permalink_url;
+    } catch {}
+
+    console.log(`[FB Account Reel] ✅ Published to Facebook User Account! Permalink: ${permalink}`);
+    return {
+      success: true,
+      platform: 'facebook_account',
+      videoId,
+      permalink
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      platform: 'facebook_account',
+      error: err?.message || 'Network error publishing video to Facebook Account'
+    };
+  }
+}
+
+/**
+ * Fetches real Facebook Page profile and metadata from Meta Graph API
+ */
+export async function getFacebookPageProfile(
+  pageId: string,
+  accessToken: string
+): Promise<{ success: boolean; data?: FacebookAccountDetails; error?: string }> {
+  try {
+    const url = `${FB_GRAPH_BASE_URL}/${pageId}?fields=id,name,link,picture,followers_count,fan_count&access_token=${encodeURIComponent(accessToken)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      return { success: false, error: data.error?.message || 'Failed to query Facebook Page profile' };
+    }
+    return {
+      success: true,
+      data: {
+        id: data.id,
+        name: data.name,
+        username: data.name,
+        link: data.link || `https://www.facebook.com/${data.id}`,
+        profile_picture_url: data.picture?.data?.url || '',
+        followers_count: data.followers_count || 0,
+        fan_count: data.fan_count || 0
+      }
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error querying Facebook Page profile' };
+  }
+}
+
+/**
+ * Fetches real Facebook User profile and metadata from Meta Graph API
+ */
+export async function getFacebookUserProfile(
+  userId: string,
+  accessToken: string
+): Promise<{ success: boolean; data?: FacebookAccountDetails; error?: string }> {
+  try {
+    const target = userId && userId !== 'me' ? userId : 'me';
+    const url = `${FB_GRAPH_BASE_URL}/${target}?fields=id,name,picture,link&access_token=${encodeURIComponent(accessToken)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      return { success: false, error: data.error?.message || 'Failed to query Facebook User profile' };
+    }
+    return {
+      success: true,
+      data: {
+        id: data.id,
+        name: data.name,
+        username: data.name,
+        link: data.link || `https://www.facebook.com/${data.id}`,
+        profile_picture_url: data.picture?.data?.url || ''
+      }
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error querying Facebook User profile' };
   }
 }
 

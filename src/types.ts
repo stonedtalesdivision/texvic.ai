@@ -70,6 +70,13 @@ export interface ReelItem {
   ig_media_id?: string;
   ig_container_id?: string;
   permalink?: string;
+  fb_video_id?: string;
+  fb_permalink?: string;
+  fb_status?: string;
+  fb_account_video_id?: string;
+  fb_account_permalink?: string;
+  fb_account_status?: string;
+  platforms_published?: string[];
   publishTimestamp?: string;
 }
 

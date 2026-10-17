@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'fs';
 import path from 'path';
-import { encryptSecret } from './tokenVault.js';
+import { encryptSecret, decryptSecret } from './tokenVault.js';
 
 const DB_DIR = path.join(process.cwd(), 'data');
 if (!fs.existsSync(DB_DIR)) {
@@ -211,6 +211,13 @@ try { db.exec(`ALTER TABLE posts ADD COLUMN ig_media_id TEXT`); } catch {}
 try { db.exec(`ALTER TABLE posts ADD COLUMN permalink TEXT`); } catch {}
 try { db.exec(`ALTER TABLE posts ADD COLUMN publish_timestamp TEXT`); } catch {}
 try { db.exec(`ALTER TABLE reels ADD COLUMN scheduled_time TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN fb_video_id TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN fb_permalink TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN fb_status TEXT DEFAULT 'idle'`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_video_id TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_permalink TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_status TEXT DEFAULT 'idle'`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN platforms_published_json TEXT DEFAULT '[]'`); } catch {}
 
 // Seed Default Lead Magnet Keyword Triggers
 try {
@@ -566,6 +573,149 @@ export function switchActiveAccount(accountId: string): any {
 export function updateAccountPersona(accountId: string, persona: any): void {
   db.prepare('UPDATE account_connections SET persona_json = ?, updated_at = ? WHERE id = ?')
     .run(JSON.stringify(persona), new Date().toISOString(), accountId);
+}
+
+/**
+ * Returns the currently active Facebook Page connection (from SQLite or .env fallback)
+ */
+export function getFacebookPageConnection(): {
+  pageId: string;
+  accessToken: string;
+  isConnected: boolean;
+  name?: string;
+  username?: string;
+} | null {
+  try {
+    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'facebook_page' OR platform = 'facebook_page' LIMIT 1").get() as any;
+    if (dbRow && dbRow.is_connected && dbRow.access_token && dbRow.account_id) {
+      let token = '';
+      try {
+        token = decryptSecret(dbRow.access_token);
+      } catch {
+        token = String(dbRow.access_token);
+      }
+      return {
+        pageId: dbRow.account_id,
+        accessToken: token,
+        isConnected: true,
+        name: dbRow.name || 'Facebook Page',
+        username: dbRow.username || dbRow.account_id
+      };
+    }
+  } catch (err) {
+    console.warn('[Database] getFacebookPageConnection query notice:', err);
+  }
+
+  // Fallback to environment variables
+  const envPageId = process.env.FACEBOOK_PAGE_ID || '';
+  const envToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || '';
+  if (envPageId && envToken) {
+    return {
+      pageId: envPageId,
+      accessToken: envToken,
+      isConnected: true,
+      name: 'Facebook Page (.env)',
+      username: envPageId
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Returns the currently active Facebook User Account connection (from SQLite or .env fallback)
+ */
+export function getFacebookAccountConnection(): {
+  userId: string;
+  accessToken: string;
+  isConnected: boolean;
+  name?: string;
+  username?: string;
+} | null {
+  try {
+    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'facebook_account' OR platform = 'facebook_account' LIMIT 1").get() as any;
+    if (dbRow && dbRow.is_connected && dbRow.access_token && dbRow.account_id) {
+      let token = '';
+      try {
+        token = decryptSecret(dbRow.access_token);
+      } catch {
+        token = String(dbRow.access_token);
+      }
+      return {
+        userId: dbRow.account_id,
+        accessToken: token,
+        isConnected: true,
+        name: dbRow.name || 'Facebook User',
+        username: dbRow.username || dbRow.account_id
+      };
+    }
+  } catch (err) {
+    console.warn('[Database] getFacebookAccountConnection query notice:', err);
+  }
+
+  // Fallback to environment variables
+  const envUserId = process.env.FACEBOOK_USER_ID || process.env.FACEBOOK_ACCOUNT_ID || '';
+  const envToken = process.env.FACEBOOK_USER_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || '';
+  if (envUserId && envToken) {
+    return {
+      userId: envUserId,
+      accessToken: envToken,
+      isConnected: true,
+      name: 'Facebook Profile (.env)',
+      username: envUserId
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Saves or updates a Facebook Page or Facebook User Account connection in SQLite
+ */
+export function saveFacebookConnection(params: {
+  target: 'page' | 'account';
+  id: string;
+  name?: string;
+  accessToken: string;
+  username?: string;
+}): void {
+  const connectionId = params.target === 'page' ? 'facebook_page' : 'facebook_account';
+  const platform = params.target === 'page' ? 'facebook_page' : 'facebook_account';
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO account_connections (
+      id, platform, account_id, username, name, profile_picture_url, biography,
+      followers_count, follows_count, media_count, access_token, is_connected, updated_at
+    ) VALUES (?, ?, ?, ?, ?, '', '', 0, 0, 0, ?, 1, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      account_id = excluded.account_id,
+      username = excluded.username,
+      name = excluded.name,
+      access_token = excluded.access_token,
+      is_connected = 1,
+      updated_at = excluded.updated_at
+  `).run(
+    connectionId,
+    platform,
+    params.id,
+    params.username || params.name || params.id,
+    params.name || (params.target === 'page' ? 'Facebook Page' : 'Facebook User'),
+    encryptSecret(params.accessToken),
+    now
+  );
+}
+
+/**
+ * Disconnects a Facebook Page or Facebook User Account connection
+ */
+export function disconnectFacebookConnection(target: 'page' | 'account'): void {
+  const connectionId = target === 'page' ? 'facebook_page' : 'facebook_account';
+  db.prepare(`
+    UPDATE account_connections
+    SET is_connected = 0, access_token = '', updated_at = ?
+    WHERE id = ?
+  `).run(new Date().toISOString(), connectionId);
 }
 
 export interface LeadMagnetTrigger {

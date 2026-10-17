@@ -267,7 +267,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
 
                     {/* Publish Now Button (or Published badge) */}
                     {isPublished ? (
-                      <span className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-1.5">
+                      <span className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-1.5 flex-wrap">
                         <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                         Published
                         {reel.permalink && (
@@ -275,11 +275,35 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                             href={reel.permalink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="ml-1 text-emerald-300 hover:text-white inline-flex items-center"
-                            title="View live on Instagram"
+                            className="ml-1 text-pink-400 hover:text-white inline-flex items-center text-[10px] font-bold"
+                            title="View on Instagram"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <ExternalLink className="w-3 h-3" />
+                            IG ↗
+                          </a>
+                        )}
+                        {reel.fb_permalink && (
+                          <a
+                            href={reel.fb_permalink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-1 text-blue-400 hover:text-white inline-flex items-center text-[10px] font-bold"
+                            title="View on Facebook Page"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            FB ↗
+                          </a>
+                        )}
+                        {reel.fb_account_permalink && (
+                          <a
+                            href={reel.fb_account_permalink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-1 text-indigo-400 hover:text-white inline-flex items-center text-[10px] font-bold"
+                            title="View on Facebook Profile"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Profile ↗
                           </a>
                         )}
                       </span>
