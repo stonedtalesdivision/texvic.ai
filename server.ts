@@ -87,7 +87,9 @@ import {
   detectTelegramChatId, 
   testTelegramAlertDetailed,
   startTelegramCommandListener,
-  notifyLeadReceived
+  notifyLeadReceived,
+  isRoutineSprintAlertsEnabled,
+  setRoutineSprintAlertsEnabled
 } from "./server/telegramBot.js";
 
 dotenv.config();
@@ -2844,7 +2846,14 @@ app.post("/api/agents/:id/toggle", (req, res) => {
     const { id } = req.params;
     const { active } = req.body || {};
     const agent = toggleAgent(id, active);
-    res.json({ success: true, agent });
+    if (id === 'agent_surfer' || id.includes('surfer')) {
+      if (agent.status === 'paused') {
+        browserSurfer.stopAutonomousSessions(true);
+      } else {
+        browserSurfer.startAutonomousSessions(undefined, true);
+      }
+    }
+    res.json({ success: true, agent, browserStatus: browserSurfer.getStatus() });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || String(err) });
   }
@@ -2854,8 +2863,21 @@ app.post("/api/agents/:id/toggle", (req, res) => {
 app.post("/api/agents/toggle-all", (req, res) => {
   try {
     const { active } = req.body || {};
-    const agents = toggleAllAgents(Boolean(active));
-    res.json({ success: true, agents });
+    const targetActive = Boolean(active);
+    const agents = toggleAllAgents(targetActive);
+    if (targetActive) {
+      browserSurfer.startAutonomousSessions(undefined, true);
+    } else {
+      browserSurfer.stopAutonomousSessions(true);
+    }
+
+    sendTelegramAlert(
+      targetActive 
+        ? '▶️ <b>All AI Swarm Agents & Sentinel 24x7 Surfer ACTIVATED</b> via Control Dashboard.' 
+        : '⏸️ <b>All AI Swarm Agents & Sentinel 24x7 Surfer PAUSED</b> via Control Dashboard.'
+    ).catch(() => {});
+
+    res.json({ success: true, agents, browserStatus: browserSurfer.getStatus() });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || String(err) });
   }
@@ -3334,6 +3356,17 @@ app.post("/api/telegram/test", async (_req, res) => {
     return res.status(400).json({ success: false, error: result.error });
   }
   res.json({ success: true, message: result.message });
+});
+
+// POST /api/telegram/routine-alerts - Toggle routine surfing sprint reports
+app.post("/api/telegram/routine-alerts", (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    setRoutineSprintAlertsEnabled(Boolean(enabled));
+    res.json({ success: true, enabled: Boolean(enabled) });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
 });
 
 // GET /api/browser/screenshot/:filename - Serve live browser screenshots with zero-caching
@@ -5111,8 +5144,13 @@ async function setupServer() {
     console.error("[Tunnel Supervisor] Error during tunnel startup:", err);
   });
 
-  // Start 24x7 Agent Surfer Autonomous Sessions with 8-Hour Human Circadian Sleep Scheduling
-  browserSurfer.startAutonomousSessions();
+  // Restore 24x7 Agent Surfer Autonomous Sessions if previously persisted as active
+  if (browserSurfer.isAutonomousPersisted()) {
+    console.info("[Agent Sentinel] Restoring autonomous reels surfing sessions from persistent DB state (Active)...");
+    browserSurfer.startAutonomousSessions(undefined, false);
+  } else {
+    console.info("[Agent Sentinel] Autonomous reels surfing sessions initialized as PAUSED (persisted DB state).");
+  }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Instagram AI Growth Agent Server running on http://0.0.0.0:${PORT}`);

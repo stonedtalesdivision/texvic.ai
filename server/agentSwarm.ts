@@ -174,6 +174,20 @@ export function toggleAgent(id: string, active?: boolean): EngagementAgent {
   const newStatus = active !== undefined ? (active ? 'active' : 'paused') : (current.status === 'active' ? 'paused' : 'active');
   const now = new Date().toISOString();
   db.prepare('UPDATE interaction_agents SET status = ?, updated_at = ? WHERE id = ?').run(newStatus, now, id);
+
+  // Synchronize browserSurfer engine if toggling Agent Surfer
+  if (id === 'agent_surfer' || id.includes('surfer')) {
+    import('./browserSurferEngine.js').then(({ browserSurfer }) => {
+      if (newStatus === 'paused') {
+        browserSurfer.stopAutonomousSessions(true);
+      } else {
+        browserSurfer.startAutonomousSessions(undefined, true);
+      }
+    }).catch(err => {
+      console.warn('[Agent Swarm] Failed to synchronize browserSurfer state for toggleAgent:', err);
+    });
+  }
+
   return getAgent(id)!;
 }
 
@@ -181,6 +195,18 @@ export function toggleAllAgents(active: boolean): EngagementAgent[] {
   const newStatus = active ? 'active' : 'paused';
   const now = new Date().toISOString();
   db.prepare('UPDATE interaction_agents SET status = ?, updated_at = ?').run(newStatus, now);
+
+  // Synchronize browserSurfer engine with master swarm switch
+  import('./browserSurferEngine.js').then(({ browserSurfer }) => {
+    if (active) {
+      browserSurfer.startAutonomousSessions(undefined, true);
+    } else {
+      browserSurfer.stopAutonomousSessions(true);
+    }
+  }).catch(err => {
+    console.warn('[Agent Swarm] Failed to synchronize browserSurfer state for toggleAllAgents:', err);
+  });
+
   return listAgents();
 }
 

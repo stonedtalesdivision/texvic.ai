@@ -133,7 +133,7 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
   const [showTelegramModal, setShowTelegramModal] = useState<boolean>(false);
   const [telegramTokenInput, setTelegramTokenInput] = useState<string>('');
   const [telegramChatIdInput, setTelegramChatIdInput] = useState<string>('');
-  const [telegramConfigStatus, setTelegramConfigStatus] = useState<{ isConfigured: boolean; botTokenMasked: string; chatId: string } | null>(null);
+  const [telegramConfigStatus, setTelegramConfigStatus] = useState<{ isConfigured: boolean; botTokenMasked: string; chatId: string; routineAlertsEnabled?: boolean } | null>(null);
   const [detectingTelegram, setDetectingTelegram] = useState<boolean>(false);
   const [savingTelegram, setSavingTelegram] = useState<boolean>(false);
 
@@ -150,13 +150,32 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
         setTelegramConfigStatus({
           isConfigured: data.isConfigured,
           botTokenMasked: data.botTokenMasked,
-          chatId: data.chatId
+          chatId: data.chatId,
+          routineAlertsEnabled: Boolean(data.routineAlertsEnabled)
         });
         if (data.chatId && !telegramChatIdInput) {
           setTelegramChatIdInput(data.chatId);
         }
       }
     } catch {}
+  };
+
+  const handleToggleRoutineAlerts = async () => {
+    const nextVal = !telegramConfigStatus?.routineAlertsEnabled;
+    try {
+      const res = await fetch('/api/telegram/routine-alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: nextVal })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTelegramConfigStatus(prev => prev ? { ...prev, routineAlertsEnabled: nextVal } : null);
+        onShowToast(nextVal ? '🔔 Routine Telegram Surfer reports enabled' : '🔕 Routine Telegram Surfer reports muted (Leads & reel alerts stay active)');
+      }
+    } catch {
+      onShowToast('Could not update alert preferences');
+    }
   };
 
   const handleDetectTelegramChat = async () => {
@@ -630,6 +649,9 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
         if (data.success && data.agent) {
           setAgents(prev => prev.map(a => a.id === id ? data.agent : a));
           onShowToast(`${data.agent.name} is now ${nextActive ? 'Active' : 'Paused'}`);
+          if (id === 'agent_surfer' || id.includes('surfer')) {
+            fetchBrowserStatus();
+          }
         }
       }
     } catch {
@@ -649,6 +671,7 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
         if (data.success && data.agents) {
           setAgents(data.agents);
           onShowToast(`All agents are now ${targetActive ? 'Active & Engaging' : 'Paused'}`);
+          fetchBrowserStatus();
         }
       }
     } catch {
@@ -3141,6 +3164,27 @@ export const AgentSwarmControl: React.FC<AgentSwarmControlProps> = ({ onShowToas
                   <p className="text-[10px] text-slate-500 mt-1">
                     You can also find your personal ID by sending /start to <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">@userinfobot</a>.
                   </p>
+                </div>
+
+                {/* Routine Sprint Reports Toggle */}
+                <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-bold text-white block">Routine Surfing Sprint Reports</span>
+                    <span className="text-[11px] text-slate-400 block">
+                      Send a Telegram summary after every periodic browsing session. (Inbound leads & published reels will always alert).
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleRoutineAlerts}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 ${
+                      telegramConfigStatus?.routineAlertsEnabled
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                        : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    {telegramConfigStatus?.routineAlertsEnabled ? '🔔 Reports Active' : '🔕 Muted (Clean)'}
+                  </button>
                 </div>
               </div>
 

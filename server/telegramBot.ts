@@ -1,11 +1,47 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { db } from './database.js';
 dotenv.config();
 
 export interface TelegramMessageOptions {
   parseMode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   disableWebPagePreview?: boolean;
+}
+
+/**
+ * Checks whether routine surfer sprint completion reports are enabled
+ */
+export function isRoutineSprintAlertsEnabled(): boolean {
+  if (process.env.TELEGRAM_NOTIFY_SURFER_SPRINTS !== undefined) {
+    return process.env.TELEGRAM_NOTIFY_SURFER_SPRINTS === 'true' || process.env.TELEGRAM_NOTIFY_SURFER_SPRINTS === '1';
+  }
+  try {
+    const row = db.prepare('SELECT notify_surfer_sprints FROM browser_surfer_sessions WHERE id = ?').get('primary_surfer') as any;
+    if (row && row.notify_surfer_sprints !== null && row.notify_surfer_sprints !== undefined) {
+      return Boolean(row.notify_surfer_sprints);
+    }
+  } catch {}
+  return false; // Default: muted so repetitive routine sprint reports do not spam the chat
+}
+
+/**
+ * Sets whether routine surfer sprint reports should be dispatched to Telegram
+ */
+export function setRoutineSprintAlertsEnabled(enabled: boolean): void {
+  process.env.TELEGRAM_NOTIFY_SURFER_SPRINTS = enabled ? 'true' : 'false';
+  try {
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO browser_surfer_sessions (id, is_logged_in, notify_surfer_sprints, updated_at)
+      VALUES ('primary_surfer', 0, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        notify_surfer_sprints = excluded.notify_surfer_sprints,
+        updated_at = excluded.updated_at
+    `).run(enabled ? 1 : 0, now);
+  } catch (err) {
+    console.warn('[Telegram Sentinel] Could not persist notify_surfer_sprints:', err);
+  }
 }
 
 /**
@@ -15,6 +51,7 @@ export function getTelegramConfigStatus(): {
   isConfigured: boolean;
   botTokenMasked: string;
   chatId: string;
+  routineAlertsEnabled: boolean;
 } {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
@@ -25,7 +62,8 @@ export function getTelegramConfigStatus(): {
   return {
     isConfigured: Boolean(token && chatId),
     botTokenMasked,
-    chatId
+    chatId,
+    routineAlertsEnabled: isRoutineSprintAlertsEnabled()
   };
 }
 
@@ -249,6 +287,15 @@ export async function notifySurferSessionFinished(stats: {
   restMinutes: number;
   nextSessionAt: string;
 }): Promise<void> {
+  // Suppress aborted or zero-reel sessions
+  if (!stats.reelsWatched || stats.reelsWatched === 0) return;
+
+  // Suppress routine sprint reports if muted
+  if (!isRoutineSprintAlertsEnabled()) {
+    console.info(`[Telegram Sentinel] 🔕 Routine sprint report muted (Session #${stats.sessionNumber}, ${stats.reelsWatched} reels). Lead alerts and reel publications remain active.`);
+    return;
+  }
+
   const nextTime = new Date(stats.nextSessionAt).toLocaleTimeString();
 
   const message = [
@@ -356,8 +403,9 @@ export async function handleIncomingTelegramCommand(commandText: string, fromCha
         `• <code>/status</code> - Live swarm, reels & browsing telemetry`,
         `• <code>/screenshot</code> - Instant snapshot of active Instagram browser`,
         `• <code>/surf</code> - Trigger on-demand human browsing sprint (5 reels)`,
-        `• <code>/pause</code> - Pause 24x7 autonomous scheduler`,
-        `• <code>/resume</code> - Resume 24x7 autonomous scheduler`,
+        `• <code>/pause</code> - Pause all agents & 24x7 autonomous scheduler`,
+        `• <code>/resume</code> - Resume all agents & 24x7 autonomous scheduler`,
+        `• <code>/sprints on|off</code> - Enable or mute routine surfing sprint reports`,
         `• <code>/leads</code> - View recent qualified inbound DM leads`
       ].join('\n');
       await sendTelegramAlert(helpMsg);
@@ -423,8 +471,10 @@ export async function handleIncomingTelegramCommand(commandText: string, fromCha
     case '/pause': {
       try {
         const { browserSurfer } = await import('./browserSurferEngine.js');
-        browserSurfer.stopAutonomousSessions();
-        await sendTelegramAlert('⏸️ <b>Sentinel 24x7 Autonomous Scheduler PAUSED.</b>');
+        const { toggleAllAgents } = await import('./agentSwarm.js');
+        browserSurfer.stopAutonomousSessions(true);
+        toggleAllAgents(false);
+        await sendTelegramAlert('⏸️ <b>All AI Swarm Agents & Sentinel 24x7 Surfer PAUSED.</b>\nDashboard and background tasks synced.');
       } catch (err: any) {
         await sendTelegramAlert(`❌ Failed to pause: ${err?.message || err}`);
       }
@@ -434,10 +484,35 @@ export async function handleIncomingTelegramCommand(commandText: string, fromCha
     case '/resume': {
       try {
         const { browserSurfer } = await import('./browserSurferEngine.js');
-        browserSurfer.startAutonomousSessions();
-        await sendTelegramAlert('▶️ <b>Sentinel 24x7 Autonomous Scheduler RESUMED.</b>');
+        const { toggleAllAgents } = await import('./agentSwarm.js');
+        browserSurfer.startAutonomousSessions(undefined, true);
+        toggleAllAgents(true);
+        await sendTelegramAlert('▶️ <b>All AI Swarm Agents & Sentinel 24x7 Surfer RESUMED.</b>\nDashboard and background tasks synced.');
       } catch (err: any) {
         await sendTelegramAlert(`❌ Failed to resume: ${err?.message || err}`);
+      }
+      break;
+    }
+
+    case '/sprints':
+    case '/alerts': {
+      try {
+        const parts = commandText.trim().split(/\s+/);
+        const sub = parts[1]?.toLowerCase();
+        if (sub === 'on') {
+          setRoutineSprintAlertsEnabled(true);
+          await sendTelegramAlert('🔔 <b>Routine Surfing Sprint Alerts: ENABLED</b>\nYou will receive a report after each feed surfing session.');
+        } else if (sub === 'off') {
+          setRoutineSprintAlertsEnabled(false);
+          await sendTelegramAlert('🔕 <b>Routine Surfing Sprint Alerts: MUTED</b>\nRoutine sprint completion reports are silenced. High-priority lead alerts and reel publish notifications remain active.');
+        } else {
+          const current = isRoutineSprintAlertsEnabled();
+          await sendTelegramAlert(
+            `🔔 <b>Routine Sprint Alerts:</b> ${current ? 'ENABLED' : 'MUTED'}\n\n• Use <code>/sprints on</code> to enable reports\n• Use <code>/sprints off</code> to mute routine reports`
+          );
+        }
+      } catch (err: any) {
+        await sendTelegramAlert(`❌ Error updating alert preferences: ${err?.message || err}`);
       }
       break;
     }

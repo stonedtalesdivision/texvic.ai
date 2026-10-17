@@ -131,8 +131,9 @@ class BrowserSurferManager extends EventEmitter {
     usersFollowed: 0
   };
 
-  // Autonomous periodic session state governed by Agent Sentinel (24x7 always ON by default, pausing only for human circadian sleep)
-  private autonomousSessionsEnabled = true;
+  // Autonomous periodic session state governed by Agent Sentinel (pausing only for human circadian sleep or user pause)
+  private autonomousSessionsEnabled = false;
+  private abortCurrentSession = false;
   private sessionState: 'idle' | 'surfing' | 'resting' | 'sleeping' = 'idle';
   private currentSessionNumber = 0;
   private nextSessionAt: string | null = null;
@@ -235,9 +236,27 @@ class BrowserSurferManager extends EventEmitter {
           latest_screenshot_path TEXT,
           status TEXT DEFAULT 'idle',
           stats_json TEXT DEFAULT '{}',
+          autonomous_sessions_enabled INTEGER DEFAULT 0,
+          notify_surfer_sprints INTEGER DEFAULT 0,
           updated_at TEXT NOT NULL
         );
       `);
+
+      // Ensure persistence columns exist if table was already created
+      try {
+        db.exec(`ALTER TABLE browser_surfer_sessions ADD COLUMN autonomous_sessions_enabled INTEGER DEFAULT 0;`);
+      } catch {}
+      try {
+        db.exec(`ALTER TABLE browser_surfer_sessions ADD COLUMN notify_surfer_sprints INTEGER DEFAULT 0;`);
+      } catch {}
+
+      // Hydrate autonomous session state from DB
+      const row = db.prepare('SELECT autonomous_sessions_enabled FROM browser_surfer_sessions WHERE id = ?').get('primary_surfer') as any;
+      if (row && row.autonomous_sessions_enabled !== null && row.autonomous_sessions_enabled !== undefined) {
+        this.autonomousSessionsEnabled = Boolean(row.autonomous_sessions_enabled);
+      } else {
+        this.autonomousSessionsEnabled = false;
+      }
     } catch (e) {
       console.warn('[Browser Surfer] DB table init warning:', e);
     }
@@ -1753,14 +1772,66 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
   }
 
   /**
+   * Persists autonomous session state to SQLite database
+   */
+  public setAutonomousPersistence(enabled: boolean) {
+    try {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO browser_surfer_sessions (id, is_logged_in, autonomous_sessions_enabled, updated_at)
+        VALUES ('primary_surfer', 0, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          autonomous_sessions_enabled = excluded.autonomous_sessions_enabled,
+          updated_at = excluded.updated_at
+      `).run(enabled ? 1 : 0, now);
+    } catch (e) {
+      console.warn('[Browser Surfer] Failed to persist autonomous session status:', e);
+    }
+  }
+
+  /**
+   * Returns whether autonomous sessions were enabled in persistent DB
+   */
+  public isAutonomousPersisted(): boolean {
+    try {
+      const row = db.prepare('SELECT autonomous_sessions_enabled FROM browser_surfer_sessions WHERE id = ?').get('primary_surfer') as any;
+      if (row && row.autonomous_sessions_enabled !== null && row.autonomous_sessions_enabled !== undefined) {
+        return Boolean(row.autonomous_sessions_enabled);
+      }
+    } catch {}
+    return false;
+  }
+
+  /**
+   * Interruptible delay that checks abort flag every 250ms
+   */
+  public async interruptibleWait(ms: number): Promise<boolean> {
+    const step = 250;
+    let waited = 0;
+    while (waited < ms) {
+      if (this.abortCurrentSession || !this.autonomousSessionsEnabled) {
+        return false;
+      }
+      const waitChunk = Math.min(step, ms - waited);
+      await new Promise(r => setTimeout(r, waitChunk));
+      waited += waitChunk;
+    }
+    return true;
+  }
+
+  /**
    * Activates Agent Sentinel's autonomous 24x7 periodic session manager.
    * Runs human reels sessions periodically (e.g. 20-45 reels) with natural rest breaks (25-55m).
    */
-  public startAutonomousSessions(config?: Partial<typeof this.sentinelConfig>) {
+  public startAutonomousSessions(config?: Partial<typeof this.sentinelConfig>, persist = true) {
     if (config) {
       this.sentinelConfig = { ...this.sentinelConfig, ...config };
     }
     this.autonomousSessionsEnabled = true;
+    this.abortCurrentSession = false;
+    if (persist) {
+      this.setAutonomousPersistence(true);
+    }
     console.info(`[Agent Sentinel] 🛡️ Autonomous reels surfing session lifecycle activated! Config: ${this.sentinelConfig.minReelsPerSession}-${this.sentinelConfig.maxReelsPerSession} reels/session, ${this.sentinelConfig.minBreakMinutes}-${this.sentinelConfig.maxBreakMinutes}m rest periods.`);
 
     if (this.sessionTimer) {
@@ -1778,15 +1849,20 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
   }
 
   /**
-   * Pauses Agent Sentinel's autonomous session manager.
+   * Pauses Agent Sentinel's autonomous session manager immediately.
+   * Aborts in-flight sessions and clears upcoming timers.
    */
-  public stopAutonomousSessions() {
+  public stopAutonomousSessions(persist = true) {
     this.autonomousSessionsEnabled = false;
+    this.abortCurrentSession = true;
     this.sessionState = 'idle';
     this.nextSessionAt = null;
     if (this.sessionTimer) {
       clearTimeout(this.sessionTimer);
       this.sessionTimer = null;
+    }
+    if (persist) {
+      this.setAutonomousPersistence(false);
     }
     console.info('[Agent Sentinel] 🛑 Autonomous reels surfing sessions paused.');
   }
@@ -1854,7 +1930,20 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
    * Runs 24x7 with realistic daytime sessions & rests, pausing only for ~8 hours human circadian sleep
    */
   private async runAutonomousSessionLoop() {
-    if (!this.autonomousSessionsEnabled) return;
+    if (!this.autonomousSessionsEnabled || this.abortCurrentSession) {
+      this.sessionState = 'idle';
+      return;
+    }
+
+    // Safety check: is Agent Surfer paused in the interaction_agents database table?
+    try {
+      const surferAgent = getAgent('agent_surfer');
+      if (surferAgent && surferAgent.status === 'paused') {
+        console.info('[Agent Sentinel] ⏸️ Agent Surfer is paused in interaction_agents. Halting autonomous session loop.');
+        this.stopAutonomousSessions(true);
+        return;
+      }
+    } catch {}
 
     if (this.isProcessing) {
       this.sessionTimer = setTimeout(() => this.runAutonomousSessionLoop(), 45000);
@@ -1949,8 +2038,10 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
       console.warn(`[Agent Sentinel] ⚠️ Session #${this.currentSessionNumber} encountered warning:`, err?.message || err);
     }
 
-    if (!this.autonomousSessionsEnabled) {
+    if (!this.autonomousSessionsEnabled || this.abortCurrentSession) {
       this.sessionState = 'idle';
+      this.nextSessionAt = null;
+      console.info('[Agent Sentinel] 🛑 Surfing was paused or aborted mid-run. Suppressing post-session rest and notifications.');
       return;
     }
 
@@ -2109,6 +2200,18 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
 
       // Loop through reels like a human browsing their feed
       for (let i = 0; i < sessionReels; i++) {
+        // Guard: check if session was cancelled or paused mid-run
+        if (this.abortCurrentSession || (options.isAutonomous && !this.autonomousSessionsEnabled)) {
+          console.warn(`[Browser Surfer] 🛑 Session aborted at reel ${i + 1}/${sessionReels} by pause command. Halting reels loop immediately.`);
+          await this.recordStep(
+            'Session Aborted by User',
+            'idle',
+            `Surfing session halted by user pause command at reel ${i + 1}/${sessionReels}. Releasing browser resources.`,
+            { page }
+          );
+          break;
+        }
+
         // Guarantee clean viewport on every reel iteration (dismiss any lingering drawers or popups)
         await this.ensureCleanReelViewport(page);
         await page.waitForTimeout(1000);
@@ -2214,7 +2317,13 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
         );
 
         // Human simulation: natural dwell while CDP streams frames live to the dashboard
-        await page.waitForTimeout(watchSeconds * 1000);
+        const dwellFinished = await this.interruptibleWait(watchSeconds * 1000);
+        if (!dwellFinished) {
+          console.warn(`[Browser Surfer] 🛑 Dwell interrupted by pause command on reel ${i + 1}. Exiting loop immediately.`);
+          break;
+        }
+
+        if (this.abortCurrentSession || (options.isAutonomous && !this.autonomousSessionsEnabled)) break;
 
         // 1. LIKE DECISION (Governed by Sentinel: 8-14% probability per reel, max 6 per session, checks daily ceiling)
         const maxSessionLikes = Math.max(2, Math.round(sessionReels * 0.14));
@@ -2338,6 +2447,7 @@ Zero robotic AI jargon. Zero software/coding references. Return ONLY the final m
       throw err;
     } finally {
       this.isProcessing = false;
+      this.abortCurrentSession = false;
     }
   }
 
