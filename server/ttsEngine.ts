@@ -169,13 +169,24 @@ async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ s
   throw lastError || new Error('No working edge-tts execution candidate found.');
 }
 
+async function ensureTtsDir(): Promise<string> {
+  try {
+    await fs.mkdir(TTS_DIR, { recursive: true });
+    return TTS_DIR;
+  } catch {
+    const fallback = path.join(os.tmpdir(), 'texvic_tts');
+    await fs.mkdir(fallback, { recursive: true });
+    return fallback;
+  }
+}
+
 /**
  * Synthesizes a clean silent audio segment of exact duration using ffmpeg.
  * Used as a zero-dropout sync fallback so scenes never lose alignment.
  */
 export async function generateSilentAudioSegment(durationSec: number, outputPath?: string): Promise<string> {
-  await fs.mkdir(TTS_DIR, { recursive: true });
-  const target = outputPath || path.join(TTS_DIR, `silence-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+  const activeTtsDir = await ensureTtsDir();
+  const target = outputPath || path.join(activeTtsDir, `silence-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.mp3`);
   const safeDur = Math.max(0.5, durationSec);
 
   await execFileAsync('ffmpeg', [
@@ -197,12 +208,12 @@ export async function generateSilentAudioSegment(durationSec: number, outputPath
  * Converts to standardized 44.1kHz stereo MP3 to prevent audio/visual drift.
  */
 export async function padAudioSegment(filePath: string, targetDurationSec: number, outputPath?: string): Promise<string> {
-  await fs.mkdir(TTS_DIR, { recursive: true });
+  const activeTtsDir = await ensureTtsDir();
   const currentDur = await getAudioDuration(filePath);
   if (currentDur >= targetDurationSec - 0.05) {
     return filePath;
   }
-  const paddedPath = outputPath || path.join(TTS_DIR, `padded-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.mp3`);
+  const paddedPath = outputPath || path.join(activeTtsDir, `padded-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.mp3`);
   try {
     await execFileAsync('ffmpeg', [
       '-y',
@@ -219,17 +230,6 @@ export async function padAudioSegment(filePath: string, targetDurationSec: numbe
   } catch (err) {
     console.warn(`[TTS Engine] Padding audio segment failed, falling back to original:`, err);
     return filePath;
-  }
-}
-
-async function ensureTtsDir(): Promise<string> {
-  try {
-    await fs.mkdir(TTS_DIR, { recursive: true });
-    return TTS_DIR;
-  } catch {
-    const fallback = path.join(os.tmpdir(), 'texvic_tts');
-    await fs.mkdir(fallback, { recursive: true });
-    return fallback;
   }
 }
 
@@ -252,6 +252,23 @@ export async function generateSpeech(
     throw new Error('TTS text cannot be empty');
   }
 
+  const cleanVoice = options.voice ? options.voice.replace(/^Gemini-/, '') : undefined;
+  const cacheKey = crypto.createHash('md5').update(`${cleanedText}__${cleanVoice || 'default'}__${options.rate || '0'}__${options.pitch || '0'}`).digest('hex');
+  const cachePath = path.join(activeTtsDir, `cache-${cacheKey}.mp3`);
+
+  if (fsSync.existsSync(cachePath)) {
+    try {
+      const stat = await fs.stat(cachePath);
+      if (stat.size >= 500) {
+        if (outputPath && outputPath !== cachePath) {
+          await fs.copyFile(cachePath, outputPath);
+          return outputPath;
+        }
+        return cachePath;
+      }
+    } catch {}
+  }
+
   const targetPath = outputPath || path.join(activeTtsDir, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
 
   // =========================================================================
@@ -260,10 +277,16 @@ export async function generateSpeech(
   // =========================================================================
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     try {
-      const geminiVoice = options.voice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(options.voice)
-        ? options.voice
+      const geminiVoice = cleanVoice && ['Charon', 'Fenrir', 'Puck', 'Orpheus'].includes(cleanVoice)
+        ? cleanVoice
         : resolveGeminiVoiceForTopic('', '');
-      return await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
+      const geminiResult = await generateSpeechWithGemini(cleanedText, targetPath, geminiVoice);
+      try {
+        if (fsSync.existsSync(geminiResult) && geminiResult !== cachePath) {
+          await fs.copyFile(geminiResult, cachePath);
+        }
+      } catch {}
+      return geminiResult;
     } catch (geminiErr: any) {
       console.warn('[TTS Engine] Tier 1 Gemini TTS unavailable, trying Edge Neural TTS:', geminiErr?.message || geminiErr);
     }
@@ -273,7 +296,7 @@ export async function generateSpeech(
   // Tier 2: Microsoft Edge Neural TTS (Natural Male Neural Voices)
   // Deep adult male documentary baritones: Christopher / Guy / Eric / Andrew / Brian / Ryan
   // =========================================================================
-  const primaryVoice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
+  const primaryVoice = cleanVoice || CREATOR_VOICES.deepDocumentaryMale;
   const rate = options.rate || '+0%';   // 1.0x natural human speech rate
   const pitch = options.pitch || '-4Hz'; // Rich, authoritative documentary chest resonance
 
@@ -309,6 +332,11 @@ export async function generateSpeech(
           const stat = await fs.stat(targetPath);
           if (stat.size >= 500) {
             console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Edge Neural TTS (${voiceToUse} @ 1.0x).`);
+            try {
+              if (targetPath !== cachePath) {
+                await fs.copyFile(targetPath, cachePath);
+              }
+            } catch {}
             return targetPath;
           }
           try { await fs.unlink(targetPath); } catch {}
@@ -328,7 +356,13 @@ export async function generateSpeech(
   // Clean broadcast normalization, ZERO chipmunk or pitch warping
   // =========================================================================
   console.warn('[TTS Engine] Invoking Tier 3 HTTPS Web TTS fallback...');
-  return await generateSpeechViaHttp(cleanedText, targetPath);
+  const httpResult = await generateSpeechViaHttp(cleanedText, targetPath);
+  try {
+    if (fsSync.existsSync(httpResult) && httpResult !== cachePath) {
+      await fs.copyFile(httpResult, cachePath);
+    }
+  } catch {}
+  return httpResult;
 }
 
 /**
@@ -340,7 +374,7 @@ export async function generateSpeechViaHttp(
   text: string,
   outputPath: string
 ): Promise<string> {
-  await fs.mkdir(TTS_DIR, { recursive: true });
+  const activeTtsDir = await ensureTtsDir();
 
   // Split into natural phrases (max ~140 chars per chunk for web TTS)
   const sentences = text
@@ -381,7 +415,7 @@ export async function generateSpeechViaHttp(
   }
 
   const chunkFiles: string[] = [];
-  const tempBase = path.join(TTS_DIR, `http-chunk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+  const tempBase = path.join(activeTtsDir, `http-chunk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
 
   try {
     for (let i = 0; i < chunks.length; i++) {
@@ -679,7 +713,7 @@ export async function generateSpeechWithGemini(
   outputPath: string,
   voiceName = 'Charon'
 ): Promise<string> {
-  await fs.mkdir(TTS_DIR, { recursive: true });
+  await ensureTtsDir();
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured');
@@ -761,7 +795,8 @@ export async function concatenateAudioTracks(segmentPaths: string[], outputPath:
     return outputPath;
   }
 
-  const concatList = path.join(TTS_DIR, `concat-${Date.now()}.txt`);
+  const activeTtsDir = await ensureTtsDir();
+  const concatList = path.join(activeTtsDir, `concat-${Date.now()}.txt`);
   const content = segmentPaths
     .map(p => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
     .join('\n');

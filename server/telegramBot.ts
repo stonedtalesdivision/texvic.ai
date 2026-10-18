@@ -266,6 +266,8 @@ export async function notifyReelPublished(reel: {
   fbAccountVideoId?: string;
   platforms?: string[];
   errors?: string[];
+  videoUrl?: string;
+  videoPath?: string;
 }): Promise<void> {
   const title = reel.title || 'Untitled Documentary Reel';
   const niche = reel.niche || 'Untold History';
@@ -310,6 +312,13 @@ export async function notifyReelPublished(reel: {
     ``,
     `💬 <i>Auto-kickstart CTA and cross-platform algorithms primed.</i>`
   ].filter(line => line !== null && line !== undefined).join('\n');
+
+  // If a video file or URL is provided, deliver directly as a playable Telegram video
+  const videoTarget = reel.videoPath || reel.videoUrl;
+  if (videoTarget) {
+    const sent = await sendTelegramVideo(videoTarget, message);
+    if (sent) return;
+  }
 
   await sendTelegramAlert(message);
 }
@@ -372,6 +381,64 @@ export async function notifyLeadReceived(lead: {
   ].join('\n');
 
   await sendTelegramAlert(message);
+}
+
+/**
+ * Sends a playable video file or video URL to Telegram chat with optional caption
+ */
+export async function sendTelegramVideo(
+  videoUrlOrPath: string,
+  caption = ''
+): Promise<boolean> {
+  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+  if (!token || !chatId || !videoUrlOrPath) return false;
+
+  try {
+    let resolvedPath = videoUrlOrPath;
+    if (videoUrlOrPath.startsWith('/media/') || videoUrlOrPath.startsWith('/data/media/')) {
+      const cleanSub = videoUrlOrPath.replace(/^\/?(data\/)?media\//, '');
+      resolvedPath = path.resolve(process.cwd(), 'data', 'media', cleanSub);
+    }
+
+    if (fs.existsSync(resolvedPath)) {
+      const videoBuffer = fs.readFileSync(resolvedPath);
+      const formData = new FormData();
+      formData.append('chat_id', chatId);
+      const blob = new Blob([new Uint8Array(videoBuffer)], { type: 'video/mp4' });
+      formData.append('video', blob, path.basename(resolvedPath) || 'reel.mp4');
+      if (caption) {
+        formData.append('caption', caption);
+        formData.append('parse_mode', 'HTML');
+      }
+      formData.append('supports_streaming', 'true');
+
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+        method: 'POST',
+        body: formData,
+        signal: AbortSignal.timeout(60000)
+      });
+      return res.ok;
+    } else if (/^https?:\/\//i.test(videoUrlOrPath)) {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          video: videoUrlOrPath,
+          caption: caption || undefined,
+          parse_mode: 'HTML',
+          supports_streaming: true
+        }),
+        signal: AbortSignal.timeout(30000)
+      });
+      return res.ok;
+    }
+    return false;
+  } catch (err) {
+    console.warn('[Telegram Sentinel] sendTelegramVideo failed:', err);
+    return false;
+  }
 }
 
 /**
@@ -439,6 +506,8 @@ export async function handleIncomingTelegramCommand(commandText: string, fromCha
         ``,
         `Direct remote control commands:`,
         `• <code>/status</code> - Live swarm, reels & browsing telemetry`,
+        `• <code>/reels</code> - View latest 5 reels, stats & live links`,
+        `• <code>/create_reel &lt;topic&gt;</code> - Trigger immediate on-demand autonomous reel`,
         `• <code>/screenshot</code> - Instant snapshot of active Instagram browser`,
         `• <code>/surf</code> - Trigger on-demand human browsing sprint (5 reels)`,
         `• <code>/pause</code> - Pause all agents & 24x7 autonomous scheduler`,
@@ -571,6 +640,55 @@ export async function handleIncomingTelegramCommand(commandText: string, fromCha
         }
       } catch (err: any) {
         await sendTelegramAlert(`❌ Failed to fetch leads: ${err?.message || err}`);
+      }
+      break;
+    }
+
+    case '/reels': {
+      try {
+        const rows = db.prepare(`
+          SELECT id, title, niche, duration, status, views, likes, comments_count, permalink, created_at
+          FROM reels
+          ORDER BY datetime(created_at) DESC
+          LIMIT 5
+        `).all() as any[];
+
+        if (!rows.length) {
+          await sendTelegramAlert('🎬 <b>No reels found in the archive yet.</b>');
+        } else {
+          const items = rows.map((r, i) =>
+            `${i + 1}. <b>${r.title}</b> (${r.niche || 'General'})\n` +
+            `   Status: <b>${(r.status || 'draft').toUpperCase()}</b> | ⏱️ ${Math.round(r.duration || 0)}s | 👀 ${r.views || 0} | ❤️ ${r.likes || 0} | 💬 ${r.comments_count || 0}\n` +
+            (r.permalink ? `   🔗 <a href="${r.permalink}">View on Instagram</a>\n` : '') +
+            `   📅 ${new Date(r.created_at).toLocaleDateString()}`
+          ).join('\n\n');
+          await sendTelegramAlert(`🎬 <b>LATEST 5 REELS IN ARCHIVE</b>\n\n${items}`);
+        }
+      } catch (err: any) {
+        await sendTelegramAlert(`❌ Error fetching reels: ${err?.message || err}`);
+      }
+      break;
+    }
+
+    case '/create_reel':
+    case '/makereel':
+    case '/cycle': {
+      const topic = commandText.replace(/^\/(create_reel|makereel|cycle)/i, '').trim();
+      try {
+        db.prepare(`
+          UPDATE autonomous_config 
+          SET next_run = ?, current_stage = 'idle', updated_at = ? 
+          WHERE id = 'default_config'
+        `).run(new Date().toISOString(), new Date().toISOString());
+
+        await sendTelegramAlert(
+          `⚡ <b>Autonomous Creation Cycle Triggered!</b>\n` +
+          (topic ? `📌 Preferred Topic: <i>${topic}</i>\n` : '') +
+          `Autonomous engine has been scheduled to run immediately (within ~30s tick).\n` +
+          `Sentinel will notify you with the finished video once synthesis and publishing succeed.`
+        );
+      } catch (err: any) {
+        await sendTelegramAlert(`❌ Failed to trigger cycle: ${err?.message || err}`);
       }
       break;
     }

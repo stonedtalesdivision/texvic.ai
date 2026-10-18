@@ -50,7 +50,7 @@ import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageMan
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
+import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -524,39 +524,49 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
   // 1. Synthesize authentic neural voiceover FIRST and calculate exact duration for each scene!
   let masterVoicePath: string | undefined;
   const rawScenes = Array.isArray(reel.scenes) ? reel.scenes : [];
+
+  // Extract narration texts for cohesive studio synthesis
+  const narrationTexts: string[] = rawScenes.map((sc: any, i: number) =>
+    extractSceneNarration(sc, i, rawScenes.length, reel)
+  );
+
+  let cohesiveResult: any = null;
+  const hasNarration = narrationTexts.some(t => t && t.trim().length > 0);
+  if (hasNarration) {
+    try {
+      cohesiveResult = await generateCohesiveReelSpeech(narrationTexts, {
+        topic: reel?.title || reel?.niche,
+        mood: reel?.audio?.mood
+      });
+      console.log(`[Autonomous 24x7 Engine] 🎙️ Cohesive voice locked: "${cohesiveResult.voiceUsed}" across ${cohesiveResult.sceneAudioPaths.length} scene(s).`);
+    } catch (bulkErr) {
+      console.warn('[Autonomous 24x7 Engine] Cohesive TTS failed, falling back to scene loop:', bulkErr);
+    }
+  }
+
   const voiceSegments: string[] = [];
   const sceneDurations: number[] = [];
-
   let realSpeechCount = 0;
+
   for (let i = 0; i < rawScenes.length; i++) {
     const sc = rawScenes[i];
-    const narrationText = extractSceneNarration(sc, i, rawScenes.length, reel);
-    let segPath: string | null = null;
-    let audioDur = 0;
+    let segPath: string | null = cohesiveResult?.sceneAudioPaths?.[i] || null;
+    let audioDur = cohesiveResult?.sceneDurations?.[i] || 0;
 
-    if (narrationText) {
+    if (!segPath && narrationTexts[i]) {
       try {
-        const selectedVoice = resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        segPath = await generateSpeech(narrationText, undefined, { voice: selectedVoice, rate: '+20%' });
+        const selectedVoice = cohesiveResult?.voiceUsed || resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
+        segPath = await generateSpeech(narrationTexts[i], undefined, { voice: selectedVoice, rate: '+0%' });
         audioDur = await getAudioDuration(segPath);
       } catch (segErr) {
-        console.warn(`[Autonomous 24x7 Engine] Primary voiceover failed for scene ${i + 1}, trying headline fallback:`, segErr);
-        const headline = String(sc?.headline || sc?.hookText || sc?.text || reel?.title || '').trim();
-        if (headline) {
-          try {
-            segPath = await generateSpeech(headline, undefined, { voice: CREATOR_VOICES.deepDocumentaryMale, rate: '+20%' });
-            audioDur = await getAudioDuration(segPath);
-          } catch (headErr) {
-            console.error(`[Autonomous 24x7 Engine] Headline fallback also failed for scene ${i + 1}:`, headErr);
-          }
-        }
+        console.warn(`[Autonomous 24x7 Engine] Primary voiceover failed for scene ${i + 1}:`, segErr);
       }
     }
 
     // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
       realSpeechCount++;
-      const sceneDur = Math.max(audioDur + 0.8, 6.0);
+      const sceneDur = Math.max(audioDur + 1.0, 6.0);
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);
@@ -2666,7 +2676,9 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
       fbAccountPermalink: fbAccountOutcome?.permalink,
       fbAccountVideoId: fbAccountOutcome?.id,
       platforms: publishedPlatforms,
-      errors: warnings
+      errors: warnings,
+      videoUrl: videoUrl || undefined,
+      videoPath: localDiskPath || undefined
     }).catch(() => {});
 
     return {
@@ -5213,6 +5225,39 @@ function initAutonomousDaemon() {
       db.prepare(`UPDATE autonomous_config SET target_niche = ?, updated_at = ? WHERE id = 'default_config'`)
         .run(THEME_PAGE_PROFILE.niche, new Date().toISOString());
       console.log(`[Autonomous 24x7 Daemon] Startup self-healed target_niche to "${THEME_PAGE_PROFILE.niche}".`);
+    }
+
+    // Reset any zombie in-progress stages from previous crash or process restart to 'idle'
+    const activeStages = [
+      'starting_cycle', 'researching_web', 'ideating_hook',
+      'generating_template', 'generating_carousel', 'rendering_video',
+      'rendering_carousel_slides', 'video_ready', 'validating_publish', 'publishing'
+    ];
+    const healedStage = db.prepare(`
+      UPDATE autonomous_config 
+      SET current_stage = 'idle', updated_at = ? 
+      WHERE id = 'default_config' AND current_stage IN (${activeStages.map(() => '?').join(', ')})
+    `).run(new Date().toISOString(), ...activeStages);
+    if (healedStage.changes > 0) {
+      console.log(`[Autonomous 24x7 Daemon] 🔄 Startup self-healed stuck autonomous stage to 'idle'.`);
+    }
+
+    // Reset interrupted in-flight video rendering or publishing reels
+    const healedReels = db.prepare(`
+      UPDATE reels 
+      SET status = 'video_failed', updated_at = ? 
+      WHERE (status = 'video_rendering' OR status = 'publishing') AND ig_media_id IS NULL
+    `).run(new Date().toISOString());
+    if (healedReels.changes > 0) {
+      console.log(`[Autonomous 24x7 Daemon] 🔄 Startup self-healed ${healedReels.changes} interrupted rendering reel(s).`);
+    }
+
+    // Reset overdue next_run if server was offline
+    const cfg = db.prepare('SELECT enabled, next_run FROM autonomous_config WHERE id = ?').get('default_config') as any;
+    if (cfg?.enabled && (!cfg.next_run || new Date(cfg.next_run).getTime() < Date.now() - 5 * 60 * 1000)) {
+      db.prepare(`UPDATE autonomous_config SET next_run = ?, updated_at = ? WHERE id = 'default_config'`)
+        .run(new Date(Date.now() + 10000).toISOString(), new Date().toISOString());
+      console.log(`[Autonomous 24x7 Daemon] ⏰ Reset overdue autonomous next_run to trigger in 10s.`);
     }
   } catch (healErr) {
     console.warn('[Autonomous 24x7 Daemon] Startup self-healing check warning:', healErr);

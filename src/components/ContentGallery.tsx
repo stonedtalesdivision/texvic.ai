@@ -3,7 +3,7 @@ import {
   Film, Layers, Play, Calendar, Eye, 
   Bookmark, Download, Check, Trash2, Send, 
   Loader2, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, X,
-  Zap
+  Zap, Search
 } from 'lucide-react';
 import { ReelItem, PostItem } from '../types';
 import { ReelPlayer } from './ReelPlayer';
@@ -39,6 +39,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
   onToggleTheme
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'reels' | 'posts'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeModalReel, setActiveModalReel] = useState<ReelItem | null>(null);
   const [activeModalPost, setActiveModalPost] = useState<PostItem | null>(null);
   const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
@@ -76,9 +77,52 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
     }
   };
 
-  const handleDownload = (id: string) => {
-    setDownloadSuccessId(id);
-    setTimeout(() => setDownloadSuccessId(null), 2000);
+  const handleDownloadReel = async (reel: ReelItem) => {
+    if (!reel.videoUrl) {
+      if (onShowToast) onShowToast('Video is still rendering. Preview or wait for video completion before download.');
+      return;
+    }
+    setDownloadSuccessId(reel.id);
+    try {
+      const filename = `${(reel.title || 'reel').replace(/[^a-zA-Z0-9_-]/g, '_')}.mp4`;
+      const res = await fetch(reel.videoUrl);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      if (onShowToast) onShowToast(`📥 Downloaded "${reel.title}.mp4"`);
+    } catch {
+      const a = document.createElement('a');
+      a.href = reel.videoUrl;
+      a.download = `${reel.title || 'reel'}.mp4`;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } finally {
+      setTimeout(() => setDownloadSuccessId(null), 2500);
+    }
+  };
+
+  const handleDownloadPost = (post: PostItem) => {
+    setDownloadSuccessId(post.id);
+    const data = JSON.stringify(post, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(post.title || 'carousel').replace(/[^a-zA-Z0-9_-]/g, '_')}_slides.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    if (onShowToast) onShowToast(`📥 Downloaded carousel content for "${post.title}"`);
+    setTimeout(() => setDownloadSuccessId(null), 2500);
   };
 
   const handleDeleteReelClick = (reel: ReelItem) => {
@@ -135,6 +179,27 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
     }
   };
 
+  const filteredReels = reels.filter(r => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (r.title && r.title.toLowerCase().includes(q)) ||
+      (r.niche && r.niche.toLowerCase().includes(q)) ||
+      (r.caption && r.caption.toLowerCase().includes(q)) ||
+      (Array.isArray(r.hashtags) && r.hashtags.some(h => h.toLowerCase().includes(q)))
+    );
+  });
+
+  const filteredPosts = posts.filter(p => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (p.title && p.title.toLowerCase().includes(q)) ||
+      (p.caption && p.caption.toLowerCase().includes(q)) ||
+      (Array.isArray(p.hashtags) && p.hashtags.some(h => h.toLowerCase().includes(q)))
+    );
+  });
+
   return (
     <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-8">
       {/* Gallery Header */}
@@ -148,41 +213,63 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
             Generated Reel & Post Gallery
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-2xl">
-            Access, publish live, schedule, or delete saved 9:16 video reels and viral carousels from your autonomous content vault.
+            Access, publish live, schedule, or download saved 9:16 video reels and viral carousels from your autonomous content vault.
           </p>
         </div>
 
-        {/* Filter Switcher */}
-        <div className="flex items-center gap-1.5 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
-          <button
-            type="button"
-            onClick={() => setFilterType('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              filterType === 'all' ? 'bg-rose-500 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            All Content ({reels.length + posts.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType('reels')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-              filterType === 'reels' ? 'bg-pink-500 text-white shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Film className="w-3 h-3" />
-            Reels ({reels.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType('posts')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-              filterType === 'posts' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Layers className="w-3 h-3" />
-            Carousels ({posts.length})
-          </button>
+        {/* Search Bar & Filter Switcher */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title, niche, tags..."
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500/60"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-900 p-1.5 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setFilterType('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                filterType === 'all' ? 'bg-rose-500 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All ({filteredReels.length + filteredPosts.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterType('reels')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                filterType === 'reels' ? 'bg-pink-500 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Film className="w-3 h-3" />
+              Reels ({filteredReels.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterType('posts')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                filterType === 'posts' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Layers className="w-3 h-3" />
+              Carousels ({filteredPosts.length})
+            </button>
+          </div>
         </div>
       </div>
 
@@ -190,7 +277,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* REELS */}
         {(filterType === 'all' || filterType === 'reels') &&
-          reels.map((reel) => {
+          filteredReels.map((reel) => {
             const isDownloaded = downloadSuccessId === reel.id;
             const isPublishing = publishingId === reel.id;
             const isDeleting = deletingId === reel.id;
@@ -208,6 +295,26 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                   onClick={() => setActiveModalReel(reel)}
                   className="relative aspect-[9/12] w-full bg-gradient-to-br from-slate-950 via-[#1f112e] to-[#0f172a] p-4 flex flex-col justify-between cursor-pointer overflow-hidden border-b border-slate-800"
                 >
+                  {/* Real video hover preview if video is rendered */}
+                  {reel.videoUrl && (
+                    <video
+                      src={reel.videoUrl}
+                      preload="metadata"
+                      muted
+                      loop
+                      playsInline
+                      className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-90 transition-opacity"
+                      onMouseEnter={(e) => {
+                        try { e.currentTarget.play(); } catch {}
+                      }}
+                      onMouseLeave={(e) => {
+                        try {
+                          e.currentTarget.pause();
+                          e.currentTarget.currentTime = 0;
+                        } catch {}
+                      }}
+                    />
+                  )}
                   <div className="flex items-center justify-between z-10">
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
                       {reel.duration}s Reel
@@ -346,7 +453,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                     {/* Download Button */}
                     <button
                       type="button"
-                      onClick={() => handleDownload(reel.id)}
+                      onClick={() => handleDownloadReel(reel)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                       title="Download 9:16 Video"
                     >
@@ -371,7 +478,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
 
         {/* CAROUSEL POSTS */}
         {(filterType === 'all' || filterType === 'posts') &&
-          posts.map((post) => {
+          filteredPosts.map((post) => {
             const isDownloaded = downloadSuccessId === post.id;
             const isPublishing = publishingId === post.id;
             const isDeleting = deletingId === post.id;
@@ -508,7 +615,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                     {/* Download Button */}
                     <button
                       type="button"
-                      onClick={() => handleDownload(post.id)}
+                      onClick={() => handleDownloadPost(post)}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                       title="Download Assets"
                     >

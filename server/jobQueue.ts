@@ -1,8 +1,10 @@
-import { db } from './database.js';
+import { db, getFacebookPageConnection, getFacebookAccountConnection } from './database.js';
 import { decryptSecret } from './tokenVault.js';
 import { 
   fetchLiveInstagramInsights, 
   publishReelToInstagram, 
+  publishReelToFacebookPage,
+  publishReelToFacebookAccount,
   fetchLiveInstagramComments, 
   replyToInstagramComment,
   postCommentToMedia
@@ -10,6 +12,7 @@ import {
 import { renderReelVideo, normalizeVideoUrl } from './reelPipeline.js';
 import { executeSwarmCycle, checkDailyReset } from './agentSwarm.js';
 import { getActivePersona } from './themePage.js';
+import { notifyReelPublished } from './telegramBot.js';
 
 export interface BackgroundJob {
   id: string;
@@ -192,26 +195,86 @@ export function startJobWorker() {
                 const reelAudio = (() => {
                   try { return JSON.parse(reel.audio_json || '{}'); } catch { return {}; }
                 })();
+                const fullCaption = `${reel.caption}${reel.hashtags_json ? `\n\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`;
                 const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
                   videoUrl,
-                  caption: `${reel.caption}${reel.hashtags_json ? `\n\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`,
+                  caption: fullCaption,
                   audioName: reelAudio?.title ? String(reelAudio.title) : undefined
                 });
 
-                if (pubResult.success) {
+                // Optional simultaneous broadcast to Facebook Page and Profile if configured
+                const fbPageConn = getFacebookPageConnection();
+                let fbPageResult: any = null;
+                if (fbPageConn?.isConnected && fbPageConn.pageId && fbPageConn.accessToken) {
+                  try {
+                    console.info(`[Job Queue] 📄 Broadcasting scheduled reel to Facebook Page (${fbPageConn.pageId})...`);
+                    fbPageResult = await publishReelToFacebookPage(fbPageConn.pageId, fbPageConn.accessToken, {
+                      videoUrl,
+                      caption: fullCaption,
+                      title: reel.title
+                    });
+                  } catch (fbPageErr: any) {
+                    console.warn('[Job Queue] Facebook Page broadcast notice:', fbPageErr?.message || fbPageErr);
+                  }
+                }
+
+                const fbAccountConn = getFacebookAccountConnection();
+                let fbAccountResult: any = null;
+                if (fbAccountConn?.isConnected && fbAccountConn.userId && fbAccountConn.accessToken) {
+                  try {
+                    console.info(`[Job Queue] 👤 Broadcasting scheduled reel to Facebook Profile (${fbAccountConn.userId})...`);
+                    fbAccountResult = await publishReelToFacebookAccount(fbAccountConn.userId, fbAccountConn.accessToken, {
+                      videoUrl,
+                      caption: fullCaption,
+                      title: reel.title
+                    });
+                  } catch (fbAccErr: any) {
+                    console.warn('[Job Queue] Facebook Profile broadcast notice:', fbAccErr?.message || fbAccErr);
+                  }
+                }
+
+                if (pubResult.success || fbPageResult?.success || fbAccountResult?.success) {
                   const publishedAt = new Date().toISOString();
+                  const platformsPublished: string[] = [];
+                  if (pubResult.success) platformsPublished.push('instagram');
+                  if (fbPageResult?.success) platformsPublished.push('facebook_page');
+                  if (fbAccountResult?.success) platformsPublished.push('facebook_account');
+
                   db.prepare(`
                     UPDATE reels
-                    SET status = 'published', ig_media_id = ?, ig_container_id = ?, permalink = ?, publish_timestamp = ?, updated_at = ?
+                    SET status = 'published',
+                        ig_media_id = ?, ig_container_id = ?, permalink = ?,
+                        fb_video_id = ?, fb_permalink = ?, fb_status = ?,
+                        fb_account_video_id = ?, fb_account_permalink = ?, fb_account_status = ?,
+                        platforms_published = ?,
+                        publish_timestamp = ?, updated_at = ?
                     WHERE id = ?
                   `).run(
                     pubResult.mediaId || null,
                     pubResult.containerId || null,
                     pubResult.permalink || null,
+                    fbPageResult?.videoId || null,
+                    fbPageResult?.permalink || null,
+                    fbPageResult?.success ? 'published' : (fbPageResult ? 'failed' : null),
+                    fbAccountResult?.videoId || null,
+                    fbAccountResult?.permalink || null,
+                    fbAccountResult?.success ? 'published' : (fbAccountResult ? 'failed' : null),
+                    JSON.stringify(platformsPublished),
                     publishedAt,
                     publishedAt,
                     reel.id
                   );
+
+                  // Dispatch Telegram alert for remote monitoring
+                  notifyReelPublished({
+                    title: reel.title,
+                    niche: reel.niche,
+                    permalink: pubResult.permalink || undefined,
+                    fbPermalink: fbPageResult?.permalink || undefined,
+                    fbAccountPermalink: fbAccountResult?.permalink || undefined,
+                    platforms: platformsPublished,
+                    videoUrl: videoUrl || reel.video_url || undefined
+                  }).catch(() => {});
 
                   if (payload.autonomousLogId) {
                     db.prepare(`
@@ -223,7 +286,10 @@ export function startJobWorker() {
                       JSON.stringify({
                         publishedAt,
                         permalink: pubResult.permalink || null,
-                        containerId: pubResult.containerId || null
+                        containerId: pubResult.containerId || null,
+                        fbPermalink: fbPageResult?.permalink || null,
+                        fbAccountPermalink: fbAccountResult?.permalink || null,
+                        platforms: platformsPublished
                       }),
                       String(payload.autonomousLogId)
                     );

@@ -498,8 +498,31 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     setTimeout(() => setCopiedShare(false), 2400);
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     setExported(true);
+    if (reel.videoUrl) {
+      try {
+        const filename = `${(reel.title || 'reel').replace(/[^a-zA-Z0-9_-]/g, '_')}.mp4`;
+        const res = await fetch(reel.videoUrl);
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch {
+        const a = document.createElement('a');
+        a.href = reel.videoUrl;
+        a.download = `${reel.title || 'reel'}.mp4`;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    }
     setTimeout(() => setExported(false), 2400);
   };
 
