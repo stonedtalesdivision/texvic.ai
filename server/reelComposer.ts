@@ -174,6 +174,29 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       } catch (err: any) {
         console.warn('[Reel Composer] Sidechain audio composition fallback:', err?.message || err);
       }
+
+      // Robust Fallback: If composeCinematicAudio failed, mix voice and music directly so music is never dropped!
+      if ((!masterAudioPath || !fsSync.existsSync(masterAudioPath)) && input.voicePath && input.musicPath && fsSync.existsSync(input.musicPath)) {
+        try {
+          const directMix = path.join(workDir, `direct-mix-${Date.now()}.wav`);
+          await run('ffmpeg', [
+            '-y',
+            '-i', input.voicePath,
+            '-stream_loop', '-1', '-i', input.musicPath,
+            '-filter_complex', `[0:a]volume=1.20,aformat=sample_rates=44100:channel_layouts=stereo[v];[1:a]atrim=0:${totalDuration},volume=0.35,aformat=sample_rates=44100:channel_layouts=stereo[m];[v][m]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[out]`,
+            '-map', '[out]',
+            '-t', String(totalDuration),
+            '-c:a', 'pcm_s16le',
+            directMix
+          ]);
+          if (fsSync.existsSync(directMix) && fsSync.statSync(directMix).size > 1000) {
+            masterAudioPath = directMix;
+            console.info(`[Reel Composer] ✅ Direct dual-track voice+music audio compiled: ${masterAudioPath}`);
+          }
+        } catch (directErr: any) {
+          console.warn('[Reel Composer] Direct audio mix fallback notice:', directErr?.message || directErr);
+        }
+      }
     }
 
     // 5. Final Assembly & Export
@@ -184,6 +207,8 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       finalArgs.push('-i', masterAudioPath);
     } else if (input.voicePath) {
       finalArgs.push('-i', input.voicePath);
+    } else if (input.musicPath && fsSync.existsSync(input.musicPath)) {
+      finalArgs.push('-stream_loop', '-1', '-i', input.musicPath);
     }
 
     const videoFilters: string[] = [];

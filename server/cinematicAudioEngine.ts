@@ -115,25 +115,25 @@ export async function composeCinematicAudio(options: MasterAudioOptions): Promis
   }
 
   // Build filtergraph:
-  // [0:a] is Voiceover
+  // [0:a] is Voiceover -> split via asplit=2 into [voice_mix] (for output) and [voice_sc] (sidechain trigger)
   // [1:a] is Background Music
   // [2:a] is Sub-bass Impact at t=0.0s
   // [3:a ... N:a] are Whooshes delayed to each cut timestamp
   const filterParts: string[] = [];
 
-  // 1. Voice boost & normalization
-  filterParts.push('[0:a]volume=1.35,aformat=sample_rates=44100:channel_layouts=stereo[voice]');
+  // 1. Voice boost & dual-stream splitting (one for main mix, one for sidechain trigger)
+  filterParts.push('[0:a]volume=1.20,aformat=sample_rates=44100:channel_layouts=stereo,asplit=2[voice_mix][voice_sc]');
 
-  // 2. Dynamic sidechain ducking: music ducks down when voice speaks, smoothly swells when voice pauses
+  // 2. Dynamic sidechain ducking: music is clearly audible at ~0.38, ducking smoothly to ~0.22 when narrator speaks
   filterParts.push(
-    `[1:a]atrim=0:${totalDuration},volume=0.48,lowpass=f=8000,aformat=sample_rates=44100:channel_layouts=stereo[raw_bgm]`
+    `[1:a]atrim=0:${totalDuration},volume=0.38,aformat=sample_rates=44100:channel_layouts=stereo[raw_bgm]`
   );
   filterParts.push(
-    `[raw_bgm][voice]sidechaincompress=threshold=0.07:ratio=3.5:attack=40:release=300[ducked_bgm]`
+    `[raw_bgm][voice_sc]sidechaincompress=threshold=0.14:ratio=2.2:attack=60:release=450[ducked_bgm]`
   );
 
   // 3. Opening impact
-  filterParts.push('[2:a]volume=0.80,aformat=sample_rates=44100:channel_layouts=stereo[impact]');
+  filterParts.push('[2:a]volume=0.70,aformat=sample_rates=44100:channel_layouts=stereo[impact]');
 
   // 4. Whoosh sounds with adelay
   const whooshLabels: string[] = [];
@@ -142,16 +142,16 @@ export async function composeCinematicAudio(options: MasterAudioOptions): Promis
     const inputIdx = 3 + i;
     const label = `w${i}`;
     filterParts.push(
-      `[${inputIdx}:a]volume=0.45,adelay=${delayMs}|${delayMs},aformat=sample_rates=44100:channel_layouts=stereo[${label}]`
+      `[${inputIdx}:a]volume=0.35,adelay=${delayMs}|${delayMs},aformat=sample_rates=44100:channel_layouts=stereo[${label}]`
     );
     whooshLabels.push(`[${label}]`);
   }
 
-  // 5. Final Master Mix
-  const allTracks = ['[voice]', '[ducked_bgm]', '[impact]', ...whooshLabels].join('');
+  // 5. Final Master Mix with normalize=0 and broadcast limiter
+  const allTracks = ['[voice_mix]', '[ducked_bgm]', '[impact]', ...whooshLabels].join('');
   const totalInputs = 3 + whooshLabels.length;
   filterParts.push(
-    `${allTracks}amix=inputs=${totalInputs}:duration=first:dropout_transition=0:weights=1 1 0.8${' 0.5'.repeat(whooshLabels.length)}[out]`
+    `${allTracks}amix=inputs=${totalInputs}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]`
   );
 
   await execFileAsync('ffmpeg', [
