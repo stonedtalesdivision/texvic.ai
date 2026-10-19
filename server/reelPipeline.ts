@@ -6,7 +6,7 @@ import { ensureAutonomousAudioAsset } from './autonomousAudio.js';
 import { composeReel } from './reelComposer.js';
 import dotenv from 'dotenv';
 import { createVideoJob, saveVideoOutput, createMediaSignature } from './videoEngine.js';
-import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration } from './ttsEngine.js';
+import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration, generateSpeechViaHttp } from './ttsEngine.js';
 
 export function normalizeVideoUrl(videoUrl: string): string {
   if (!videoUrl) return '';
@@ -235,13 +235,43 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     }
   }
 
+  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Web TTS
+  if (realSpeechCount === 0 && narrationTexts.some(t => Boolean(t?.trim()))) {
+    console.warn(`[Reel Video Pipeline] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Web TTS...`);
+    voiceSegments.length = 0;
+    sceneDurations.length = 0;
+    for (let i = 0; i < rawScenes.length; i++) {
+      const text = narrationTexts[i] || reel?.title || '';
+      try {
+        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-pipeline-web-${Date.now()}-${i}.mp3`);
+        await generateSpeechViaHttp(text, segPath);
+        const audioDur = await getAudioDuration(segPath);
+        if (audioDur > 0) {
+          const sceneDur = Math.max(audioDur + 1.0, 6.0);
+          const paddedSeg = await padAudioSegment(segPath, sceneDur);
+          voiceSegments.push(paddedSeg);
+          sceneDurations.push(sceneDur);
+          realSpeechCount++;
+          console.log(`[Reel Video Pipeline] Emergency scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s.`);
+          continue;
+        }
+      } catch (emErr) {
+        console.warn(`[Reel Video Pipeline] Emergency scene ${i + 1} TTS error:`, emErr);
+      }
+      const fallbackDur = Math.max(Number(rawScenes[i]?.durationSeconds || 8.0), 6.0);
+      const silentSeg = await generateSilentAudioSegment(fallbackDur);
+      voiceSegments.push(silentSeg);
+      sceneDurations.push(fallbackDur);
+    }
+  }
+
   let voicePath: string | undefined;
   if (voiceSegments.length > 0 && realSpeechCount > 0) {
     const masterPath = path.join(process.cwd(), 'data', 'media', 'tts', `master-${reel.id || Date.now()}.mp3`);
     voicePath = await concatenateAudioTracks(voiceSegments, masterPath);
     console.log(`[Reel Video Pipeline] Master voiceover ready: ${voiceSegments.length} scene(s) concatenated (${realSpeechCount} active voice segments).`);
   } else {
-    console.warn(`[Reel Video Pipeline] No spoken voiceover produced across scenes. Composing with background music solo at full ambient volume.`);
+    throw new Error(`[Reel Video Pipeline] Fatal: No voiceover could be produced for reel "${reel.title || reel.id}". Video composition aborted to prevent silent broadcast.`);
   }
 
   const scenes = prepared.assets.map((asset: any, index: number) => {

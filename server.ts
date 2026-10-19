@@ -50,7 +50,7 @@ import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageMan
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration } from "./server/ttsEngine.js";
+import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -581,12 +581,42 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     }
   }
 
+  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Web TTS
+  if (realSpeechCount === 0 && narrationTexts.some(t => Boolean(t?.trim()))) {
+    console.warn(`[Autonomous 24x7 Engine] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Web TTS...`);
+    voiceSegments.length = 0;
+    sceneDurations.length = 0;
+    for (let i = 0; i < rawScenes.length; i++) {
+      const text = narrationTexts[i] || reel?.title || '';
+      try {
+        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-web-${Date.now()}-${i}.mp3`);
+        await generateSpeechViaHttp(text, segPath);
+        const audioDur = await getAudioDuration(segPath);
+        if (audioDur > 0) {
+          const sceneDur = Math.max(audioDur + 1.0, 6.0);
+          const paddedSeg = await padAudioSegment(segPath, sceneDur);
+          voiceSegments.push(paddedSeg);
+          sceneDurations.push(sceneDur);
+          realSpeechCount++;
+          console.log(`[Autonomous 24x7 Engine] Emergency scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s.`);
+          continue;
+        }
+      } catch (emErr) {
+        console.warn(`[Autonomous 24x7 Engine] Emergency scene ${i + 1} TTS error:`, emErr);
+      }
+      const fallbackDur = Math.max(Number(rawScenes[i]?.durationSeconds || 8.0), 6.0);
+      const silentSeg = await generateSilentAudioSegment(fallbackDur);
+      voiceSegments.push(silentSeg);
+      sceneDurations.push(fallbackDur);
+    }
+  }
+
   if (voiceSegments.length > 0 && realSpeechCount > 0) {
     const masterPath = path.join(process.cwd(), 'data', 'media', 'tts', `master-${reel.id || Date.now()}.mp3`);
     masterVoicePath = await concatenateAudioTracks(voiceSegments, masterPath);
     console.log(`[Autonomous 24x7 Engine] Master voiceover ready: ${voiceSegments.length} scene(s) concatenated (${realSpeechCount} active voice segments).`);
   } else {
-    console.warn(`[Autonomous 24x7 Engine] No active spoken voiceover produced across scenes. Composing with background music solo at full ambient volume.`);
+    throw new Error(`[Autonomous 24x7 Engine] Fatal: No voiceover could be produced for reel "${reel.title || reel.id}". Reel generation aborted to prevent silent broadcast.`);
   }
 
   // 2. Assemble scenes with DYNAMICALLY CALIBRATED DURATIONS based on the TTS audio!

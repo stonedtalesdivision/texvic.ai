@@ -156,7 +156,10 @@ async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ s
         console.warn('[TTS Engine] Detected 403 Forbidden handshake from Microsoft Edge TTS. Attempting automatic upgrade to latest edge-tts...');
         try {
           const pipCmd = process.platform === 'win32' ? 'python' : 'python3';
-          await execFileAsync(pipCmd, ['-m', 'pip', 'install', '--upgrade', 'edge-tts']);
+          const pipArgs = process.platform === 'win32'
+            ? ['-m', 'pip', 'install', '--upgrade', 'edge-tts']
+            : ['-m', 'pip', 'install', '--break-system-packages', '--upgrade', 'edge-tts'];
+          await execFileAsync(pipCmd, pipArgs);
           console.log('[TTS Engine] edge-tts upgraded successfully! Retrying synthesis with candidate...');
           return await execFileAsync(candidate.cmd, [...candidate.prefix, ...cliArgs], { timeout: timeoutMs });
         } catch (upgradeErr) {
@@ -444,7 +447,7 @@ export async function generateSpeechViaHttp(
     }
 
     // Masculine documentary baritone filter: subtle pitch deepening to male vocal range + low-end warmth & compression
-    const cleanBroadcastFilter = 'aformat=sample_rates=44100,asetrate=44100*0.88,atempo=1.1364,equalizer=f=120:width_type=o:width=1.2:g=3.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6,channel_layouts=stereo';
+    const cleanBroadcastFilter = 'aformat=sample_rates=44100:channel_layouts=stereo,asetrate=44100*0.88,atempo=1.1364,equalizer=f=120:width_type=o:width=1.2:g=3.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
 
     if (chunkFiles.length === 1) {
       await execFileAsync('ffmpeg', [
@@ -546,8 +549,8 @@ export async function generateCohesiveReelSpeech(
             }
           } catch (e: any) {
             console.warn(`[TTS Engine] Gemini attempt ${attempt + 1} for scene ${i + 1} failed:`, e?.message || e);
-            if (String(e?.message || e).includes('429') || String(e?.message || e).includes('RESOURCE_EXHAUSTED')) {
-              console.warn('[TTS Engine] Gemini TTS quota exhausted (429). Fast failing to Edge Neural TTS...');
+            if (/429|RESOURCE_EXHAUSTED|404|NOT_FOUND|400|INVALID_ARGUMENT/i.test(String(e?.message || e))) {
+              console.warn('[TTS Engine] Gemini TTS unavailable or quota exhausted. Fast failing to Edge Neural TTS...');
               allGeminiSuccess = false;
               break;
             }

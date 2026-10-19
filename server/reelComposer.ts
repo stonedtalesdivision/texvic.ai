@@ -183,7 +183,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
             '-y',
             '-i', input.voicePath,
             '-stream_loop', '-1', '-i', input.musicPath,
-            '-filter_complex', `[0:a]volume=1.20,aformat=sample_rates=44100:channel_layouts=stereo[v];[1:a]atrim=0:${totalDuration},volume=0.35,aformat=sample_rates=44100:channel_layouts=stereo[m];[v][m]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[out]`,
+            '-filter_complex', `[0:a]volume=1.45,aformat=sample_rates=44100:channel_layouts=stereo[v];[1:a]atrim=0:${totalDuration},volume=0.20,aformat=sample_rates=44100:channel_layouts=stereo[m];[v][m]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[out]`,
             '-map', '[out]',
             '-t', String(totalDuration),
             '-c:a', 'pcm_s16le',
