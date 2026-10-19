@@ -27,9 +27,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     fonts-liberation \
     xdg-utils \
-    && pip install --no-cache-dir --break-system-packages "edge-tts>=7.3.1" \
+    && pip install --no-cache-dir --break-system-packages "edge-tts>=7.3.1" "piper-tts>=1.2.0" \
     && chmod 755 /usr/local/bin/edge-tts \
     && ln -sf /usr/local/bin/edge-tts /usr/bin/edge-tts \
+    && mkdir -p /app/models/piper \
+    && python3 -m piper.download_voices en_US-ryan-medium --data-dir /app/models/piper \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cloudflared for automatic HTTPS web tunnel supervisor

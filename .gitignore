@@ -20,3 +20,6 @@ scratch/
 temp_test.*
 test_*.jpg
 test_*.txt
+models/
+*.onnx
+*.onnx.json

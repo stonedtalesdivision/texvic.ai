@@ -6,7 +6,7 @@ import { ensureAutonomousAudioAsset } from './autonomousAudio.js';
 import { composeReel } from './reelComposer.js';
 import dotenv from 'dotenv';
 import { createVideoJob, saveVideoOutput, createMediaSignature } from './videoEngine.js';
-import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration, generateSpeechViaHttp } from './ttsEngine.js';
+import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from './ttsEngine.js';
 
 export function normalizeVideoUrl(videoUrl: string): string {
   if (!videoUrl) return '';
@@ -235,16 +235,16 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     }
   }
 
-  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Web TTS
+  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Piper Male TTS
   if (realSpeechCount === 0 && narrationTexts.some(t => Boolean(t?.trim()))) {
-    console.warn(`[Reel Video Pipeline] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Web TTS...`);
+    console.warn(`[Reel Video Pipeline] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Piper Male TTS (Ryan Baritone)...`);
     voiceSegments.length = 0;
     sceneDurations.length = 0;
     for (let i = 0; i < rawScenes.length; i++) {
       const text = narrationTexts[i] || reel?.title || '';
       try {
-        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-pipeline-web-${Date.now()}-${i}.mp3`);
-        await generateSpeechViaHttp(text, segPath);
+        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-pipeline-piper-${Date.now()}-${i}.mp3`);
+        await generateSpeechWithPiper(text, segPath);
         const audioDur = await getAudioDuration(segPath);
         if (audioDur > 0) {
           const sceneDur = Math.max(audioDur + 1.0, 6.0);

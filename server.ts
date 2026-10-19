@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import crypto from "node:crypto";
 import fs from "fs";
+import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import dotenv from "dotenv";
@@ -50,7 +51,7 @@ import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageMan
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp } from "./server/ttsEngine.js";
+import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -156,12 +157,34 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint for uptime and deployment monitoring
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", async (req, res) => {
   try {
     const account = db.prepare('SELECT username, account_id, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
     const config = db.prepare('SELECT enabled, interval_minutes, current_stage, next_run, last_run FROM autonomous_config WHERE id = ?').get('default_config') as any;
     const recentReels = db.prepare('SELECT id, title, status, ig_media_id, created_at FROM reels ORDER BY created_at DESC LIMIT 3').all();
     const lastLog = db.prepare('SELECT timestamp, topic_researched, status FROM autonomous_logs ORDER BY timestamp DESC LIMIT 1').get() as any;
+
+    let ttsDiagnostics: any = undefined;
+    if (req.query.test_voice === '1') {
+      try {
+        const testPath = path.join(os.tmpdir(), `test-piper-${Date.now()}.mp3`);
+        const synthesizedPath = await generateSpeechWithPiper("Official records confirm this historical documentary investigation.", testPath);
+        const dur = await getAudioDuration(synthesizedPath);
+        ttsDiagnostics = {
+          success: true,
+          voice: "en_US-ryan-medium (Adult Male Baritone)",
+          engine: "Piper Neural TTS",
+          durationSeconds: dur,
+          fileSize: fs.existsSync(synthesizedPath) ? fs.statSync(synthesizedPath).size : 0
+        };
+        try { fs.unlinkSync(synthesizedPath); } catch {}
+      } catch (voiceErr: any) {
+        ttsDiagnostics = {
+          success: false,
+          error: voiceErr?.message || String(voiceErr)
+        };
+      }
+    }
 
     res.json({
       status: "healthy",
@@ -175,7 +198,8 @@ app.get("/api/health", (_req, res) => {
         },
         autonomous: config || null,
         recentReels,
-        lastLog: lastLog || null
+        lastLog: lastLog || null,
+        ttsDiagnostics
       },
       timestamp: new Date().toISOString()
     });
@@ -581,16 +605,16 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     }
   }
 
-  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Web TTS
+  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Piper Male TTS
   if (realSpeechCount === 0 && narrationTexts.some(t => Boolean(t?.trim()))) {
-    console.warn(`[Autonomous 24x7 Engine] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Web TTS...`);
+    console.warn(`[Autonomous 24x7 Engine] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Piper Male TTS (Ryan Baritone)...`);
     voiceSegments.length = 0;
     sceneDurations.length = 0;
     for (let i = 0; i < rawScenes.length; i++) {
       const text = narrationTexts[i] || reel?.title || '';
       try {
-        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-web-${Date.now()}-${i}.mp3`);
-        await generateSpeechViaHttp(text, segPath);
+        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-piper-${Date.now()}-${i}.mp3`);
+        await generateSpeechWithPiper(text, segPath);
         const audioDur = await getAudioDuration(segPath);
         if (audioDur > 0) {
           const sceneDur = Math.max(audioDur + 1.0, 6.0);

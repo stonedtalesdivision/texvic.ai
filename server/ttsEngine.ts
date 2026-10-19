@@ -114,7 +114,7 @@ let hasAttemptedUpgrade = false;
 /**
  * Executes edge-tts trying all available CLI entrypoints across Windows & Linux Docker
  */
-async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ stdout: string; stderr: string }> {
+export async function executeEdgeTTS(cliArgs: string[], timeoutMs = 45000): Promise<{ stdout: string; stderr: string }> {
   const candidates: { cmd: string; prefix: string[] }[] = [];
 
   if (process.platform === 'win32') {
@@ -355,141 +355,121 @@ export async function generateSpeech(
   }
 
   // =========================================================================
-  // Tier 3: Pure HTTPS Web TTS Fallback (Emergency Offline VPS Fallback)
-  // Clean broadcast normalization, ZERO chipmunk or pitch warping
+  // Tier 2: Offline Piper Neural Male TTS (Guaranteed 100% Male Documentary Baritone)
+  // Zero network requests, zero cloud API limits, zero female robotic voice
   // =========================================================================
-  console.warn('[TTS Engine] Invoking Tier 3 HTTPS Web TTS fallback...');
-  const httpResult = await generateSpeechViaHttp(cleanedText, targetPath);
+  console.warn('[TTS Engine] Invoking Tier 2 Offline Piper Neural Male TTS (Ryan Baritone)...');
+  const piperResult = await generateSpeechWithPiper(cleanedText, targetPath);
   try {
-    if (fsSync.existsSync(httpResult) && httpResult !== cachePath) {
-      await fs.copyFile(httpResult, cachePath);
+    if (fsSync.existsSync(piperResult) && piperResult !== cachePath) {
+      await fs.copyFile(piperResult, cachePath);
     }
   } catch {}
-  return httpResult;
+  return piperResult;
 }
 
 /**
- * Tier 3: Zero-dependency, pure Node.js HTTPS Web TTS fallback.
- * Uses standard HTTPS requests with zero API keys and zero Python dependencies.
- * Chunks long text at natural punctuation boundaries, downloads audio, and normalizes cleanly with ffmpeg.
+ * Resolves the path to the offline Piper ONNX adult male documentary model (en_US-ryan-medium).
+ * If the model is not found on disk, downloads it automatically.
+ */
+export async function resolvePiperModel(): Promise<string> {
+  const candidates = [
+    path.resolve(process.cwd(), 'models', 'piper', 'en_US-ryan-medium.onnx'),
+    path.resolve(process.cwd(), 'data', 'models', 'piper', 'en_US-ryan-medium.onnx'),
+    '/app/models/piper/en_US-ryan-medium.onnx',
+    '/app/data/models/piper/en_US-ryan-medium.onnx',
+    '/usr/local/share/piper/en_US-ryan-medium.onnx'
+  ];
+
+  for (const p of candidates) {
+    try {
+      if (fsSync.existsSync(p) && fsSync.statSync(p).size > 10000000) {
+        return p;
+      }
+    } catch {}
+  }
+
+  // Not found, download to data/models/piper
+  const targetDir = path.resolve(process.cwd(), 'data', 'models', 'piper');
+  await fs.mkdir(targetDir, { recursive: true });
+  console.log('[TTS Engine] Downloading offline neural male model (en_US-ryan-medium) to', targetDir);
+
+  const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+  await execFileAsync(pyCmd, ['-m', 'piper.download_voices', 'en_US-ryan-medium', '--data-dir', targetDir]);
+
+  const downloadedPath = path.join(targetDir, 'en_US-ryan-medium.onnx');
+  if (fsSync.existsSync(downloadedPath)) {
+    return downloadedPath;
+  }
+
+  throw new Error('Failed to resolve or download Piper neural male model');
+}
+
+/**
+ * 100% Offline, Zero-Cloud Piper Neural Adult Male TTS.
+ * Uses en_US-ryan-medium (deep, cinematic, mature adult male documentary baritone).
+ * Completely immune to Microsoft 403 Forbidden, rate limits, clock skew, or API outages.
+ */
+export async function generateSpeechWithPiper(
+  text: string,
+  outputPath: string
+): Promise<string> {
+  const activeTtsDir = await ensureTtsDir();
+  const cleanedText = humanizeSpeechText(text);
+  if (!cleanedText) throw new Error('Piper TTS text cannot be empty');
+
+  const modelPath = await resolvePiperModel();
+  const rawWav = path.join(activeTtsDir, `piper-raw-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.wav`);
+  const runnerScript = path.resolve(process.cwd(), 'server', 'piper_tts.py');
+  const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+
+  // Write text to temp file to prevent CLI escaping or length bugs
+  const tempTextFile = path.join(activeTtsDir, `piper-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
+  await fs.writeFile(tempTextFile, cleanedText, 'utf8');
+
+  try {
+    await execFileAsync(pyCmd, [
+      runnerScript,
+      '--model', modelPath,
+      '--output', rawWav,
+      '--file', tempTextFile
+    ], { timeout: 35000 });
+
+    if (!fsSync.existsSync(rawWav) || fsSync.statSync(rawWav).size < 500) {
+      throw new Error('Piper TTS produced empty or invalid WAV output');
+    }
+
+    // Convert raw WAV to standardized 44.1kHz broadcast stereo MP3 with warmth EQ & compand
+    const broadcastFilter = 'volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo,equalizer=f=120:width_type=o:width=1.2:g=2.5,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-i', rawWav,
+      '-af', broadcastFilter,
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-ac', '2',
+      '-b:a', '192k',
+      outputPath
+    ]);
+
+    console.log(`[TTS Engine] 🎙️ Mature male voiceover synthesized via Offline Piper Neural TTS (Ryan Baritone).`);
+    return outputPath;
+  } finally {
+    try { await fs.unlink(rawWav); } catch {}
+    try { await fs.unlink(tempTextFile); } catch {}
+  }
+}
+
+/**
+ * Universal Male Fallback:
+ * Forwards transparently to Piper Neural Adult Male TTS.
+ * Guarantees NO generic female voices can EVER be synthesized.
  */
 export async function generateSpeechViaHttp(
   text: string,
   outputPath: string
 ): Promise<string> {
-  const activeTtsDir = await ensureTtsDir();
-
-  // Split into natural phrases (max ~140 chars per chunk for web TTS)
-  const sentences = text
-    .replace(/([.!?])\s+/g, "$1|")
-    .split("|")
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  const chunks: string[] = [];
-  let current = "";
-  for (const s of sentences) {
-    if ((current + " " + s).trim().length <= 140) {
-      current = (current + " " + s).trim();
-    } else {
-      if (current) chunks.push(current);
-      if (s.length > 140) {
-        const words = s.split(" ");
-        let sub = "";
-        for (const w of words) {
-          if ((sub + " " + w).trim().length <= 140) {
-            sub = (sub + " " + w).trim();
-          } else {
-            if (sub) chunks.push(sub);
-            sub = w;
-          }
-        }
-        if (sub) chunks.push(sub);
-        current = "";
-      } else {
-        current = s;
-      }
-    }
-  }
-  if (current) chunks.push(current);
-
-  if (chunks.length === 0) {
-    chunks.push(text.slice(0, 140));
-  }
-
-  const chunkFiles: string[] = [];
-  const tempBase = path.join(activeTtsDir, `http-chunk-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
-
-  try {
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      const encoded = encodeURIComponent(chunk);
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encoded}&tl=en-us&client=tw-ob`;
-
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP TTS responded with status ${response.status}`);
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length < 500) {
-        throw new Error('HTTP TTS returned empty audio buffer');
-      }
-
-      const chunkPath = `${tempBase}-${i}.mp3`;
-      await fs.writeFile(chunkPath, buffer);
-      chunkFiles.push(chunkPath);
-    }
-
-    // Masculine documentary baritone filter: subtle pitch deepening to male vocal range + low-end warmth & compression
-    const cleanBroadcastFilter = 'aformat=sample_rates=44100:channel_layouts=stereo,asetrate=44100*0.88,atempo=1.1364,equalizer=f=120:width_type=o:width=1.2:g=3.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
-
-    if (chunkFiles.length === 1) {
-      await execFileAsync('ffmpeg', [
-        '-y',
-        '-i', chunkFiles[0],
-        '-af', cleanBroadcastFilter,
-        '-c:a', 'libmp3lame',
-        '-ar', '44100',
-        '-ac', '2',
-        '-b:a', '192k',
-        outputPath
-      ]);
-    } else {
-      const concatList = `${tempBase}-list.txt`;
-      const listContent = chunkFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n');
-      await fs.writeFile(concatList, listContent, 'utf8');
-
-      try {
-        await execFileAsync('ffmpeg', [
-          '-y',
-          '-f', 'concat',
-          '-safe', '0',
-          '-i', concatList,
-          '-af', cleanBroadcastFilter,
-          '-c:a', 'libmp3lame',
-          '-ar', '44100',
-          '-ac', '2',
-          '-b:a', '192k',
-          outputPath
-        ]);
-      } finally {
-        await fs.unlink(concatList).catch(() => {});
-      }
-    }
-
-    console.log(`[TTS Engine] Voiceover synthesized via Tier 3 HTTPS Web TTS (${chunkFiles.length} chunk(s)).`);
-    return outputPath;
-  } finally {
-    for (const f of chunkFiles) {
-      await fs.unlink(f).catch(() => {});
-    }
-  }
+  return await generateSpeechWithPiper(text, outputPath);
 }
 
 /**
@@ -673,8 +653,8 @@ export async function generateCohesiveReelSpeech(
     }
   }
 
-  // 3. Fallback: Pure HTTPS Web TTS (Consistent clean narrator for all scenes together)
-  console.warn(`[TTS Engine] Rolling over ENTIRE reel to clean Web TTS fallback...`);
+  // 3. Fallback: Offline Piper Neural Male TTS (Guaranteed 100% Male Documentary Baritone)
+  console.warn(`[TTS Engine] Rolling over ENTIRE reel to Offline Piper Neural MALE TTS (Ryan Baritone)...`);
   const paths: (string | null)[] = [];
   const durations: number[] = [];
 
@@ -686,8 +666,8 @@ export async function generateCohesiveReelSpeech(
       continue;
     }
 
-    const segPath = path.join(activeTtsDir, `web-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
-    await generateSpeechViaHttp(text, segPath);
+    const segPath = path.join(activeTtsDir, `piper-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+    await generateSpeechWithPiper(text, segPath);
     const dur = await getAudioDuration(segPath);
     paths.push(segPath);
     durations.push(dur);
@@ -698,12 +678,13 @@ export async function generateCohesiveReelSpeech(
   await concatenateAudioTracks(validPaths, masterPath);
   const totalDur = await getAudioDuration(masterPath);
 
+  console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Piper Neural Male TTS: ${totalDur.toFixed(1)}s across ${validPaths.length} scene(s).`);
   return {
     sceneAudioPaths: paths,
     sceneDurations: durations,
     masterAudioPath: masterPath,
     totalDuration: totalDur,
-    voiceUsed: 'CleanWebNarrator'
+    voiceUsed: 'Piper-RyanBaritoneMale'
   };
 }
 
