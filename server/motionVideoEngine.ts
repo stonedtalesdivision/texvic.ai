@@ -85,7 +85,7 @@ async function fetchPexelsVideo(query: string, cachePath: string, customTerms?: 
 export function extractSearchTerms(rawQuery: string, customTerms?: string[]): string[] {
   const terms: string[] = [];
 
-  // Prioritize explicit contextual terms from the LLM first
+  // Prioritize explicit contextual terms from the LLM or scene metadata FIRST
   if (Array.isArray(customTerms)) {
     for (const ct of customTerms) {
       if (ct && ct.trim().length >= 3) {
@@ -97,33 +97,58 @@ export function extractSearchTerms(rawQuery: string, customTerms?: string[]): st
   const text = rawQuery.toLowerCase();
 
   // Domain-specific keyword matching for Scary, Spooky & Horror themes
-  if (/scary|horror|spooky|creepy|ghost|haunted|monster|dark forest|cemetery|graveyard|shadow|demon|curse|paranormal/i.test(text)) {
-    terms.push('dark forest', 'foggy forest', 'abandoned dark', 'spooky shadows', 'cemetery');
+  if (/scary|horror|spooky|creepy|ghost|haunted|monster|cemetery|graveyard|shadow|paranormal/i.test(text)) {
+    terms.push('dark forest', 'cemetery', 'abandoned dark');
   }
-  if (/abandoned|asylum|hospital|ruins|decay|empty building/i.test(text)) {
-    terms.push('abandoned building', 'dark hallway', 'ruins decay');
-  }
-  if (/unsolved|disappeared|missing|incident|cold case|anomaly/i.test(text)) {
-    terms.push('fog atmospheric', 'dark moody', 'investigation', 'rain dark');
+  if (/abandoned|asylum|hospital|ruins|decay/i.test(text)) {
+    terms.push('abandoned building', 'ruins decay');
   }
 
-  // Domain-specific keyword matching for Untold World Mysteries & Events
-  if (/canal|ship|cargo|vessel|panama|harbor|port|container/i.test(text)) terms.push('cargo ship', 'ocean port');
-  if (/history|ancient|temple|ruins|pyramid|archaeology|artifact|roman/i.test(text)) terms.push('ancient ruins', 'history');
-  if (/heist|bank|vault|gold|money|trader|wall street|cash|dollar|wire/i.test(text)) terms.push('bank vault', 'gold bars', 'counting money');
-  if (/ocean|sea|underwater|abyss|deep sea|borehole|kola|tibet|diver|shipwreck/i.test(text)) terms.push('deep ocean', 'underwater', 'aerial landscape');
-  if (/island|bunker|secret|military|satellite|space|radar|sentinel|isolated/i.test(text)) terms.push('satellite space', 'aerial island', 'mountains');
-  if (/mystery|forbidden|conspiracy|investigation|dossier|classified|cia|fbi/i.test(text)) terms.push('investigation', 'dark moody', 'fog atmospheric');
-  if (/tunnel|underground|cavern|subterranean|cave|derinkuyu/i.test(text)) terms.push('underground tunnel', 'dark cave');
-  if (/drought|desert|cracked|climate|disaster|volcano/i.test(text)) terms.push('cracked desert', 'aerial landscape');
-  if (/code|cable|fiber optic|internet cable|undersea cable/i.test(text)) terms.push('deep ocean', 'network fiber');
+  // Domain-specific keyword matching for Untold World Mysteries, Infrastructure & Science
+  if (/petrov|oko|nuclear|radar|missile|early warning/i.test(text)) {
+    terms.push('radar screen', 'radar', 'control room', 'military bunker');
+  }
+  if (/borehole|kola|drilling|subterranean/i.test(text)) {
+    terms.push('drilling rig', 'drilling', 'mine tunnel', 'industrial machine');
+  }
+  if (/concrete|roman|pantheon|breakwater/i.test(text)) {
+    terms.push('ancient ruins', 'underwater ruins', 'ocean waves', 'roman ruins');
+  }
+  if (/seed vault|svalbard|longyearbyen/i.test(text)) {
+    terms.push('arctic mountain', 'snow mountain', 'vault door');
+  }
+  if (/cheyenne|mount weather|bunker|blast door/i.test(text)) {
+    terms.push('vault door', 'underground bunker', 'military tunnel');
+  }
+  if (/heist|bank|vault|gold|swift|cash|wire/i.test(text)) {
+    terms.push('bank vault', 'gold bars', 'vault door', 'safe deposit');
+  }
+  if (/canal|ship|cargo|vessel|panama|harbor|port|container/i.test(text)) {
+    terms.push('cargo ship', 'ocean port', 'ship container');
+  }
+  if (/history|ancient|temple|ruins|pyramid|archaeology|artifact/i.test(text)) {
+    terms.push('ancient ruins', 'archaeology', 'ancient temple');
+  }
+  if (/ocean|sea|underwater|abyss|deep sea|shipwreck|diver/i.test(text)) {
+    terms.push('underwater', 'deep ocean', 'scuba diver');
+  }
+  if (/ekranoplan|caspian/i.test(text)) {
+    terms.push('seaplane', 'military aircraft', 'ocean water');
+  }
+  if (/tunnel|underground|cavern|cave|derinkuyu/i.test(text)) {
+    terms.push('underground tunnel', 'dark cave', 'cave rock');
+  }
+  if (/volcano|lava|magma|eruption/i.test(text)) {
+    terms.push('volcano', 'lava flow', 'smoke mountain');
+  }
 
-  // Strip noise and extract 2 top descriptive words
+  // Strip noise words and extract top 2 concrete descriptive words from the raw query
   const stopWords = new Set([
     'this', 'that', 'with', 'from', 'have', 'scene', 'visual', 'video', 'ultra', 'high',
     'save', 'hours', 'hour', 'stop', 'manual', 'turn', 'need', 'drop', 'want', 'test',
     'best', 'week', 'make', 'take', 'time', 'fast', 'just', 'more', 'here', 'will', 'your',
-    'doing', 'right', 'into', 'what', 'like'
+    'doing', 'right', 'into', 'what', 'like', 'investigation', 'dossier', 'untold', 'archive',
+    'evidence', 'record', 'timeline', 'aftermath', 'decision', 'verdict', 'turning', 'point'
   ]);
 
   const clean = text.replace(/[^a-z0-9\s]/g, ' ')
@@ -136,9 +161,7 @@ export function extractSearchTerms(rawQuery: string, customTerms?: string[]): st
     terms.push(clean[0]);
   }
 
-  // High-retention cinematic documentary fallbacks (NEVER computer screens for world events!)
-  terms.push('aerial landscape', 'dark moody', 'drone cinematography');
-  return Array.from(new Set(terms));
+  return Array.from(new Set(terms.filter(Boolean)));
 }
 
 /**

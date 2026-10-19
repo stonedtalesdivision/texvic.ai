@@ -20,7 +20,7 @@ function hashKey(str: string): string {
  * Searches Wikimedia Commons for authentic, public-domain historical photographs,
  * vintage newspaper clippings, declassified documents, and satellite images.
  */
-export async function fetchWikimediaArchivalImage(query: string): Promise<ArchivalAssetResult> {
+export async function fetchWikimediaArchivalImage(query: string, fallbackTerms?: string[]): Promise<ArchivalAssetResult> {
   if (!query || query.trim().length < 3) {
     return { source: null, filePath: null };
   }
@@ -42,86 +42,105 @@ export async function fetchWikimediaArchivalImage(query: string): Promise<Archiv
     } catch {}
   }
 
-  try {
-    // Add filetype:bitmap to prioritize photographs, drawings, and documents over SVGs or audio
-    const cleanQuery = query.replace(/[^\w\s-]/g, ' ').trim();
-    const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(cleanQuery + ' filetype:bitmap')}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|size|mime&format=json`;
+  // Build candidate queries in priority order
+  const candidates: string[] = [];
+  const cleanInitial = query.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanInitial) candidates.push(cleanInitial);
 
-    console.info(`[Archival Engine] 🏛️ Searching Wikimedia Commons for historical records: "${cleanQuery}"...`);
+  // If query had subtitles or colons, extract the primary subject
+  const coreSubject = query.split(/[:\-\—\(]/)[0].replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (coreSubject && coreSubject.length >= 4 && coreSubject !== cleanInitial) {
+    candidates.push(coreSubject);
+  }
 
-    const resp = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': 'TheUntoldArchive/1.0 (contact@theuntoldarch.com; documentary education project)'
-      },
-      signal: AbortSignal.timeout(12000)
-    });
-
-    if (!resp.ok) {
-      console.warn(`[Archival Engine] Wikimedia API returned status ${resp.status}`);
-      return { source: null, filePath: null };
+  if (Array.isArray(fallbackTerms)) {
+    for (const term of fallbackTerms) {
+      const cleanTerm = term.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (cleanTerm && cleanTerm.length >= 3) {
+        candidates.push(cleanTerm);
+      }
     }
+  }
 
-    const data: any = await resp.json();
-    const pages = Object.values(data?.query?.pages || {}) as any[];
+  const uniqueCandidates = Array.from(new Set(candidates));
 
-    if (!pages.length) {
-      console.info(`[Archival Engine] No Wikimedia archival media found for "${cleanQuery}"`);
-      return { source: null, filePath: null };
-    }
+  for (const targetQuery of uniqueCandidates.slice(0, 4)) {
+    try {
+      // Add filetype:bitmap to prioritize photographs, drawings, and documents over SVGs or audio
+      const searchUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(targetQuery + ' filetype:bitmap')}&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|size|mime&format=json`;
 
-    // Filter for valid images (jpeg, png, webp), prefer high-res photos
-    const validImages = pages
-      .map(p => {
-        const info = p?.imageinfo?.[0];
-        return {
-          title: String(p?.title || ''),
-          url: String(info?.url || ''),
-          width: Number(info?.width || 0),
-          height: Number(info?.height || 0),
-          size: Number(info?.size || 0),
-          mime: String(info?.mime || '')
-        };
-      })
-      .filter(img => {
-        if (!img.url) return false;
-        if (!img.mime.startsWith('image/')) return false;
-        // Skip tiny icons, flags, or logos
-        if (img.width < 500 && img.height < 500) return false;
-        if (/flag|icon|symbol|logo|insignia|emblem/i.test(img.title)) return false;
-        return true;
+      console.info(`[Archival Engine] 🏛️ Searching Wikimedia Commons for historical records: "${targetQuery}"...`);
+
+      const resp = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'TheUntoldArchive/1.0 (contact@theuntoldarch.com; documentary education project)'
+        },
+        signal: AbortSignal.timeout(10000)
       });
 
-    if (!validImages.length) {
-      return { source: null, filePath: null };
+      if (!resp.ok) {
+        console.warn(`[Archival Engine] Wikimedia API returned status ${resp.status} for "${targetQuery}"`);
+        continue;
+      }
+
+      const data: any = await resp.json();
+      const pages = Object.values(data?.query?.pages || {}) as any[];
+
+      if (!pages.length) continue;
+
+      // Filter for valid images (jpeg, png, webp), prefer high-res photos
+      const validImages = pages
+        .map(p => {
+          const info = p?.imageinfo?.[0];
+          return {
+            title: String(p?.title || ''),
+            url: String(info?.url || ''),
+            width: Number(info?.width || 0),
+            height: Number(info?.height || 0),
+            size: Number(info?.size || 0),
+            mime: String(info?.mime || '')
+          };
+        })
+        .filter(img => {
+          if (!img.url) return false;
+          if (!img.mime.startsWith('image/')) return false;
+          // Skip tiny icons, flags, or logos
+          if (img.width < 400 && img.height < 400) return false;
+          if (/flag|icon|symbol|logo|insignia|emblem|coat_of_arms/i.test(img.title)) return false;
+          return true;
+        });
+
+      if (!validImages.length) continue;
+
+      // Pick the best high-resolution archival image
+      const chosen = validImages[0];
+      console.info(`[Archival Engine] 📜 Downloading authentic archival record: "${chosen.title}" (${chosen.width}x${chosen.height})...`);
+
+      const imgResp = await fetch(chosen.url, {
+        headers: {
+          'User-Agent': 'TheUntoldArchive/1.0 (contact@theuntoldarch.com)'
+        },
+        signal: AbortSignal.timeout(18000)
+      });
+
+      if (!imgResp.ok) continue;
+
+      const arrayBuf = await imgResp.arrayBuffer();
+      if (arrayBuf.byteLength < 25000) continue;
+
+      await fs.writeFile(cachePattern, Buffer.from(arrayBuf));
+      console.info(`[Archival Engine] ✅ Saved authentic archival document (${arrayBuf.byteLength} bytes) -> ${path.basename(cachePattern)}`);
+
+      return {
+        source: 'wikimedia-commons',
+        filePath: cachePattern,
+        title: chosen.title,
+        mimeType: chosen.mime
+      };
+    } catch (err: any) {
+      console.warn(`[Archival Engine] Wikimedia query for "${targetQuery}" failed: ${err?.message || err}`);
     }
-
-    // Pick the best high-resolution archival image
-    const chosen = validImages[0];
-    console.info(`[Archival Engine] 📜 Downloading authentic archival record: "${chosen.title}" (${chosen.width}x${chosen.height})...`);
-
-    const imgResp = await fetch(chosen.url, {
-      headers: {
-        'User-Agent': 'TheUntoldArchive/1.0 (contact@theuntoldarch.com)'
-      },
-      signal: AbortSignal.timeout(20000)
-    });
-
-    if (!imgResp.ok) return { source: null, filePath: null };
-
-    const arrayBuf = await imgResp.arrayBuffer();
-    if (arrayBuf.byteLength < 25000) return { source: null, filePath: null };
-
-    await fs.writeFile(cachePattern, Buffer.from(arrayBuf));
-    console.info(`[Archival Engine] ✅ Saved authentic archival document (${arrayBuf.byteLength} bytes) -> ${path.basename(cachePattern)}`);
-
-    return {
-      source: 'wikimedia-commons',
-      filePath: cachePattern,
-      title: chosen.title,
-      mimeType: chosen.mime
-    };
-  } catch (err: any) {
-    console.warn(`[Archival Engine] Wikimedia search failed: ${err?.message || err}`);
-    return { source: null, filePath: null };
   }
+
+  return { source: null, filePath: null };
 }

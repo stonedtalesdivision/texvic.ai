@@ -3,7 +3,6 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { GoogleGenAI } from '@google/genai';
 import { promisify } from 'node:util';
 import { registerAsset, selectAssets, resolveAssetDiskPath, markAssetUsed, type MediaAsset } from './assetLibrary.js';
 import { renderOverlayToPng } from './vectorOverlayEngine.js';
@@ -12,6 +11,7 @@ import { fetchBestMotionVideo } from './motionVideoEngine.js';
 import { fetchWikimediaArchivalImage } from './archivalMediaEngine.js';
 import { renderSoftwareTutorialVideo } from './softwareScreenEngine.js';
 import { getActivePersona } from './themePage.js';
+import { extractContextualSceneKeywords } from './contentIntelligence.js';
 
 const execFileAsync = promisify(execFile);
 const GENERATED_DIR = path.join(process.cwd(), 'data', 'media', 'generated-scenes');
@@ -155,17 +155,19 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
     }
   }
 
-  // 1. Primary Archival Media Engine: Search Wikimedia Commons for real historical records/photos
+  // 1. Primary Archival Media Engine: Search Wikimedia Commons for real historical records/photos across ALL scenes
   const archivalQuery = String(scene?.archivalQuery || '').trim();
+  const cleanSubject = String(reel?.title || '').split(/[:\-\—\(]/)[0].trim();
   const shouldTryArchival = Boolean(archivalQuery) || (
-    /history|heist|mystery|incident|disaster|ancient|classified|expedition|bunker|island|vault|war|treaty|monument|manuscript|borehole|ocean/i.test(topicContext) && (index === 1 || Boolean(scene?.archivalQuery))
+    /history|heist|mystery|incident|disaster|ancient|classified|expedition|bunker|island|vault|war|treaty|monument|manuscript|borehole|ocean|event|conspiracy|discovery|archive/i.test(topicContext)
   );
 
   if (shouldTryArchival) {
     try {
-      const targetQuery = archivalQuery || [rawHeadline, reel?.title].filter(Boolean).join(' ');
+      const targetQuery = archivalQuery || cleanSubject || rawHeadline;
+      const fallbackList = [cleanSubject, ...(Array.isArray(scene?.bRollKeywords) ? scene.bRollKeywords : [])].filter(Boolean);
       console.info(`[Autonomous Visual Producer] 🏛️ Resolving authentic archival record (scene ${index + 1}): "${targetQuery.slice(0, 50)}"...`);
-      const archivalResult = await fetchWikimediaArchivalImage(targetQuery);
+      const archivalResult = await fetchWikimediaArchivalImage(targetQuery, fallbackList);
       if (archivalResult?.filePath && fsSync.existsSync(archivalResult.filePath)) {
         const aStats = await fs.stat(archivalResult.filePath);
         if (aStats.size > 25000) {
@@ -227,7 +229,7 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
 
       const motionQuery = [
         rawHeadline,
-        topic,
+        cleanSubject || topic,
         scene?.imagePrompt || scene?.visualTheme || 'cinematic atmospheric footage'
       ].filter(Boolean).join(' ');
 
@@ -248,20 +250,22 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
     }
   }
 
-  // 3. High-Resolution Photographic Visual (Pollinations FLUX.1 / Stock Engine) if motion video is not found
+  // 3. High-Resolution Topic-Specific Photographic Visual (Pixabay Photo API / Pollinations FLUX.1)
   if (!hasMotionVideo && !hasCustomImage) {
     try {
       const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
       const query = [
         rawHeadline,
-        topic,
+        cleanSubject || topic,
         scene?.imagePrompt || scene?.visualTheme || 'cinematic 35mm documentary photography'
       ].filter(Boolean).join(', ');
 
       console.info(`[Autonomous Visual Producer] Fetching best free visual (scene ${index + 1}): "${rawHeadline.slice(0, 50)}"...`);
       const freeVisual = await fetchBestFreeVisual(query, imagePath, {
         orientation: 'portrait',
-        preferStock: true
+        preferStock: true,
+        customKeywords: scene?.bRollKeywords,
+        fallbackTopic: cleanSubject || topic
       });
 
       if (freeVisual?.path && fsSync.existsSync(imagePath)) {
@@ -273,43 +277,6 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
       }
     } catch (err: any) {
       console.info(`[Autonomous Visual Producer] Free visual engine fallback triggered: ${err?.message?.slice(0, 100) || String(err)}`);
-    }
-  }
-
-  // 4. Gemini Image API fallback
-  if (!hasCustomImage && !hasMotionVideo && process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
-    try {
-      const topic = String(reel?.title || reel?.niche || 'Untold World Mystery');
-      const visualPrompt = [
-        'Create a premium vertical 9:16 cinematic documentary visual for an educational Instagram Reel.',
-        `Topic: ${topic}.`,
-        `Scene concept: ${rawHeadline}.`,
-        'Atmospheric 35mm film photograph, dramatic lighting, authentic historical realism, cinematic depth of field.',
-        'Do not render any text, words, captions, logos, or watermarks.',
-        'Leave clean composition in the center third for overlay graphics.'
-      ].join(' ');
-
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-image',
-        contents: visualPrompt,
-        config: {
-          responseModalities: ['IMAGE'],
-          imageConfig: {
-            aspectRatio: '9:16',
-            imageSize: '1K'
-          }
-        }
-      });
-
-      const parts = response?.candidates?.[0]?.content?.parts || [];
-      const imagePart = parts.find((part: any) => part?.inlineData?.data);
-      if (imagePart?.inlineData?.data) {
-        await fs.writeFile(imagePath, Buffer.from(imagePart.inlineData.data, 'base64'));
-        hasCustomImage = true;
-      }
-    } catch (err: any) {
-      console.info(`[Autonomous Visual Producer] Gemini image generation fallback triggered: ${err?.message?.slice(0, 140) || String(err)}`);
     }
   }
 
@@ -502,16 +469,23 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       return Math.max(minSec, Number(((words / 2.2) + 1.2).toFixed(1)));
     };
 
+    const sc0Ctx = extractContextualSceneKeywords(title, sc1Voice, 0);
+    const sc1Ctx = extractContextualSceneKeywords(title, sc2Voice, 1);
+    const sc2Ctx = extractContextualSceneKeywords(title, sc3Voice, 2);
+
     scenes = [
       {
         id: `sc-gen-1`,
         order: 1,
         durationSeconds: calcSceneDur(sc1Voice, 8.5),
         hookText: title,
-        headline: title,
+        headline: sc0Ctx.headline || title.slice(0, 24).toUpperCase(),
         highlight: 'DEEP ARCHIVE FILE',
-        subline: `CONFIDENTIAL INVESTIGATION // ${niche.toUpperCase()}`,
+        subline: `${title} // ${niche.toUpperCase()}`,
         voiceScript: sc1Voice,
+        bRollKeywords: sc0Ctx.keywords,
+        archivalQuery: sc0Ctx.archivalQuery,
+        imagePrompt: sc0Ctx.imagePrompt,
         visualTheme: 'monochrome-bold',
         accentColor: '#d4af37',
         pacingEffect: 'pulse',
@@ -521,11 +495,14 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
         id: `sc-gen-2`,
         order: 2,
         durationSeconds: calcSceneDur(sc2Voice, 9.5),
-        hookText: 'THE UNSEEN MECHANISM',
-        headline: 'THE FORENSIC EVIDENCE',
-        highlight: 'MICROSCOPIC ANALYSIS',
-        subline: 'ARCHIVAL LOGS CONFIRM A FORGOTTEN FORMULA',
+        hookText: sc1Ctx.headline || 'CRITICAL TELEMETRY',
+        headline: sc1Ctx.headline || 'CRITICAL TELEMETRY',
+        highlight: 'FORENSIC RECORD',
+        subline: storySentence.slice(0, 80),
         voiceScript: sc2Voice,
+        bRollKeywords: sc1Ctx.keywords,
+        archivalQuery: sc1Ctx.archivalQuery,
+        imagePrompt: sc1Ctx.imagePrompt,
         visualTheme: 'classified-dossier',
         accentColor: '#0284c7',
         pacingEffect: 'zoom-in',
@@ -535,11 +512,14 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
         id: `sc-gen-3`,
         order: 3,
         durationSeconds: calcSceneDur(sc3Voice, 8.5),
-        hookText: 'THE VERDICT',
-        headline: 'CASE RECORD CLOSED',
+        hookText: sc2Ctx.headline || 'HISTORICAL IMPACT',
+        headline: sc2Ctx.headline || 'HISTORICAL IMPACT',
         highlight: 'DECODED ARCHIVE',
-        subline: 'FOLLOW @THEUNTOLDARCH FOR DAILY HISTORICAL DOSSIERS',
+        subline: 'FOLLOW FOR DAILY HISTORICAL DOSSIERS',
         voiceScript: sc3Voice,
+        bRollKeywords: sc2Ctx.keywords,
+        archivalQuery: sc2Ctx.archivalQuery,
+        imagePrompt: sc2Ctx.imagePrompt,
         visualTheme: 'satellite-telemetry',
         accentColor: '#d4af37',
         pacingEffect: 'subtle-drift',

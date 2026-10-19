@@ -1373,7 +1373,265 @@ export async function selectOptimalHook(dossier: ResearchDossier): Promise<Candi
 }
 
 /**
- * Builds a 3-scene documentary Reel script utilizing one of 6 documentary narrative structures.
+ * Generates concrete, topic-specific visual B-roll keywords, archival search queries,
+ * and high-fidelity image prompts for each scene in a documentary Reel.
+ * Eliminates repetitive library office/bookshelf visuals and forces context-grounded imagery.
+ */
+export function extractContextualSceneKeywords(
+  subject: string,
+  factText: string,
+  sceneIndex: number
+): { keywords: string[]; archivalQuery: string; headline: string; imagePrompt: string } {
+  const cleanSubject = subject.split(/[:\-\—\(]/)[0].trim();
+  const combined = `${subject} ${factText || ''}`.toLowerCase();
+
+  // 1. Domain-specific concrete physical visual mappings
+  if (/petrov|oko|nuclear false alarm|early warning/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['soviet radar bunker', 'military control room', 'radar console'],
+        archivalQuery: 'Stanislav Petrov',
+        headline: 'DECLASSIFIED DOSSIER',
+        imagePrompt: 'Cinematic 35mm documentary photograph of Soviet officer Stanislav Petrov at Serpukhov-15 early-warning radar command post in 1983. Dark atmospheric room, glowing cathode ray tube monitors with radar sweeps, Soviet military uniform, authentic Cold War realism. NO text.'
+      },
+      {
+        keywords: ['radar screen', 'missile early warning', 'soviet computer terminal'],
+        archivalQuery: 'Stanislav Petrov',
+        headline: 'MISSILE WARNING PROTOCOL',
+        imagePrompt: 'Macro documentary photograph of a 1980s Soviet military radar terminal glowing with alert telemetry, radar screen indicating incoming trajectory points, analog toggle switches, steel casing. NO text, NO watermarks.'
+      },
+      {
+        keywords: ['military command phone', 'radar operator', 'control panel'],
+        archivalQuery: 'Stanislav Petrov',
+        headline: 'THE SOVIET DECISION',
+        imagePrompt: 'Dramatic high-contrast documentary visual of a Soviet military command desk, vintage red telephone, classified protocol binders, duty officer hands resting beside the decision terminal under dramatic overhead spotlight. NO text.'
+      },
+      {
+        keywords: ['radar dome', 'missile silo', 'military base'],
+        archivalQuery: 'Stanislav Petrov',
+        headline: 'HISTORICAL AFTERMATH',
+        imagePrompt: 'Cinematic wide-angle dusk photograph of a Cold War Soviet early-warning radar installation dome against a brooding twilight sky, quiet contemplative historical atmosphere. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/kola|superdeep borehole|earth crust|drilling/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['drilling rig snow', 'arctic drilling tower', 'industrial drill'],
+        archivalQuery: 'Kola Superdeep Borehole',
+        headline: 'THE KOLA BOREHOLE',
+        imagePrompt: 'Cinematic wide documentary shot of the Kola Superdeep Borehole drilling tower in the Arctic tundra snow, industrial steel derrick, polar twilight, authentic 1980s Soviet geological expedition. NO text.'
+      },
+      {
+        keywords: ['heavy drill pipe', 'geological core samples', 'drilling rig interior'],
+        archivalQuery: 'Kola Superdeep Borehole',
+        headline: '12,262 METERS DEPTH',
+        imagePrompt: 'Industrial documentary photography of heavy Soviet drill strings and cylindrical geological rock core samples extracted from the deep Earth crust, dramatic workshop lighting, glistening minerals. NO text.'
+      },
+      {
+        keywords: ['welded metal borehole cap', 'deep drilling station', 'depth gauge'],
+        archivalQuery: 'Kola Superdeep Borehole',
+        headline: 'BOILING WATER ANOMALY',
+        imagePrompt: 'Macro photograph of the heavy bolted steel cap over the Kola Superdeep Borehole aperture in concrete floor, industrial bolts, subterranean exploration telemetry equipment. NO text.'
+      },
+      {
+        keywords: ['abandoned arctic drilling facility', 'kola tundra', 'industrial ruins'],
+        archivalQuery: 'Kola Superdeep Borehole',
+        headline: 'THE SEALED ABYSS',
+        imagePrompt: 'Atmospheric documentary photograph of the abandoned Kola scientific drilling complex in Murmansk Oblast, Arctic moss, rusting heavy machinery against subarctic hills, quiet mystery. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/concrete|roman|pozzolana|pantheon|caesarea/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['ancient roman harbor', 'submerged ruins', 'ancient stone walls'],
+        archivalQuery: 'Roman concrete',
+        headline: 'ROMAN CONCRETE',
+        imagePrompt: 'Underwater documentary photograph of ancient Roman harbor concrete breakwaters submerged in turquoise Mediterranean water, marine encrustations, sunbeams cutting through ocean. NO text.'
+      },
+      {
+        keywords: ['volcanic pozzolana ash', 'ancient roman stonework', 'lime clasts'],
+        archivalQuery: 'Roman concrete',
+        headline: 'HOT-MIXING REACTION',
+        imagePrompt: 'Macro photographic examination of ancient Roman concrete matrix showing white lime clasts embedded in volcanic ash mortar, authentic archaeological core sample, scientific raking light. NO text.'
+      },
+      {
+        keywords: ['underwater roman concrete breakwater', 'ancient harbor waves', 'sea wall'],
+        archivalQuery: 'Roman concrete',
+        headline: 'SELF-HEALING MECHANISM',
+        imagePrompt: 'Dramatic wide-angle shot of ancient Roman coastal seawall resisting crashing ocean waves, enduring for 2,000 years, rugged stone masonry, coastal dawn light. NO text.'
+      },
+      {
+        keywords: ['roman pantheon dome interior', 'ancient roman architecture', 'roman monuments'],
+        archivalQuery: 'Pantheon Rome',
+        headline: '2,000 YEARS STANDING',
+        imagePrompt: 'Majestic interior photograph of the unreinforced Roman concrete dome of the Pantheon, oculus beam of sunlight illuminating coffered ceiling, architectural masterpiece. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/bangladesh|swift|heist|central bank/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['central bank building', 'bank vault door', 'financial district night'],
+        archivalQuery: 'Bangladesh Bank',
+        headline: 'THE $951M HEIST',
+        imagePrompt: 'Cinematic night exterior of a modern national central bank headquarters, glass and granite facade illuminated in darkness, moody financial thriller aesthetic. NO text.'
+      },
+      {
+        keywords: ['swift terminal printer', 'computer code screen', 'bank computer'],
+        archivalQuery: 'Bangladesh Bank',
+        headline: 'FRAUDULENT SWIFT ORDERS',
+        imagePrompt: 'Moody documentary close-up of an official banking SWIFT terminal and network server rack, blinking amber status diodes, high-security financial data center. NO text.'
+      },
+      {
+        keywords: ['wire transfer routing terminal', 'bank security room', 'bank records'],
+        archivalQuery: 'Bangladesh Bank',
+        headline: 'THE ROUTING TYPO',
+        imagePrompt: 'Cinematic forensic desk shot with glowing terminal screen displaying international financial transaction routing logs, forensic cyber investigation atmosphere. NO text.'
+      },
+      {
+        keywords: ['bank vault interior', 'central bank reserve', 'bank security'],
+        archivalQuery: 'Federal Reserve Bank of New York',
+        headline: 'FROZEN MILLIONS',
+        imagePrompt: 'Deep underground high-security bank vault interior, heavy circular steel vault door with rotating locking bolts, dramatic security illumination. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/seed vault|svalbard|longyearbyen/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['svalbard seed vault entrance', 'arctic snowy mountain', 'permafrost bunker'],
+        archivalQuery: 'Svalbard Global Seed Vault',
+        headline: 'ARCTIC DOOMSDAY VAULT',
+        imagePrompt: 'Iconic wide shot of the Svalbard Global Seed Vault portal building jutting out from a snow-covered mountain, illuminated glowing roof artwork in polar night, Arctic tundra. NO text.'
+      },
+      {
+        keywords: ['reinforced blast door airlock', 'underground seed storage tunnel', 'frost mountain'],
+        archivalQuery: 'Svalbard Global Seed Vault',
+        headline: '-18°C PERMAFROST',
+        imagePrompt: 'Underground tunnel carved through solid permafrost rock, frosty steel security blast doors, industrial tunnel lighting leading into cold mountain depths. NO text.'
+      },
+      {
+        keywords: ['frozen seed collection boxes', 'arctic permafrost vault', 'subterranean vault'],
+        archivalQuery: 'Svalbard Global Seed Vault',
+        headline: '1.2 MILLION VARIETIES',
+        imagePrompt: 'Rows of standardized black storage crates on heavy shelving inside the deep freezing subterranean vault, frost crystals glistening on containers. NO text.'
+      },
+      {
+        keywords: ['spitsbergen arctic mountain', 'svalbard seed vault landscape', 'snow mountain'],
+        archivalQuery: 'Spitsbergen',
+        headline: 'GLOBAL SAFEGUARD',
+        imagePrompt: 'Dramatic panoramic landscape of Spitsbergen mountain range and Arctic glacial fjord under pastel dawn sky, quiet enduring sanctuary. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/cheyenne|mount weather|bunker|blast door|norad/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['cheyenne mountain complex entrance', 'granite mountain tunnel', 'norad portal'],
+        archivalQuery: 'Cheyenne Mountain Complex',
+        headline: 'SUBTERRANEAN FORTRESS',
+        imagePrompt: 'Massive highway tunnel portal entering solid granite mountain, military checkpoint, Cold War reinforced subterranean entrance. NO text.'
+      },
+      {
+        keywords: ['25 ton hydraulic blast door', 'massive steel springs shock dampener', 'bunker tunnel'],
+        archivalQuery: 'Cheyenne Mountain',
+        headline: '25-TON BLAST DOORS',
+        imagePrompt: 'Gigantic 25-ton convex steel blast door sealed into solid granite cavern wall, heavy hydraulic cylinders and locking pins, industrial defense fortress. NO text.'
+      },
+      {
+        keywords: ['norad aerospace defense command center', 'underground command console', 'bunker screens'],
+        archivalQuery: 'Cheyenne Mountain',
+        headline: 'SHOCK-DAMPENED GRID',
+        imagePrompt: 'Heavy subterranean steel buildings resting on giant coiled shock absorber springs inside massive granite cavern, military bunker engineering. NO text.'
+      },
+      {
+        keywords: ['cheyenne mountain granite peak', 'hardened underground facility', 'military complex'],
+        archivalQuery: 'Cheyenne Mountain Complex',
+        headline: 'THE HARDENED CORE',
+        imagePrompt: 'Rugged granite mountain peak rising into stormy clouds above military perimeter installations, impenetrable rock fortress. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/ekranoplan|caspian/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['lun class ekranoplan', 'caspian sea monster', 'military ground effect vehicle'],
+        archivalQuery: 'Lun-class ekranoplan',
+        headline: 'THE CASPIAN LEVIATHAN',
+        imagePrompt: 'Massive 300-foot Soviet Lun-class ekranoplan skimming 15 feet above stormy Caspian sea water at high speed, giant jet engines mounted on nose, water spray. NO text.'
+      },
+      {
+        keywords: ['supersonic missile launchers craft', 'ekranoplan cockpit', 'giant seaplane'],
+        archivalQuery: 'Lun-class ekranoplan',
+        headline: 'SUPERSONIC MOSKIT TUBES',
+        imagePrompt: 'Dramatic angle showing six giant Moskit supersonic missile launcher tubes mounted along the dorsal fuselage of the ekranoplan, Cold War naval weapon design. NO text.'
+      },
+      {
+        keywords: ['ekranoplan skimming water', 'caspian sea shore', 'experimental aircraft'],
+        archivalQuery: 'Lun-class ekranoplan',
+        headline: 'GROUND-EFFECT AERODYNAMICS',
+        imagePrompt: 'Low-angle action shot of the 540-ton ground-effect vehicle riding dynamic aerodynamic cushion of air between broad stubby wings and sea surface. NO text.'
+      },
+      {
+        keywords: ['ekranoplan derelict beach', 'caspian sea monster derelict', 'military aircraft'],
+        archivalQuery: 'Lun-class ekranoplan',
+        headline: 'DERELICT GHOST SHIP',
+        imagePrompt: 'The giant abandoned Lun-class ekranoplan resting on the sandy shores of Dagestan at sunset, waves gently lapping its hull, weathered camouflage paint. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  // 2. Dynamic high-specificity keyword extraction for any other historical topic
+  const stopWords = new Set([
+    'the', 'this', 'that', 'with', 'from', 'have', 'will', 'your', 'about', 'what', 'when',
+    'where', 'into', 'over', 'under', 'between', 'during', 'official', 'record', 'records',
+    'archive', 'investigation', 'primary', 'timeline', 'incident', 'story', 'secret',
+    'revealed', 'documented', 'evidence', 'untold', 'aftermath', 'consequence', 'verifiable'
+  ]);
+
+  const cleanWords = combined.replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 4 && !stopWords.has(t));
+
+  const uniqueNouns = Array.from(new Set(cleanWords)).slice(0, 8);
+  const subjectWords = cleanSubject.split(/\s+/).slice(0, 3).join(' ');
+
+  const kwPrimary = uniqueNouns.slice(0, 2).join(' ') || subjectWords;
+  const kwSecondary = uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || 'historical documentary';
+  const kwTertiary = uniqueNouns.slice(4, 6).join(' ') || cleanSubject;
+
+  const defaultHeadlines = [
+    cleanSubject.toUpperCase().slice(0, 24),
+    'THE CRITICAL RECORD',
+    'THE TURNING POINT',
+    'HISTORICAL VERDICT'
+  ];
+
+  return {
+    keywords: [kwPrimary, kwSecondary, kwTertiary].filter(Boolean),
+    archivalQuery: cleanSubject,
+    headline: defaultHeadlines[sceneIndex] || 'DOCUMENTED RECORD',
+    imagePrompt: `Cinematic 35mm documentary photograph depicting ${cleanSubject}. Dramatic atmospheric archival lighting, authentic museum quality realism, rich contrast. NO text, NO labels.`
+  };
+}
+
+/**
+ * Builds a 3-4 scene documentary Reel script utilizing verified facts and concrete topic visuals.
  */
 export async function constructDocumentaryReelPackage(
   dossier: ResearchDossier,
@@ -1423,25 +1681,24 @@ export async function constructDocumentaryReelPackage(
     ? `The aftermath was profound: ${dossier.uncertaintiesOrLimits[0].trim().replace(/\.+$/, '')}. Today, it stands as documented proof of how close history came to a different ending. What would you have done?`
     : `Today, declassified archives reveal how close history came to an entirely different ending. What would you have done in their position?`;
 
-  // Dynamically generate punchy, relevant headlines (NO generic template clichés like "THE EVIDENCE")
-  const subjectWords = dossier.subject.split(/[:\-\—]/)[0].trim().split(/\s+/).slice(0, 3).join(' ').toUpperCase();
-  const scene1Headline = subjectWords || 'DECLASSIFIED DOSSIER';
-  const scene2Headline = 'DOCUMENTED RECORD';
-  const scene3Headline = 'THE TURNING POINT';
-  const scene4Headline = 'HISTORICAL VERDICT';
+  // Dynamically resolve concrete, context-specific visual metadata for each scene
+  const sc0Context = extractContextualSceneKeywords(dossier.subject, fact0Raw, 0);
+  const sc1Context = extractContextualSceneKeywords(dossier.subject, fact1Raw, 1);
+  const sc2Context = extractContextualSceneKeywords(dossier.subject, fact2Raw, 2);
+  const sc3Context = extractContextualSceneKeywords(dossier.subject, dossier.uncertaintiesOrLimits[0] || '', 3);
 
-  // Generate 4 cohesive scenes completing the full narrative arc
+  // Generate 4 cohesive scenes completing the full narrative arc with zero generic filler
   const scenes: CuratedScene[] = [
     {
       order: 1,
       durationSeconds: calcDuration(scene1Script, 7.5),
-      headline: scene1Headline,
+      headline: sc0Context.headline || 'DECLASSIFIED FILE',
       highlight: fact0Raw.slice(0, 36).toUpperCase(),
       subline: cleanHook,
       voiceScript: scene1Script,
-      bRollKeywords: ['historical archive documentary', 'investigative evidence files', 'vintage photography'],
-      archivalQuery: dossier.subject.split(':')[0],
-      imagePrompt: `A cinematic 35mm documentary photograph depicting ${dossier.subject}. Dark atmospheric archival lighting, high contrast, muted gold and obsidian palette. Photorealistic, authentic museum quality. NO text, NO labels, NO logos.`,
+      bRollKeywords: sc0Context.keywords,
+      archivalQuery: sc0Context.archivalQuery,
+      imagePrompt: sc0Context.imagePrompt,
       visualTheme: 'minimal-dark',
       visualFormat: 'full-bleed-cinematic',
       accentColor: BRAND_PALETTE.antiqueGold,
@@ -1450,13 +1707,13 @@ export async function constructDocumentaryReelPackage(
     {
       order: 2,
       durationSeconds: calcDuration(scene2Script, 8.0),
-      headline: scene2Headline,
+      headline: sc1Context.headline || 'CRITICAL TELEMETRY',
       highlight: fact1Raw ? fact1Raw.slice(0, 36).toUpperCase() : 'INCIDENT TIMELINE',
       subline: fact1Raw || 'Official investigation records documented the exact sequence of events.',
       voiceScript: scene2Script,
-      bRollKeywords: ['archival documents inspection', 'historical evidence analysis', 'macro record examination'],
-      archivalQuery: dossier.citations[0]?.sourceName || dossier.subject,
-      imagePrompt: `Detailed documentary close-up of historical archival evidence for ${dossier.subject}. Authentic aged parchment, muted charcoal background, scientific examination lighting. NO text, NO watermarks.`,
+      bRollKeywords: sc1Context.keywords,
+      archivalQuery: sc1Context.archivalQuery,
+      imagePrompt: sc1Context.imagePrompt,
       visualTheme: 'monochrome-bold',
       visualFormat: 'classified-dossier',
       accentColor: BRAND_PALETTE.slateSteel,
@@ -1465,13 +1722,13 @@ export async function constructDocumentaryReelPackage(
     {
       order: 3,
       durationSeconds: calcDuration(scene3Script, 8.0),
-      headline: scene3Headline,
+      headline: sc2Context.headline || 'THE DECISION',
       highlight: fact2Raw ? fact2Raw.slice(0, 36).toUpperCase() : 'CRITICAL RESOLUTION',
       subline: fact2Raw || 'A single decision changed the outcome of the entire operation.',
       voiceScript: scene3Script,
-      bRollKeywords: ['tactical control room', 'decision point documentary', 'historical turning point'],
-      archivalQuery: dossier.subject,
-      imagePrompt: `Cinematic high-contrast documentary visual representing the turning point of ${dossier.subject}. Dramatic rim lighting, deep shadows, authentic mid-century or modern investigative tone. NO text.`,
+      bRollKeywords: sc2Context.keywords,
+      archivalQuery: sc2Context.archivalQuery,
+      imagePrompt: sc2Context.imagePrompt,
       visualTheme: 'minimal-dark',
       visualFormat: 'full-bleed-cinematic',
       accentColor: BRAND_PALETTE.antiqueGold,
@@ -1480,13 +1737,13 @@ export async function constructDocumentaryReelPackage(
     {
       order: 4,
       durationSeconds: calcDuration(scene4Script, 7.5),
-      headline: scene4Headline,
+      headline: sc3Context.headline || 'HISTORICAL AFTERMATH',
       highlight: 'THE AFTERMATH',
       subline: 'What would you have done in this position?',
       voiceScript: scene4Script,
-      bRollKeywords: ['aerial drone cinematic landscape', 'modern historical site', 'documentary aftermath'],
-      archivalQuery: dossier.subject,
-      imagePrompt: `Cinematic wide-angle documentary shot of the modern location or museum conservation of ${dossier.subject}. Dusk lighting, deep shadow contrast, quiet contemplative historical atmosphere. NO text.`,
+      bRollKeywords: sc3Context.keywords,
+      archivalQuery: sc3Context.archivalQuery,
+      imagePrompt: sc3Context.imagePrompt,
       visualTheme: 'minimal-dark',
       visualFormat: 'satellite-telemetry',
       accentColor: BRAND_PALETTE.deepTelemetryCyan,
