@@ -296,11 +296,15 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
       template = index === 0 ? 'full-bleed-cinematic' : index === 1 ? 'classified-dossier' : 'satellite-telemetry';
     }
 
+    const subjectClean = String(reel?.title || '').replace(/^THE\s+/i, '').replace(/[:\-].*$/, '').trim().toUpperCase();
+    const subjectPrefix = subjectClean.length > 3 ? subjectClean.slice(0, 30) : '';
     const dwellText = index === 0
-      ? 'DEEP ARCHIVE INVESTIGATION // RECORD 01'
+      ? (subjectPrefix ? `${subjectPrefix} // ARCHIVAL RECORD` : 'DEEP ARCHIVE INVESTIGATION // RECORD 01')
       : index === 1
-      ? 'FORENSIC EVIDENCE & HISTORICAL TIMELINE'
-      : 'INTELLIGENCE ANALYSIS // VERIFIED SOURCES';
+      ? (subjectPrefix ? `${subjectPrefix} // FORENSIC EVIDENCE` : 'FORENSIC EVIDENCE & TIMELINE')
+      : index === 2
+      ? (subjectPrefix ? `${subjectPrefix} // PRIMARY ANALYSIS` : 'INTELLIGENCE ANALYSIS // VERIFIED')
+      : (subjectPrefix ? `${subjectPrefix} // HISTORICAL RESOLUTION` : 'HISTORICAL RECORD // DECLASSIFIED');
 
     await renderOverlayToPng({
       badge,

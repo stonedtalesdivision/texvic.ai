@@ -10,8 +10,6 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    # Only runs when VPS_HOST secret is defined in GitHub repository secrets
-    if: "${{ secrets.VPS_HOST != '' }}"
 
     steps:
       - name: Deploy updates to Oracle VPS via SSH
