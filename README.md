@@ -85,6 +85,10 @@ Never put Instagram access tokens, app secrets, or `TOKEN_ENCRYPTION_KEY` in fro
 
 The database contains encrypted access tokens. The application decrypts them only immediately before making an Instagram API request.
 
-## Current product boundary
+## Media & Rendering Engine
 
-The current renderer is a functional MVP renderer: it produces valid 9:16 MP4 files with scene-aware typography and audio. The next media-generation layer can add AI imagery, stock/owned footage, voiceover, licensed music, and richer transitions without changing the publishing architecture.
+The production render pipeline produces 1080x1920 (9:16 vertical) MP4s:
+- **Neural TTS Voiceover**: High-fidelity narration with automatic fallback chain (Microsoft Edge Neural TTS, Piper, Gemini, and local synth).
+- **Active Word Subtitles**: Word-level timing timestamps burnt directly into video via FFmpeg libass with live active word karaoke highlighting.
+- **Atmospheric Audio Ducking**: Background music automatically ducks under narrator vocals and restores between scenes.
+- **Multi-Channel Publishing**: Native container upload and polling for Instagram Reels and Facebook Page Video Reels.
