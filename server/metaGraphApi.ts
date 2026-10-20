@@ -663,9 +663,17 @@ export async function getFacebookPageProfile(
   accessToken: string
 ): Promise<{ success: boolean; data?: FacebookAccountDetails; error?: string }> {
   try {
-    const url = `${FB_GRAPH_BASE_URL}/${pageId}?fields=id,name,link,picture,followers_count,fan_count&access_token=${encodeURIComponent(accessToken)}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    let url = `${FB_GRAPH_BASE_URL}/${pageId}?fields=id,name,link,picture,followers_count,fan_count&access_token=${encodeURIComponent(accessToken)}`;
+    let res = await fetch(url);
+    let data = await res.json();
+
+    // Fallback to basic fields if extended analytics fields are permission-restricted
+    if (!res.ok || data.error) {
+      url = `${FB_GRAPH_BASE_URL}/${pageId}?fields=id,name,picture&access_token=${encodeURIComponent(accessToken)}`;
+      res = await fetch(url);
+      data = await res.json();
+    }
+
     if (!res.ok || data.error) {
       return { success: false, error: data.error?.message || 'Failed to query Facebook Page profile' };
     }

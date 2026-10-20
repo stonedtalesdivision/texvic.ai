@@ -126,7 +126,10 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         : 7.0;
       return {
         ...sc,
-        durationSeconds: Math.max(Number(sc.durationSeconds || 0), naturalDuration)
+        durationSeconds: Math.max(Number(sc.durationSeconds || 0), naturalDuration),
+        speechDuration: sc.speechDuration,
+        audioDuration: sc.audioDuration,
+        words: sc.words
       };
     });
   }, [rawScenes, playbackRate]);
@@ -426,9 +429,34 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     }
 
     const sceneStartTime = sceneStartTimes[currentSceneIndex] || 0;
-    const sceneDuration = currentScene?.durationSeconds || 8;
     const sceneElapsed = Math.max(0, currentTime - sceneStartTime);
-    const progress = Math.min(0.999, Math.max(0, sceneElapsed / sceneDuration));
+
+    // 1. If scene has millisecond-accurate word boundaries from Neural TTS:
+    if (Array.isArray(currentScene?.words) && currentScene.words.length > 0) {
+      const matchIdx = currentScene.words.findIndex(
+        (w: any) => sceneElapsed >= w.start && sceneElapsed <= (w.end + 0.1)
+      );
+      if (matchIdx !== -1) {
+        setActiveWordIndex(matchIdx);
+        return;
+      }
+      const lastWord = currentScene.words[currentScene.words.length - 1];
+      if (sceneElapsed > (lastWord?.end || 0) + 0.2) {
+        // Speech ended: clear active highlight so it doesn't linger into trailing silence
+        setActiveWordIndex(-1);
+        return;
+      }
+    }
+
+    // 2. Otherwise calculate tempo based on actual speech duration (~2.4 words/second)
+    const speechDuration = currentScene?.speechDuration || currentScene?.audioDuration || (words.length / (2.4 * (playbackRate || 1.0)));
+    if (sceneElapsed >= speechDuration + 0.2) {
+      // Speech ended: clear highlight during trailing silence
+      setActiveWordIndex(-1);
+      return;
+    }
+
+    const progress = Math.min(0.999, Math.max(0, sceneElapsed / speechDuration));
     const calculatedWordIdx = Math.floor(progress * words.length);
     setActiveWordIndex(calculatedWordIdx);
   }, [currentTime, currentSceneIndex, effectiveScenes, sceneStartTimes, isPlaying, hasGeneratedVideo, reel.title]);

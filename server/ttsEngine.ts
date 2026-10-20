@@ -19,6 +19,37 @@ export interface TTSOptions {
   volume?: string;
 }
 
+export interface TimedWord {
+  word: string;
+  start: number; // in seconds relative to scene/segment start
+  end: number;   // in seconds relative to scene/segment start
+}
+
+/**
+ * Proportional word timing estimation based on word character weights.
+ * Used as an ultra-reliable fallback when native WebSocket metadata is unavailable.
+ */
+export function estimateWordTimings(text: string, durationSec: number): TimedWord[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length || durationSec <= 0) return [];
+
+  const totalChars = words.reduce((acc, w) => acc + Math.max(1, w.length), 0);
+  const speechDur = Math.max(0.5, durationSec);
+  const timed: TimedWord[] = [];
+  let currentSec = 0;
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const weight = Math.max(1, w.length) / totalChars;
+    const dur = Math.max(0.12, speechDur * weight);
+    const start = Number(currentSec.toFixed(3));
+    const end = Number(Math.min(speechDur, currentSec + dur).toFixed(3));
+    timed.push({ word: w, start, end });
+    currentSec = end;
+  }
+  return timed;
+}
+
 // Top natural creator & cinematic documentary male voices in Microsoft Edge Neural TTS
 export const CREATOR_VOICES = {
   deepDocumentaryMale: 'en-US-ChristopherNeural',         // Deep, authoritative, mature adult narrator
@@ -239,15 +270,14 @@ export async function padAudioSegment(filePath: string, targetDurationSec: numbe
 }
 
 /**
- * Direct Node.js Microsoft Edge Neural TTS via WebSocket.
- * Features automatic server clock-offset synchronization, eliminating the 403 Forbidden
- * handshake failures that occur with Python CLI edge-tts on cloud VPS / Docker instances.
+ * Direct Node.js Microsoft Edge Neural TTS with millisecond-accurate word boundary capture.
+ * Features automatic server clock-offset synchronization, eliminating 403 Forbidden handshake failures.
  */
-export async function generateSpeechWithNodeEdge(
+export async function generateSpeechWithNodeEdgeDetailed(
   text: string,
   outputPath: string,
   options: TTSOptions = {}
-): Promise<string> {
+): Promise<{ audioPath: string; duration: number; words: TimedWord[] }> {
   await ensureTtsDir();
   const cleanedText = humanizeSpeechText(text);
   if (!cleanedText) throw new Error('TTS text cannot be empty');
@@ -261,9 +291,40 @@ export async function generateSpeechWithNodeEdge(
     synthesisTimeoutMs: 30000
   });
 
+  const capturedWords: TimedWord[] = [];
+
   try {
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
-    const { audioStream } = tts.toStream(cleanedText, { rate, pitch });
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3, {
+      wordBoundaryEnabled: true,
+      sentenceBoundaryEnabled: false
+    });
+    const { audioStream, metadataStream } = tts.toStream(cleanedText, { rate, pitch });
+
+    if (metadataStream) {
+      metadataStream.on('data', (chunk: Buffer) => {
+        try {
+          const str = chunk.toString('utf8');
+          const parsed = JSON.parse(str);
+          if (Array.isArray(parsed?.Metadata)) {
+            for (const item of parsed.Metadata) {
+              if (item?.Type === 'WordBoundary' && item?.Data) {
+                const offset = Number(item.Data.Offset);
+                const duration = Number(item.Data.Duration);
+                const wordText = String(item.Data.text?.Text || '').trim();
+                if (wordText && Number.isFinite(offset) && Number.isFinite(duration)) {
+                  capturedWords.push({
+                    word: wordText,
+                    start: Number((offset / 10000000).toFixed(3)),
+                    end: Number(((offset + duration) / 10000000).toFixed(3))
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
+      });
+    }
+
     const writeStream = fsSync.createWriteStream(outputPath);
     await pipeline(audioStream, writeStream);
   } finally {
@@ -276,7 +337,30 @@ export async function generateSpeechWithNodeEdge(
     throw new Error(`Node MsEdgeTTS output missing or empty for voice "${voice}"`);
   }
 
-  return outputPath;
+  const duration = await getAudioDuration(outputPath);
+  capturedWords.sort((a, b) => a.start - b.start);
+
+  const finalWords = capturedWords.length > 0
+    ? capturedWords
+    : estimateWordTimings(cleanedText, duration);
+
+  return {
+    audioPath: outputPath,
+    duration,
+    words: finalWords
+  };
+}
+
+/**
+ * Direct Node.js Microsoft Edge Neural TTS via WebSocket (string path return).
+ */
+export async function generateSpeechWithNodeEdge(
+  text: string,
+  outputPath: string,
+  options: TTSOptions = {}
+): Promise<string> {
+  const result = await generateSpeechWithNodeEdgeDetailed(text, outputPath, options);
+  return result.audioPath;
 }
 
 /**
@@ -556,6 +640,7 @@ export async function generateCohesiveReelSpeech(
   masterAudioPath: string;
   totalDuration: number;
   voiceUsed: string;
+  sceneWords: TimedWord[][];
 }> {
   const activeTtsDir = await ensureTtsDir();
   // Strictly preserve the 1-to-1 array mapping with scenes (never filter out empty elements!)
@@ -585,6 +670,7 @@ export async function generateCohesiveReelSpeech(
       console.log(`[TTS Engine] 🔒 Attempting locked Node MsEdgeTTS MALE voice (${edgeVoice}) across all ${cleanedTexts.length} scene(s)...`);
       const paths: (string | null)[] = [];
       const durations: number[] = [];
+      const sceneWords: TimedWord[][] = [];
       let success = true;
 
       for (let i = 0; i < cleanedTexts.length; i++) {
@@ -592,6 +678,7 @@ export async function generateCohesiveReelSpeech(
         if (!text || text.trim().length === 0) {
           paths.push(null);
           durations.push(0);
+          sceneWords.push([]);
           continue;
         }
 
@@ -601,16 +688,16 @@ export async function generateCohesiveReelSpeech(
         // Up to 4 attempts with exponential backoff for transient 429 or network blips
         for (let attempt = 0; attempt < 4; attempt++) {
           try {
-            await generateSpeechWithNodeEdge(text, segPath, {
+            const detail = await generateSpeechWithNodeEdgeDetailed(text, segPath, {
               voice: edgeVoice,
               rate: '+0%',
               pitch: '-4Hz'
             });
 
             if (fsSync.existsSync(segPath) && (await fs.stat(segPath)).size >= 500) {
-              const dur = await getAudioDuration(segPath);
               paths.push(segPath);
-              durations.push(dur);
+              durations.push(detail.duration);
+              sceneWords.push(detail.words);
               sceneSuccess = true;
               break;
             }
@@ -644,7 +731,8 @@ export async function generateCohesiveReelSpeech(
           sceneDurations: durations,
           masterAudioPath: masterPath,
           totalDuration: totalDur,
-          voiceUsed: edgeVoice
+          voiceUsed: edgeVoice,
+          sceneWords
         };
       }
     } catch (edgeErr: any) {
@@ -659,6 +747,7 @@ export async function generateCohesiveReelSpeech(
       console.log(`[TTS Engine] 🔒 Attempting locked Gemini 3.8 Flash TTS (${geminiVoice}) across all ${cleanedTexts.length} scene(s)...`);
       const paths: (string | null)[] = [];
       const durations: number[] = [];
+      const sceneWords: TimedWord[][] = [];
       let allGeminiSuccess = true;
 
       for (let i = 0; i < cleanedTexts.length; i++) {
@@ -666,6 +755,7 @@ export async function generateCohesiveReelSpeech(
         if (!text || text.trim().length === 0) {
           paths.push(null);
           durations.push(0);
+          sceneWords.push([]);
           continue;
         }
 
@@ -679,6 +769,7 @@ export async function generateCohesiveReelSpeech(
               const dur = await getAudioDuration(segPath);
               paths.push(segPath);
               durations.push(dur);
+              sceneWords.push(estimateWordTimings(text, dur));
               sceneSuccess = true;
               break;
             }
@@ -711,7 +802,8 @@ export async function generateCohesiveReelSpeech(
           sceneDurations: durations,
           masterAudioPath: masterPath,
           totalDuration: totalDur,
-          voiceUsed: `Gemini-${geminiVoice}`
+          voiceUsed: `Gemini-${geminiVoice}`,
+          sceneWords
         };
       }
     } catch (geminiErr: any) {
@@ -725,6 +817,7 @@ export async function generateCohesiveReelSpeech(
       console.log(`[TTS Engine] 🔒 Attempting locked Edge Neural MALE TTS (${edgeVoice}) across all ${cleanedTexts.length} scene(s)...`);
       const paths: (string | null)[] = [];
       const durations: number[] = [];
+      const sceneWords: TimedWord[][] = [];
       let success = true;
 
       for (let i = 0; i < cleanedTexts.length; i++) {
@@ -732,6 +825,7 @@ export async function generateCohesiveReelSpeech(
         if (!text || text.trim().length === 0) {
           paths.push(null);
           durations.push(0);
+          sceneWords.push([]);
           continue;
         }
 
@@ -755,6 +849,7 @@ export async function generateCohesiveReelSpeech(
               const dur = await getAudioDuration(segPath);
               paths.push(segPath);
               durations.push(dur);
+              sceneWords.push(estimateWordTimings(text, dur));
               sceneSuccess = true;
               break;
             }
@@ -788,7 +883,8 @@ export async function generateCohesiveReelSpeech(
           sceneDurations: durations,
           masterAudioPath: masterPath,
           totalDuration: totalDur,
-          voiceUsed: edgeVoice
+          voiceUsed: edgeVoice,
+          sceneWords
         };
       }
     } catch (edgeErr: any) {
@@ -796,16 +892,18 @@ export async function generateCohesiveReelSpeech(
     }
   }
 
-  // 3. Fallback: Offline Piper Neural Male TTS (Guaranteed 100% Male Documentary Baritone)
+  // 4. Fallback: Offline Piper Neural Male TTS (Guaranteed 100% Male Documentary Baritone)
   console.warn(`[TTS Engine] Rolling over ENTIRE reel to Offline Piper Neural MALE TTS (Ryan Baritone)...`);
   const paths: (string | null)[] = [];
   const durations: number[] = [];
+  const sceneWords: TimedWord[][] = [];
 
   for (let i = 0; i < cleanedTexts.length; i++) {
     const text = cleanedTexts[i];
     if (!text || text.trim().length === 0) {
       paths.push(null);
       durations.push(0);
+      sceneWords.push([]);
       continue;
     }
 
@@ -814,6 +912,7 @@ export async function generateCohesiveReelSpeech(
     const dur = await getAudioDuration(segPath);
     paths.push(segPath);
     durations.push(dur);
+    sceneWords.push(estimateWordTimings(text, dur));
   }
 
   const validPaths = paths.filter((p): p is string => Boolean(p));
@@ -827,7 +926,8 @@ export async function generateCohesiveReelSpeech(
     sceneDurations: durations,
     masterAudioPath: masterPath,
     totalDuration: totalDur,
-    voiceUsed: 'Piper-RyanBaritoneMale'
+    voiceUsed: 'Piper-RyanBaritoneMale',
+    sceneWords
   };
 }
 

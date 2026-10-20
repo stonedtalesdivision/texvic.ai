@@ -11,6 +11,9 @@ import { composeCinematicAudio } from './cinematicAudioEngine.js';
 export interface ReelScene {
   assetId: string;
   duration: number;
+  speechDuration?: number;
+  audioDuration?: number;
+  words?: any[];
   crop?: 'center' | 'left' | 'right';
   zoom?: number;
   speed?: number;
@@ -142,7 +145,9 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     if (!assPath) {
       const timedNarrations: TimedSceneNarration[] = input.scenes.map(s => ({
         text: s.narrationText || s.voiceScript || s.text || '',
-        duration: s.duration
+        duration: s.duration,
+        speechDuration: s.speechDuration || s.audioDuration || s.duration,
+        words: s.words || []
       }));
 
       if (timedNarrations.some(t => t.text.trim().length > 0)) {

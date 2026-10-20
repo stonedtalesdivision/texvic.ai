@@ -160,8 +160,9 @@ app.use((req, res, next) => {
 app.get("/api/health", async (req, res) => {
   try {
     const account = db.prepare('SELECT username, account_id, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+    const fbConn = getFacebookPageConnection();
     const config = db.prepare('SELECT enabled, interval_minutes, current_stage, next_run, last_run FROM autonomous_config WHERE id = ?').get('default_config') as any;
-    const recentReels = db.prepare('SELECT id, title, status, ig_media_id, created_at FROM reels ORDER BY created_at DESC LIMIT 3').all();
+    const recentReels = db.prepare('SELECT id, title, status, ig_media_id, fb_video_id, fb_status, created_at FROM reels ORDER BY created_at DESC LIMIT 3').all();
     const lastLog = db.prepare('SELECT timestamp, topic_researched, status FROM autonomous_logs ORDER BY timestamp DESC LIMIT 1').get() as any;
 
     let ttsDiagnostics: any = undefined;
@@ -217,6 +218,11 @@ app.get("/api/health", async (req, res) => {
           connected: Boolean(account?.is_connected),
           username: account?.username || null,
           accountId: account?.account_id ? `${String(account.account_id).slice(0, 5)}...` : null
+        },
+        facebook_page: {
+          connected: Boolean(fbConn?.isConnected),
+          pageId: fbConn?.pageId || null,
+          name: fbConn?.name || null
         },
         autonomous: config || null,
         recentReels,

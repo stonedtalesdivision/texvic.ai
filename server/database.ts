@@ -508,6 +508,36 @@ if (!existingAccount) {
   );
 }
 
+// Auto-initialize Facebook Page connection from environment variables if provided
+const envFbPageId = process.env.FACEBOOK_PAGE_ID || '';
+const envFbToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || '';
+if (envFbPageId && envFbToken) {
+  const existingFbPage = accountStmt.get('facebook_page') as any;
+  if (!existingFbPage) {
+    const insertFbAccount = db.prepare(`
+      INSERT INTO account_connections (
+        id, platform, account_id, username, name, profile_picture_url, biography,
+        followers_count, follows_count, media_count, access_token, token_expires_at,
+        is_connected, updated_at
+      ) VALUES (?, ?, ?, ?, ?, '', '', 0, 0, 0, ?, null, 1, ?)
+    `);
+    insertFbAccount.run(
+      'facebook_page', 'facebook_page', envFbPageId, 'Facebook Page',
+      'Facebook Page', encryptSecret(envFbToken), new Date().toISOString()
+    );
+  } else if (!existingFbPage.is_connected) {
+    db.prepare(`
+      UPDATE account_connections
+      SET account_id = ?, access_token = ?, is_connected = 1, updated_at = ?
+      WHERE id = 'facebook_page'
+    `).run(
+      envFbPageId,
+      encryptSecret(envFbToken),
+      new Date().toISOString()
+    );
+  }
+}
+
 // Table migrations for multi-account and dynamic persona support
 const accountColumns = db.prepare('PRAGMA table_info(account_connections)').all() as any[];
 if (!accountColumns.some((c: any) => c.name === 'is_active')) {

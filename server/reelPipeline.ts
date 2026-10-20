@@ -6,7 +6,7 @@ import { ensureAutonomousAudioAsset } from './autonomousAudio.js';
 import { composeReel } from './reelComposer.js';
 import dotenv from 'dotenv';
 import { createVideoJob, saveVideoOutput, createMediaSignature } from './videoEngine.js';
-import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from './ttsEngine.js';
+import { generateSpeech, generateSpeechWithNodeEdgeDetailed, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, CREATOR_VOICES, resolveBestVoiceForTopic, concatenateAudioTracks, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper, type TimedWord } from './ttsEngine.js';
 
 export function normalizeVideoUrl(videoUrl: string): string {
   if (!videoUrl) return '';
@@ -198,20 +198,26 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
 
   const voiceSegments: string[] = [];
   const sceneDurations: number[] = [];
+  const speechDurations: number[] = [];
+  const wordsList: TimedWord[][] = [];
   let realSpeechCount = 0;
 
   for (let i = 0; i < rawScenes.length; i++) {
     const sc = rawScenes[i];
     let segPath: string | null = cohesiveResult?.sceneAudioPaths?.[i] || null;
     let audioDur = cohesiveResult?.sceneDurations?.[i] || 0;
+    let timedWords: TimedWord[] = cohesiveResult?.sceneWords?.[i] || [];
 
     // Fallback only if cohesive synthesis was completely absent for this specific scene
     // Strictly locks to deepDocumentaryMale so no scene can EVER change voice or gender
     if (!segPath && narrationTexts[i]) {
       try {
         const lockedMaleVoice = cohesiveResult?.voiceUsed || CREATOR_VOICES.deepDocumentaryMale;
-        segPath = await generateSpeech(narrationTexts[i], undefined, { voice: lockedMaleVoice, rate: '+0%' });
-        audioDur = await getAudioDuration(segPath);
+        const fallbackTarget = path.join(process.cwd(), 'data', 'media', 'tts', `fallback-detail-${Date.now()}-${i}.mp3`);
+        const detail = await generateSpeechWithNodeEdgeDetailed(narrationTexts[i], fallbackTarget, { voice: lockedMaleVoice, rate: '+0%' });
+        segPath = detail.audioPath;
+        audioDur = detail.duration;
+        timedWords = detail.words;
       } catch (segErr) {
         console.warn(`[Reel Video Pipeline] Voiceover fallback failed for scene ${i + 1}:`, segErr);
       }
@@ -224,6 +230,8 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);
+      speechDurations.push(audioDur);
+      wordsList.push(timedWords);
       console.log(`[Reel Video Pipeline] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
     } else {
       // Synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
@@ -231,6 +239,8 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       const silentSeg = await generateSilentAudioSegment(fallbackDur);
       voiceSegments.push(silentSeg);
       sceneDurations.push(fallbackDur);
+      speechDurations.push(0);
+      wordsList.push([]);
       console.warn(`[Reel Video Pipeline] Scene ${i + 1} generated silent sync bed (${fallbackDur}s).`);
     }
   }
@@ -240,6 +250,8 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     console.warn(`[Reel Video Pipeline] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Piper Male TTS (Ryan Baritone)...`);
     voiceSegments.length = 0;
     sceneDurations.length = 0;
+    speechDurations.length = 0;
+    wordsList.length = 0;
     for (let i = 0; i < rawScenes.length; i++) {
       const text = narrationTexts[i] || reel?.title || '';
       try {
@@ -251,6 +263,8 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
           const paddedSeg = await padAudioSegment(segPath, sceneDur);
           voiceSegments.push(paddedSeg);
           sceneDurations.push(sceneDur);
+          speechDurations.push(audioDur);
+          wordsList.push([]);
           realSpeechCount++;
           console.log(`[Reel Video Pipeline] Emergency scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s.`);
           continue;
@@ -262,6 +276,8 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       const silentSeg = await generateSilentAudioSegment(fallbackDur);
       voiceSegments.push(silentSeg);
       sceneDurations.push(fallbackDur);
+      speechDurations.push(0);
+      wordsList.push([]);
     }
   }
 
@@ -277,12 +293,16 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
   const scenes = prepared.assets.map((asset: any, index: number) => {
     const scene = rawScenes[index] || {};
     const dynamicDuration = sceneDurations[index] || Number(scene.durationSeconds || 8.0);
+    const dynamicSpeechDuration = speechDurations[index] || dynamicDuration;
+    const dynamicWords = wordsList[index] || [];
     const isPortrait = (asset.width === 1080 && asset.height === 1920) || asset.source === 'ffmpeg-autonomous-visual-producer';
     const narrationText = extractSceneNarration(scene, index, prepared.assets.length, reel);
     return {
       ...scene,
       assetId: asset.id,
       duration: dynamicDuration,
+      speechDuration: dynamicSpeechDuration,
+      words: dynamicWords,
       // Maintain 100% full safe zone: keep centered with no zoom or cropping
       crop: 'center' as const,
       zoom: isPortrait ? 1 : Number(scene.pacingEffect === 'zoom-in' ? 1.05 : 1),

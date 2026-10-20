@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import type { TimedWord } from './ttsEngine.js';
 
 export interface KineticSubtitleOptions {
   accentHex?: string; // e.g. '#d4af37' or '#00f0ff'
@@ -56,15 +57,18 @@ function isEmphasisWord(word: string): boolean {
   return dramaticKeywords.includes(clean.toLowerCase());
 }
 
+
 export interface TimedSceneNarration {
   text: string;
-  duration: number;
+  duration: number;        // Total visual scene duration (including buffer, e.g. 6.0s)
+  speechDuration?: number; // Actual speech audio duration (e.g. 2.8s)
+  words?: TimedWord[];     // Exact millisecond word timestamps from neural TTS
 }
 
 /**
  * Generates an Advanced SubStation Alpha (.ass) subtitle file engineered for
  * viral short-form retention: 2-3 words per burst, centered safe-zone, bold font,
- * and intelligent golden keyword highlights.
+ * and intelligent golden keyword highlights perfectly synchronized to the voiceover.
  */
 export async function generateKineticAssSubtitles(
   scenes: TimedSceneNarration[],
@@ -112,48 +116,92 @@ export async function generateKineticAssSubtitles(
       continue;
     }
 
-    // Split words into 2-to-3 word punchy chunks
-    const chunks: string[][] = [];
-    const maxPerChunk = options.wordsPerGroup || 3;
-    for (let i = 0; i < words.length; i += maxPerChunk) {
-      chunks.push(words.slice(i, i + maxPerChunk));
-    }
+    // Pathway 1: Exact Millisecond Word Timing Spotlight (via Neural TTS word boundaries)
+    if (scene.words && scene.words.length > 0) {
+      const maxPerChunk = options.wordsPerGroup || 3;
+      const timedWords = scene.words;
+      const chunks: TimedWord[][] = [];
 
-    // Weight chunk durations by character length
-    const totalChars = words.reduce((acc, w) => acc + w.length, 0) || 1;
-    let chunkStartTime = currentTime;
-
-    for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
-      const chunkWords = chunks[cIdx];
-      const chunkChars = chunkWords.reduce((acc, w) => acc + w.length, 0);
-      const isLastChunk = cIdx === chunks.length - 1;
-
-      const chunkDur = isLastChunk
-        ? (currentTime + sceneDur - chunkStartTime)
-        : (sceneDur * (chunkChars / totalChars));
-
-      const chunkEndTime = chunkStartTime + Math.max(0.4, chunkDur);
-
-      // Determine which word in this chunk gets the golden keyword highlight
-      let highlightedIdx = chunkWords.findIndex(w => isEmphasisWord(w));
-      if (highlightedIdx === -1 && chunkWords.length > 0) {
-        highlightedIdx = chunkWords.length - 1; // Highlight the concluding word of the phrase
+      for (let i = 0; i < timedWords.length; i += maxPerChunk) {
+        chunks.push(timedWords.slice(i, i + maxPerChunk));
       }
 
-      const formattedWords = chunkWords.map((word, wIdx) => {
-        const cleanWord = word.toUpperCase();
-        if (wIdx === highlightedIdx) {
-          return `{\\c${accentAssColor}&}${cleanWord}{\\r}`;
+      for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+        const chunk = chunks[cIdx];
+        const nextChunk = chunks[cIdx + 1];
+
+        for (let j = 0; j < chunk.length; j++) {
+          const word = chunk[j];
+          const wordStart = word.start;
+          const nextWordStart = j < chunk.length - 1
+            ? chunk[j + 1].start
+            : (nextChunk ? nextChunk[0].start : word.end + 0.12);
+
+          const wordEnd = Math.max(wordStart + 0.12, Math.min(nextWordStart, word.end + 0.25));
+
+          const absStart = currentTime + wordStart;
+          const absEnd = currentTime + wordEnd;
+
+          // Spotlight current spoken word in golden accent color; adjacent words in clean white
+          const formattedWords = chunk.map((cw, wIdx) => {
+            const clean = cw.word.toUpperCase();
+            if (wIdx === j) {
+              return `{\\c${accentAssColor}&}${clean}{\\r}`;
+            }
+            return clean;
+          });
+
+          const lineText = formattedWords.join(' ');
+          const startStr = formatAssTime(absStart);
+          const endStr = formatAssTime(absEnd);
+
+          events.push(`Dialogue: 0,${startStr},${endStr},KineticBold,,0,0,0,,${lineText}`);
         }
-        return cleanWord;
-      });
+      }
+    } else {
+      // Pathway 2: Resilient fallback proportional pacing bounded strictly by speechDuration
+      const speechDur = Math.max(0.8, scene.speechDuration || (words.length / 2.5));
+      const chunks: string[][] = [];
+      const maxPerChunk = options.wordsPerGroup || 3;
+      for (let i = 0; i < words.length; i += maxPerChunk) {
+        chunks.push(words.slice(i, i + maxPerChunk));
+      }
 
-      const lineText = formattedWords.join(' ');
-      const startStr = formatAssTime(chunkStartTime);
-      const endStr = formatAssTime(chunkEndTime);
+      const totalChars = words.reduce((acc, w) => acc + Math.max(1, w.length), 0) || 1;
+      let chunkStartTime = currentTime;
 
-      events.push(`Dialogue: 0,${startStr},${endStr},KineticBold,,0,0,0,,${lineText}`);
-      chunkStartTime = chunkEndTime;
+      for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+        const chunkWords = chunks[cIdx];
+        const chunkChars = chunkWords.reduce((acc, w) => acc + Math.max(1, w.length), 0);
+        const isLastChunk = cIdx === chunks.length - 1;
+
+        const chunkDur = isLastChunk
+          ? Math.max(0.4, (currentTime + speechDur) - chunkStartTime)
+          : (speechDur * (chunkChars / totalChars));
+
+        const chunkEndTime = chunkStartTime + Math.max(0.35, chunkDur);
+
+        // Highlight active or emphasis word in this chunk
+        let highlightedIdx = chunkWords.findIndex(w => isEmphasisWord(w));
+        if (highlightedIdx === -1 && chunkWords.length > 0) {
+          highlightedIdx = chunkWords.length - 1;
+        }
+
+        const formattedWords = chunkWords.map((word, wIdx) => {
+          const cleanWord = word.toUpperCase();
+          if (wIdx === highlightedIdx) {
+            return `{\\c${accentAssColor}&}${cleanWord}{\\r}`;
+          }
+          return cleanWord;
+        });
+
+        const lineText = formattedWords.join(' ');
+        const startStr = formatAssTime(chunkStartTime);
+        const endStr = formatAssTime(chunkEndTime);
+
+        events.push(`Dialogue: 0,${startStr},${endStr},KineticBold,,0,0,0,,${lineText}`);
+        chunkStartTime = chunkEndTime;
+      }
     }
 
     currentTime += sceneDur;

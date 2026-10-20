@@ -43,6 +43,9 @@ export interface ReelScene {
   pacingEffect: 'pulse' | 'zoom-in' | 'flash-cut' | 'slide-up' | 'subtle-drift';
   visualFormat?: 'full-bleed-cinematic' | 'classified-dossier' | 'satellite-telemetry' | 'lower-third' | 'split-screen' | 'pause-challenge';
   interactiveWidget?: InteractiveWidget;
+  speechDuration?: number;
+  audioDuration?: number;
+  words?: Array<{ word: string; start: number; end: number }>;
 }
 
 export interface ReelItem {
