@@ -462,11 +462,16 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '')
       .trim();
     const captionSentences = cleanCaption.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 15);
-    const storySentence = captionSentences[0] || 'Forensic material analysis revealed the ancient compound reacted with water to seal fissures automatically.';
-
-    const sc1Voice = `${title}. For decades, the true mechanism was kept out of standard history textbooks.`;
-    const sc2Voice = `Official records confirm that ${storySentence.replace(/\.+$/, '')}. When investigators examined the physical evidence, the findings were undeniable.`;
-    const sc3Voice = `Today, modern engineers and scientists are copying this exact historical breakthrough. Follow for more declassified records.`;
+    const ensurePeriod = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+    const sc1Voice = captionSentences[0]
+      ? ensurePeriod(captionSentences[0])
+      : `${ensurePeriod(title)} Primary archival documentation preserves the sequence of events.`;
+    const sc2Voice = captionSentences[1]
+      ? ensurePeriod(captionSentences[1])
+      : 'Archival logs and physical evidence corroborate the critical turning point.';
+    const sc3Voice = captionSentences[2]
+      ? ensurePeriod(captionSentences[2])
+      : (captionSentences.slice(3).join(' ') || 'The historical implications continue to challenge standard interpretations.');
 
     const calcSceneDur = (script: string, minSec = 8.0) => {
       const words = script.trim().split(/\s+/).filter(Boolean).length;
@@ -502,7 +507,7 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
         hookText: sc1Ctx.headline || 'CRITICAL TELEMETRY',
         headline: sc1Ctx.headline || 'CRITICAL TELEMETRY',
         highlight: 'FORENSIC RECORD',
-        subline: storySentence.slice(0, 80),
+        subline: sc2Voice.slice(0, 80),
         voiceScript: sc2Voice,
         bRollKeywords: sc1Ctx.keywords,
         archivalQuery: sc1Ctx.archivalQuery,
