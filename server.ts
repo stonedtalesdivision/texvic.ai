@@ -211,7 +211,7 @@ app.get("/api/health", async (req, res) => {
 
     res.json({
       status: "healthy",
-      version: "1.0.1",
+      version: "1.1.0",
       uptimeSeconds: Math.floor(process.uptime()),
       pipeline: {
         instagram: {

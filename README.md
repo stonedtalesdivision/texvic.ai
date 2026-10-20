@@ -1,16 +1,24 @@
 # texvic.ai
 
-AI-powered Instagram growth automation with real server-side publishing.
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg) ![Status](https://img.shields.io/badge/status-production-success.svg)
+
+AI-powered Instagram & Facebook Reels growth automation with real server-side publishing, millisecond-synchronized subtitles, and neural voiceover.
+
+## Version 1.1.0 Highlights
+
+- **Active Word Spotlight Subtitles**: Subtitle dialogue events (`.ass`) rendered with millisecond precision to the narrator's vocal cords using native Microsoft Edge Neural TTS word boundaries. Zero drift, with active words highlighted in golden accent color as they are spoken.
+- **Facebook Page Cross-Publishing**: Automated 24x7 multi-channel broadcast across connected Instagram Professional accounts and Facebook Pages using Meta Video Reels API.
+- **Persistent Neural Male Narrator**: Authoritative documentary baritone (`en-US-ChristopherNeural`) with automatic WebSocket clock synchronization and offline neural fallback.
 
 ## Production architecture
 
-React dashboard → Express API → SQLite → persistent job queue → FFmpeg render pipeline → Instagram Business Login → Instagram Graph API.
+React dashboard → Express API → SQLite → persistent job queue → FFmpeg render pipeline → Meta Graph API (Instagram & Facebook Page).
 
 ## Requirements
 
 - Node.js 22+
 - FFmpeg installed on the host
-- Instagram Professional account
+- Instagram Professional account & Facebook Page
 - Meta/Instagram app configured for Instagram API with Instagram Login
 - Public HTTPS `APP_URL`
 - Gemini API key for AI generation
@@ -22,6 +30,8 @@ Copy `.env.example` to `.env` and configure:
 - `INSTAGRAM_APP_ID`
 - `INSTAGRAM_APP_SECRET`
 - `INSTAGRAM_GRAPH_API_VERSION` (default: `v26.0`)
+- `FACEBOOK_PAGE_ID` (Optional: Facebook Page ID for cross-posting)
+- `FACEBOOK_PAGE_ACCESS_TOKEN` (Optional: Facebook Page Access Token)
 - `TOKEN_ENCRYPTION_KEY` — 64 hex characters / 32 bytes
 - `APP_URL`
 - `GEMINI_API_KEY`
