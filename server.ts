@@ -929,6 +929,42 @@ app.post("/api/video-worker/jobs/:id/output", express.raw({ type: ["video/mp4", 
 // 1. REAL INSTAGRAM OAUTH & META GRAPH API
 // ==========================================
 
+function generateOAuthState(): string {
+  const secret = process.env.TOKEN_ENCRYPTION_KEY || 'texvic-oauth-secure-salt';
+  const timestamp = Date.now().toString();
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const payload = `${timestamp}:${nonce}`;
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  const token = `${payload}:${sig}`;
+  oauthStates.set(token, Date.now() + OAUTH_STATE_TTL_MS);
+  return token;
+}
+
+function validateOAuthState(state: string): boolean {
+  if (!state) return false;
+  // 1. Direct in-memory map check
+  const inMemoryExpiry = oauthStates.get(state);
+  if (inMemoryExpiry) {
+    oauthStates.delete(state);
+    if (inMemoryExpiry > Date.now()) return true;
+  }
+  // 2. Stateless HMAC validation fallback (survives container restarts)
+  try {
+    const parts = state.split(':');
+    if (parts.length === 3) {
+      const [timestampStr, nonce, sig] = parts;
+      const timestamp = parseInt(timestampStr, 10);
+      if (isNaN(timestamp) || Date.now() - timestamp > OAUTH_STATE_TTL_MS || timestamp > Date.now() + 60000) {
+        return false;
+      }
+      const secret = process.env.TOKEN_ENCRYPTION_KEY || 'texvic-oauth-secure-salt';
+      const expectedSig = crypto.createHmac('sha256', secret).update(`${timestampStr}:${nonce}`).digest('hex');
+      return crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expectedSig, 'hex'));
+    }
+  } catch {}
+  return false;
+}
+
 function getRedirectUri(req: express.Request): string {
   const appUrl = process.env.APP_URL;
   if (appUrl && appUrl.startsWith("http")) {
@@ -950,8 +986,7 @@ app.get("/api/auth/instagram/url", (req, res) => {
   }
 
   const redirectUri = getRedirectUri(req);
-  const state = crypto.randomUUID();
-  oauthStates.set(state, Date.now() + OAUTH_STATE_TTL_MS);
+  const state = generateOAuthState();
   const authUrl = getMetaOAuthUrl(clientId, redirectUri, state);
   res.json({ success: true, url: authUrl, redirectUri });
 });
@@ -962,25 +997,43 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
 
   if (!error) {
     const stateValue = String(state || "");
-    const expiresAt = oauthStates.get(stateValue);
-    oauthStates.delete(stateValue);
-    if (!expiresAt || expiresAt < Date.now()) {
-      return res.status(400).send("Invalid or expired OAuth state. Please restart the Instagram connection flow.");
+    const isValid = validateOAuthState(stateValue);
+    if (!isValid) {
+      return res.status(400).send(`
+        <!DOCTYPE html>
+        <html>
+          <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+            <h2 style="color: #ef4444;">OAuth Session Expired</h2>
+            <p style="color: #94a3b8;">Your Instagram authorization session expired or was restarted. Please close this window and try connecting again.</p>
+            <script>
+              try {
+                if (window.opener && !window.opener.closed) {
+                  window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', error: 'OAuth session expired. Please click Connect with Meta OAuth again.' }, '*');
+                }
+              } catch (e) {}
+              setTimeout(() => { try { window.close(); } catch(e){} }, 3000);
+            </script>
+          </body>
+        </html>
+      `);
     }
   }
 
   if (error || !code) {
+    const safeError = String(error_description || error || 'No authorization code returned from Meta.').replace(/['"\\]/g, ' ');
     return res.send(`
       <!DOCTYPE html>
       <html>
         <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
           <h2 style="color: #ef4444;">Instagram Authentication Cancelled</h2>
-          <p>${error_description || error || 'No authorization code returned from Meta.'}</p>
+          <p style="color: #94a3b8;">${safeError}</p>
           <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', error: '${error || "cancelled"}' }, '*');
-              setTimeout(() => window.close(), 2500);
-            }
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', error: '${safeError}' }, '*');
+              }
+            } catch (e) {}
+            setTimeout(() => { try { window.close(); } catch(e){} }, 2500);
           </script>
         </body>
       </html>
@@ -994,17 +1047,20 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
   const tokenResult = await exchangeCodeForLongLivedTokens(String(code), clientId, clientSecret, redirectUri);
 
   if (tokenResult.error || !tokenResult.longLivedAccessToken) {
+    const safeExchangeErr = String(tokenResult.error || 'Could not acquire long-lived access token from Meta.').replace(/['"\\]/g, ' ');
     return res.send(`
       <!DOCTYPE html>
       <html>
         <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
           <h2 style="color: #ef4444;">Token Exchange Failed</h2>
-          <p>${tokenResult.error || 'Could not acquire long-lived access token from Meta.'}</p>
+          <p style="color: #94a3b8;">${safeExchangeErr}</p>
           <script>
-            if (window.opener) {
-              window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', error: '${tokenResult.error || "exchange_failed"}' }, '*');
-              setTimeout(() => window.close(), 3000);
-            }
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', error: '${safeExchangeErr}' }, '*');
+              }
+            } catch (e) {}
+            setTimeout(() => { try { window.close(); } catch(e){} }, 3000);
           </script>
         </body>
       </html>
@@ -1018,9 +1074,10 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
     WHERE id = 'instagram_primary'
   `);
 
+  const accountUsername = tokenResult.instagramUsername ? `@${tokenResult.instagramUsername}` : '@instagram_creator';
   updateAccount.run(
     tokenResult.instagramAccountId || '',
-    tokenResult.instagramUsername ? `@${tokenResult.instagramUsername}` : '@instagram_creator',
+    accountUsername,
     tokenResult.instagramName || 'Instagram Creator',
     tokenResult.profilePictureUrl || '',
     encryptSecret(tokenResult.longLivedAccessToken),
@@ -1030,24 +1087,32 @@ app.get(["/auth/instagram/callback", "/auth/instagram/callback/"], async (req, r
   // Enqueue immediate initial live insights sync job
   enqueueJob('SYNC_INSTAGRAM_INSIGHTS', { initial: true });
 
+  const safeUsername = String(tokenResult.instagramUsername || 'Creator').replace(/['"\\]/g, '');
+  const safeAccountId = String(tokenResult.instagramAccountId || '').replace(/['"\\]/g, '');
+
   res.send(`
     <!DOCTYPE html>
     <html>
       <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
         <h2 style="color: #10b981;">Connected to Instagram!</h2>
-        <p>Your Instagram account (${tokenResult.instagramUsername || 'Creator'}) is now connected to SARLX.Ai.</p>
+        <p style="color: #cbd5e1;">Your Instagram account (${safeUsername}) is now successfully connected.</p>
         <p style="color: #94a3b8; font-size: 13px;">Closing this window...</p>
         <script>
-          if (window.opener) {
-            window.opener.postMessage({ 
-              type: 'OAUTH_AUTH_SUCCESS', 
-              accountId: '${tokenResult.instagramAccountId || ""}',
-              username: '${tokenResult.instagramUsername || ""}'
-            }, '*');
-            setTimeout(() => window.close(), 1000);
-          } else {
-            window.location.href = '/';
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({ 
+                type: 'OAUTH_AUTH_SUCCESS', 
+                accountId: '${safeAccountId}',
+                username: '${safeUsername}'
+              }, '*');
+            }
+          } catch (e) {
+            console.error(e);
           }
+          setTimeout(() => {
+            try { window.close(); } catch (e) {}
+            window.location.href = '/';
+          }, 1200);
         </script>
       </body>
     </html>

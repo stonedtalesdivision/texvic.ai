@@ -148,36 +148,61 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         throw new Error(data.error || 'Could not start Instagram OAuth.');
       }
 
+      // DO NOT pass noopener or noreferrer - window.opener is REQUIRED for popup postMessage communication
       const popup = window.open(
         data.url,
         'texvic-instagram-oauth',
-        'width=620,height=760,noopener,noreferrer'
+        'width=620,height=760'
       );
 
       if (!popup) {
-        throw new Error('Popup was blocked. Allow popups for this site and try again.');
+        throw new Error('Popup was blocked by your browser. Allow popups for this site and try again.');
       }
 
       await new Promise<void>((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
+        let finished = false;
+
+        const cleanup = () => {
+          finished = true;
+          window.clearTimeout(timeout);
+          window.clearInterval(pollInterval);
           window.removeEventListener('message', onMessage);
+        };
+
+        const timeout = window.setTimeout(() => {
+          cleanup();
           reject(new Error('Instagram connection timed out.'));
         }, 180000);
+
+        // Periodically check if popup closed (user closed it, or redirect finished)
+        const pollInterval = window.setInterval(async () => {
+          if (popup.closed) {
+            cleanup();
+            // Check if authorization succeeded in background
+            try {
+              const status = await onRefreshStatus();
+              if (status?.isConnected && status?.account) {
+                await onOAuthConnected?.(status.account);
+                resolve();
+                return;
+              }
+            } catch {}
+            // If window closed without completing, cancel loading
+            resolve();
+          }
+        }, 1000);
 
         const onMessage = async (event: MessageEvent) => {
           if (event.origin !== window.location.origin) return;
 
           if (event.data?.type === 'OAUTH_AUTH_FAILED') {
-            window.clearTimeout(timeout);
-            window.removeEventListener('message', onMessage);
+            cleanup();
             reject(new Error(event.data.error || 'Instagram authorization failed.'));
             return;
           }
 
           if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-            window.clearTimeout(timeout);
-            window.removeEventListener('message', onMessage);
-
+            cleanup();
             try {
               const status = await onRefreshStatus();
               if (!status?.isConnected || !status.account) {
@@ -580,11 +605,32 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   <Instagram className="w-4 h-4" />
                   {oauthLoading ? 'Connecting to Instagram...' : isConnected ? 'Reconnect Instagram with Meta OAuth' : 'Connect Instagram with Meta OAuth'}
                 </button>
+
+                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-2">
+                  <div className="truncate">
+                    <span className="text-slate-500">Redirect URI: </span>
+                    <span className="font-mono text-pink-400 select-all">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/auth/instagram/callback` : '/auth/instagram/callback'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        navigator.clipboard.writeText(`${window.location.origin}/auth/instagram/callback`);
+                        showNotification('Redirect URI copied to clipboard!');
+                      }
+                    }}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold shrink-0"
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleDirectTokenConnect} className="space-y-3 mb-3">
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Connect directly using an Instagram Graph API token. Token is verified and encrypted in SQLite with AES-256-GCM.
+                  Connect directly using an Instagram User Token (<code className="text-pink-400 font-mono text-[10px]">IGAAv...</code>) or Meta Graph API Token (<code className="text-indigo-400 font-mono text-[10px]">EAA...</code>). Token is verified live with Meta and encrypted in SQLite with AES-256-GCM.
                 </p>
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
@@ -592,7 +638,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. 29026007403754793"
+                    placeholder="e.g. 29026007403754793 (auto-detected if omitted)"
                     value={directAccountId}
                     onChange={(e) => setDirectAccountId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-pink-500 font-mono"
@@ -604,7 +650,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   </label>
                   <textarea
                     rows={2}
-                    placeholder="IGAAv..."
+                    placeholder="Paste IGAAv... or EAAB... token here"
                     value={directToken}
                     onChange={(e) => setDirectToken(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-pink-500 font-mono"

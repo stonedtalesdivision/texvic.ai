@@ -69,8 +69,6 @@ export function getMetaOAuthUrl(clientId: string, redirectUri: string, state: st
     state: state
   });
 
-  params.set('enable_fb_login', '0');
-  params.set('force_authentication', '1');
   return `${INSTAGRAM_OAUTH_URL}?${params.toString()}`;
 }
 
@@ -148,32 +146,100 @@ export async function getInstagramAccountProfile(
   accessToken: string
 ): Promise<{ success: boolean; data?: MetaAccountDetails; error?: string; errorCode?: number | string; httpStatus?: number }> {
   try {
-    const url = `${GRAPH_BASE_URL}/me?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
-    const res = await fetch(url);
-    const data = await res.json();
+    const isFacebookGraphToken = accessToken.startsWith('EA');
+    let igError: any = null;
 
-    if (!res.ok || data.error) {
-      return {
-        success: false,
-        error: data.error?.message || 'Failed to query Instagram Graph API',
-        errorCode: data.error?.code,
-        httpStatus: res.status
-      };
+    // 1. If not an explicit Facebook Graph token, attempt Instagram Graph API first
+    if (!isFacebookGraphToken) {
+      const url = `${GRAPH_BASE_URL}/me?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (res.ok && !data.error && data.id) {
+          return {
+            success: true,
+            data: {
+              id: data.id,
+              username: data.username ? `@${data.username.replace(/^@/, '')}` : '@instagram_user',
+              name: data.name || data.username || 'Instagram Creator',
+              profile_picture_url: data.profile_picture_url || '',
+              biography: data.biography || '',
+              followers_count: Number(data.followers_count || 0),
+              follows_count: Number(data.follows_count || 0),
+              media_count: Number(data.media_count || 0),
+              website: data.website || ''
+            }
+          };
+        }
+        igError = data?.error;
+      } catch (err: any) {
+        igError = err;
+      }
     }
 
-    return {
-      success: true,
-      data: {
-        id: data.id,
-        username: data.username ? `@${data.username}` : '@instagram_user',
-        name: data.name || data.username || 'Instagram Creator',
-        profile_picture_url: data.profile_picture_url || '',
-        biography: data.biography || '',
-        followers_count: Number(data.followers_count || 0),
-        follows_count: Number(data.follows_count || 0),
-        media_count: Number(data.media_count || 0),
-        website: data.website || ''
+    // 2. If it's an EA... token or graph.instagram.com failed, query Meta / Facebook Graph API
+    const fbApiVersion = GRAPH_API_VERSION;
+    const targetAccountId = _igAccountId ? _igAccountId.trim() : '';
+
+    // A) If a target Account ID was explicitly provided
+    if (targetAccountId) {
+      try {
+        const fbUrl = `https://graph.facebook.com/${fbApiVersion}/${encodeURIComponent(targetAccountId)}?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
+        const fbRes = await fetch(fbUrl);
+        const fbData = await fbRes.json();
+        if (fbRes.ok && !fbData.error && fbData.id) {
+          return {
+            success: true,
+            data: {
+              id: fbData.id,
+              username: fbData.username ? `@${fbData.username.replace(/^@/, '')}` : '@instagram_user',
+              name: fbData.name || fbData.username || 'Instagram Creator',
+              profile_picture_url: fbData.profile_picture_url || '',
+              biography: fbData.biography || '',
+              followers_count: Number(fbData.followers_count || 0),
+              follows_count: Number(fbData.follows_count || 0),
+              media_count: Number(fbData.media_count || 0),
+              website: fbData.website || ''
+            }
+          };
+        }
+      } catch {}
+    }
+
+    // B) Query /me/accounts to find any linked Instagram Business Account
+    try {
+      const meAccountsUrl = `https://graph.facebook.com/${fbApiVersion}/me/accounts?fields=id,name,instagram_business_account{id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website}&access_token=${encodeURIComponent(accessToken)}`;
+      const meRes = await fetch(meAccountsUrl);
+      const meData = await meRes.json();
+      if (meRes.ok && Array.isArray(meData?.data)) {
+        for (const page of meData.data) {
+          const ig = page.instagram_business_account;
+          if (ig && ig.id) {
+            return {
+              success: true,
+              data: {
+                id: ig.id,
+                username: ig.username ? `@${ig.username.replace(/^@/, '')}` : '@instagram_user',
+                name: ig.name || ig.username || page.name || 'Instagram Creator',
+                profile_picture_url: ig.profile_picture_url || '',
+                biography: ig.biography || '',
+                followers_count: Number(ig.followers_count || 0),
+                follows_count: Number(ig.follows_count || 0),
+                media_count: Number(ig.media_count || 0),
+                website: ig.website || ''
+              }
+            };
+          }
+        }
       }
+    } catch {}
+
+    return {
+      success: false,
+      error: igError?.message || 'Failed to query Instagram Graph API. Ensure token is valid and has instagram_business_basic scope.',
+      errorCode: igError?.code || 190,
+      httpStatus: 401
     };
   } catch (err: any) {
     return { success: false, error: err?.message || 'Network error fetching Instagram profile' };
