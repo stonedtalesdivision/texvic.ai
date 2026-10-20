@@ -321,12 +321,12 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
       const voices = availableVoices.length > 0 ? availableVoices : (typeof window !== 'undefined' && window.speechSynthesis ? window.speechSynthesis.getVoices() : []);
       
       const isExplicitlyFemale = (name: string) => 
-        /female|woman|girl|zira|samantha|victoria|karen|catherine|stephanie|lisa|jenny|eva|amber|susan|helena|anna|maria|serena|yuri|zoe|aria|sara|cortana|katrina|hazel|fiona|moira|veena|tessa|allison|kendra/i.test(name);
+        /female|woman|girl|zira|samantha|victoria|karen|catherine|stephanie|lisa|jenny|eva|amber|susan|helena|anna|maria|serena|yuri|zoe|aria|sara|cortana|katrina|hazel|fiona|moira|veena|tessa|allison|kendra|google\s+us\s+english|uk\s+english\s+female/i.test(name);
       
       const isExplicitlyMale = (name: string) =>
-        /male|man|boy|david|guy|christopher|ryan|andrew|eric|daniel|oliver|arthur|george|mark|richard|james|brian|william|charon|fenrir|baritone|broadcaster/i.test(name);
+        /male|man|boy|david|guy|christopher|ryan|andrew|eric|daniel|oliver|arthur|george|mark|richard|james|brian|william|charon|fenrir|baritone|broadcaster|uk\s+english\s+male/i.test(name);
 
-      // Tier A: Neural / Natural English Male Voice
+      // Tier A: Neural / Natural English Male Voice (e.g. Edge Christopher/Guy/Eric Online Natural)
       let matureVoice = voices.find(v => 
         v.lang.startsWith('en') && 
         /neural|natural|online/i.test(v.name) && 
@@ -334,7 +334,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         !isExplicitlyFemale(v.name)
       );
 
-      // Tier B: Any English Male Voice
+      // Tier B: Any Explicitly Male English Voice (e.g. David Desktop, Google UK English Male)
       if (!matureVoice) {
         matureVoice = voices.find(v => 
           v.lang.startsWith('en') && 
@@ -343,11 +343,12 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         );
       }
 
-      // Tier C: Any English Voice that is NOT female
+      // Tier C: Strictly non-female English voice (strictly excludes Google US English)
       if (!matureVoice) {
         matureVoice = voices.find(v => 
           v.lang.startsWith('en') && 
-          !isExplicitlyFemale(v.name)
+          !isExplicitlyFemale(v.name) &&
+          !/google\s+us/i.test(v.name)
         );
       }
       
@@ -355,7 +356,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
         utterance.voice = matureVoice;
       }
       utterance.rate = playbackRate || 1.0; // 1.0x default natural human tempo
-      utterance.pitch = 0.82; // Deep, authoritative documentary chest resonance
+      utterance.pitch = 0.76; // Deep, authoritative documentary chest resonance
 
       speechBoundaryActiveRef.current = true;
       setActiveWordIndex(0);

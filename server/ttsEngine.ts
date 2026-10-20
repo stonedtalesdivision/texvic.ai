@@ -5,7 +5,9 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { pipeline } from 'node:stream/promises';
 import { GoogleGenAI } from '@google/genai';
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 
 const execFileAsync = promisify(execFile);
 const TTS_DIR = path.join(process.cwd(), 'data', 'media', 'tts');
@@ -237,10 +239,51 @@ export async function padAudioSegment(filePath: string, targetDurationSec: numbe
 }
 
 /**
+ * Direct Node.js Microsoft Edge Neural TTS via WebSocket.
+ * Features automatic server clock-offset synchronization, eliminating the 403 Forbidden
+ * handshake failures that occur with Python CLI edge-tts on cloud VPS / Docker instances.
+ */
+export async function generateSpeechWithNodeEdge(
+  text: string,
+  outputPath: string,
+  options: TTSOptions = {}
+): Promise<string> {
+  await ensureTtsDir();
+  const cleanedText = humanizeSpeechText(text);
+  if (!cleanedText) throw new Error('TTS text cannot be empty');
+
+  const voice = options.voice || CREATOR_VOICES.deepDocumentaryMale;
+  const rate = options.rate || '+0%';
+  const pitch = options.pitch || '-4Hz';
+
+  const tts = new MsEdgeTTS({
+    connectionTimeoutMs: 15000,
+    synthesisTimeoutMs: 30000
+  });
+
+  try {
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+    const { audioStream } = tts.toStream(cleanedText, { rate, pitch });
+    const writeStream = fsSync.createWriteStream(outputPath);
+    await pipeline(audioStream, writeStream);
+  } finally {
+    try {
+      tts.close();
+    } catch {}
+  }
+
+  if (!fsSync.existsSync(outputPath) || (await fs.stat(outputPath)).size < 500) {
+    throw new Error(`Node MsEdgeTTS output missing or empty for voice "${voice}"`);
+  }
+
+  return outputPath;
+}
+
+/**
  * Generate human-like neural audio voiceover from script text.
  * Completely free, zero API key required, low latency (~1.5s).
- * Primary Engine: Microsoft Edge Neural TTS (1.20x speed, natural male neural voices).
- * Fallback: Gemini 3.8 Flash TTS (Charon) -> Tier 3 HTTPS TTS.
+ * Primary Engine: Direct Node.js Microsoft Edge Neural TTS (1.0x speed, natural male neural voices).
+ * Fallbacks: Gemini 3.8 Flash TTS -> Python CLI Edge-TTS -> Guaranteed Offline Piper Male TTS.
  */
 export async function generateSpeech(
   text: string,
@@ -273,9 +316,51 @@ export async function generateSpeech(
   }
 
   const targetPath = outputPath || path.join(activeTtsDir, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
+  const primaryVoice = cleanVoice || CREATOR_VOICES.deepDocumentaryMale;
+  const rate = options.rate || '+0%';   // 1.0x natural human speech rate
+  const pitch = options.pitch || '-4Hz'; // Rich, authoritative documentary chest resonance
+
+  // Multi-candidate male neural voices (all high-fidelity adult male narrators)
+  const candidateVoices = [
+    primaryVoice,
+    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
+    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
+    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
+    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
+    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
+    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   // =========================================================================
-  // Tier 1: Gemini 3.8 Flash TTS (Deep Hollywood Charon / Fenrir Documentary Baritone)
+  // Tier 1: Direct Node.js MsEdgeTTS (Auto Clock Sync, Deep Adult Male Voices)
+  // Completely immune to Python CLI 403 clock skew bugs on Cloud VPS / Docker
+  // =========================================================================
+  for (const voiceToTry of candidateVoices) {
+    try {
+      await generateSpeechWithNodeEdge(cleanedText, targetPath, {
+        voice: voiceToTry,
+        rate,
+        pitch
+      });
+
+      if (fsSync.existsSync(targetPath) && (await fs.stat(targetPath)).size >= 500) {
+        console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Node MsEdgeTTS (${voiceToTry}).`);
+        try {
+          if (targetPath !== cachePath) {
+            await fs.copyFile(targetPath, cachePath);
+          }
+        } catch {}
+        return targetPath;
+      }
+    } catch (nodeEdgeErr: any) {
+      console.warn(`[TTS Engine] Node MsEdgeTTS candidate "${voiceToTry}" failed:`, nodeEdgeErr?.message || nodeEdgeErr);
+      try { if (fsSync.existsSync(targetPath)) await fs.unlink(targetPath); } catch {}
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
+  // =========================================================================
+  // Tier 2: Gemini 3.8 Flash TTS (Deep Hollywood Charon / Fenrir Documentary Baritone)
   // Highly reliable studio-grade male narrator with zero local Python/CLI dependencies
   // =========================================================================
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
@@ -291,31 +376,15 @@ export async function generateSpeech(
       } catch {}
       return geminiResult;
     } catch (geminiErr: any) {
-      console.warn('[TTS Engine] Tier 1 Gemini TTS unavailable, trying Edge Neural TTS:', geminiErr?.message || geminiErr);
+      console.warn('[TTS Engine] Tier 2 Gemini TTS unavailable, trying Python CLI Edge-TTS:', geminiErr?.message || geminiErr);
     }
   }
 
   // =========================================================================
-  // Tier 2: Microsoft Edge Neural TTS (Natural Male Neural Voices)
-  // Deep adult male documentary baritones: Christopher / Guy / Eric / Andrew / Brian / Ryan
+  // Tier 3: Python CLI Edge-TTS (Secondary Network Fallback)
   // =========================================================================
-  const primaryVoice = cleanVoice || CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '+0%';   // 1.0x natural human speech rate
-  const pitch = options.pitch || '-4Hz'; // Rich, authoritative documentary chest resonance
-
   const tempTextFile = path.join(activeTtsDir, `tts-text-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.txt`);
   await fs.writeFile(tempTextFile, cleanedText, 'utf8');
-
-  // Multi-candidate male neural voices (all high-fidelity adult male narrators)
-  const candidateVoices = [
-    primaryVoice,
-    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
-    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
-    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
-    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
-    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
-    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
-  ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   try {
     for (let attempt = 0; attempt < candidateVoices.length; attempt++) {
@@ -334,7 +403,7 @@ export async function generateSpeech(
         if (fsSync.existsSync(targetPath)) {
           const stat = await fs.stat(targetPath);
           if (stat.size >= 500) {
-            console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Edge Neural TTS (${voiceToUse} @ 1.0x).`);
+            console.log(`[TTS Engine] 🎙️ Natural male voiceover synthesized via Python Edge-TTS (${voiceToUse} @ 1.0x).`);
             try {
               if (targetPath !== cachePath) {
                 await fs.copyFile(targetPath, cachePath);
@@ -345,7 +414,7 @@ export async function generateSpeech(
           try { await fs.unlink(targetPath); } catch {}
         }
       } catch (err: any) {
-        console.warn(`[TTS Engine] Edge-TTS candidate "${voiceToUse}" failed:`, err?.message || err);
+        console.warn(`[TTS Engine] Python Edge-TTS candidate "${voiceToUse}" failed:`, err?.message || err);
         try { if (fsSync.existsSync(targetPath)) await fs.unlink(targetPath); } catch {}
         await new Promise(r => setTimeout(r, 400));
       }
@@ -355,10 +424,10 @@ export async function generateSpeech(
   }
 
   // =========================================================================
-  // Tier 2: Offline Piper Neural Male TTS (Guaranteed 100% Male Documentary Baritone)
+  // Tier 4: Offline Piper Neural Male TTS (Guaranteed 100% Male Documentary Baritone)
   // Zero network requests, zero cloud API limits, zero female robotic voice
   // =========================================================================
-  console.warn('[TTS Engine] Invoking Tier 2 Offline Piper Neural Male TTS (Ryan Baritone)...');
+  console.warn('[TTS Engine] Invoking Tier 4 Offline Piper Neural Male TTS (Ryan Baritone)...');
   const piperResult = await generateSpeechWithPiper(cleanedText, targetPath);
   try {
     if (fsSync.existsSync(piperResult) && piperResult !== cachePath) {
@@ -497,7 +566,93 @@ export async function generateCohesiveReelSpeech(
     throw new Error('generateCohesiveReelSpeech: No valid scene texts provided.');
   }
 
-  // 1. Try Gemini 3.8 Flash TTS for ALL scenes with a single locked voice
+  // 1. Primary Engine: Direct Node.js MsEdgeTTS for ALL scenes with a single locked candidate voice
+  // Every candidate voice is an authentic, deep adult MALE documentary narrator.
+  // Auto clock-sync in Node.js prevents 403 Forbidden handshake rejections on VPS.
+  const primaryEdgeVoice = options.voice || resolveBestVoiceForTopic(options.topic || '', options.mood || '');
+  const candidateVoices = [
+    primaryEdgeVoice,
+    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
+    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
+    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
+    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
+    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
+    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+  for (const edgeVoice of candidateVoices) {
+    try {
+      console.log(`[TTS Engine] 🔒 Attempting locked Node MsEdgeTTS MALE voice (${edgeVoice}) across all ${cleanedTexts.length} scene(s)...`);
+      const paths: (string | null)[] = [];
+      const durations: number[] = [];
+      let success = true;
+
+      for (let i = 0; i < cleanedTexts.length; i++) {
+        const text = cleanedTexts[i];
+        if (!text || text.trim().length === 0) {
+          paths.push(null);
+          durations.push(0);
+          continue;
+        }
+
+        const segPath = path.join(activeTtsDir, `node-edge-scene-${Date.now()}-${i}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+        let sceneSuccess = false;
+
+        // Up to 4 attempts with exponential backoff for transient 429 or network blips
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            await generateSpeechWithNodeEdge(text, segPath, {
+              voice: edgeVoice,
+              rate: '+0%',
+              pitch: '-4Hz'
+            });
+
+            if (fsSync.existsSync(segPath) && (await fs.stat(segPath)).size >= 500) {
+              const dur = await getAudioDuration(segPath);
+              paths.push(segPath);
+              durations.push(dur);
+              sceneSuccess = true;
+              break;
+            }
+          } catch (sceneErr: any) {
+            const isRateLimit = String(sceneErr?.message || sceneErr).includes('429');
+            const delay = isRateLimit ? 1200 + attempt * 500 : 800 + attempt * 400;
+            console.warn(`[TTS Engine] Node Edge voice ${edgeVoice} scene ${i + 1} attempt ${attempt + 1} error (${sceneErr?.message || sceneErr}), retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+
+        if (!sceneSuccess) {
+          console.warn(`[TTS Engine] Node Edge voice ${edgeVoice} failed on scene ${i + 1}. Abandoning this voice to guarantee zero mid-reel voice switching.`);
+          success = false;
+          break;
+        }
+
+        // 550ms pause between consecutive scenes to prevent Microsoft WebSocket rate limiting
+        await new Promise(r => setTimeout(r, 550));
+      }
+
+      if (success && paths.length === cleanedTexts.length) {
+        const validPaths = paths.filter((p): p is string => Boolean(p));
+        const masterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+        await concatenateAudioTracks(validPaths, masterPath);
+        const totalDur = await getAudioDuration(masterPath);
+
+        console.log(`[TTS Engine] ✅ Cohesive voiceover complete via Node MsEdgeTTS (${edgeVoice}): ${totalDur.toFixed(1)}s across ${validPaths.length} scene(s).`);
+        return {
+          sceneAudioPaths: paths,
+          sceneDurations: durations,
+          masterAudioPath: masterPath,
+          totalDuration: totalDur,
+          voiceUsed: edgeVoice
+        };
+      }
+    } catch (edgeErr: any) {
+      console.warn(`[TTS Engine] Node Edge voice "${edgeVoice}" failed for batch:`, edgeErr?.message || edgeErr);
+    }
+  }
+
+  // 2. Try Gemini 3.8 Flash TTS for ALL scenes with a single locked voice
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     const geminiVoice = resolveGeminiVoiceForTopic(options.topic || '', options.mood || '');
     try {
@@ -530,7 +685,7 @@ export async function generateCohesiveReelSpeech(
           } catch (e: any) {
             console.warn(`[TTS Engine] Gemini attempt ${attempt + 1} for scene ${i + 1} failed:`, e?.message || e);
             if (/429|RESOURCE_EXHAUSTED|404|NOT_FOUND|400|INVALID_ARGUMENT/i.test(String(e?.message || e))) {
-              console.warn('[TTS Engine] Gemini TTS unavailable or quota exhausted. Fast failing to Edge Neural TTS...');
+              console.warn('[TTS Engine] Gemini TTS unavailable or quota exhausted. Fast failing to secondary engines...');
               allGeminiSuccess = false;
               break;
             }
@@ -560,23 +715,11 @@ export async function generateCohesiveReelSpeech(
         };
       }
     } catch (geminiErr: any) {
-      console.warn(`[TTS Engine] Gemini bulk synthesis failed (${geminiErr?.message || geminiErr}). Rolling over ENTIRE reel to Edge Neural TTS...`);
+      console.warn(`[TTS Engine] Gemini bulk synthesis failed (${geminiErr?.message || geminiErr}). Rolling over ENTIRE reel to secondary engines...`);
     }
   }
 
-  // 2. Try Edge Neural TTS for ALL scenes with a single locked candidate voice
-  // Every candidate voice is an authentic, deep adult MALE documentary narrator
-  const primaryEdgeVoice = options.voice || resolveBestVoiceForTopic(options.topic || '', options.mood || '');
-  const candidateVoices = [
-    primaryEdgeVoice,
-    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
-    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
-    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
-    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
-    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
-    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
-  ].filter((v, i, arr) => arr.indexOf(v) === i);
-
+  // 3. Try Python CLI Edge-TTS for ALL scenes with a single locked candidate voice
   for (const edgeVoice of candidateVoices) {
     try {
       console.log(`[TTS Engine] 🔒 Attempting locked Edge Neural MALE TTS (${edgeVoice}) across all ${cleanedTexts.length} scene(s)...`);

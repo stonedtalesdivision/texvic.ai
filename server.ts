@@ -51,7 +51,7 @@ import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageMan
 import { composeReel } from "./server/reelComposer.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
-import { generateSpeech, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from "./server/ttsEngine.js";
+import { generateSpeech, generateSpeechWithNodeEdge, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from "./server/ttsEngine.js";
 import { 
   enqueueJob, 
   startJobWorker, 
@@ -165,7 +165,29 @@ app.get("/api/health", async (req, res) => {
     const lastLog = db.prepare('SELECT timestamp, topic_researched, status FROM autonomous_logs ORDER BY timestamp DESC LIMIT 1').get() as any;
 
     let ttsDiagnostics: any = undefined;
-    if (req.query.test_voice === '1') {
+    if (req.query.test_edge === '1') {
+      try {
+        const testPath = path.join(os.tmpdir(), `test-edge-${Date.now()}.mp3`);
+        const synthesizedPath = await generateSpeechWithNodeEdge("Official records confirm this historical documentary investigation.", testPath, {
+          voice: CREATOR_VOICES.deepDocumentaryMale
+        });
+        const dur = await getAudioDuration(synthesizedPath);
+        ttsDiagnostics = {
+          success: true,
+          voice: "en-US-ChristopherNeural (Adult Male Deep Documentary Baritone)",
+          engine: "Node MsEdgeTTS Neural",
+          durationSeconds: dur,
+          fileSize: fs.existsSync(synthesizedPath) ? fs.statSync(synthesizedPath).size : 0
+        };
+        try { fs.unlinkSync(synthesizedPath); } catch {}
+      } catch (voiceErr: any) {
+        ttsDiagnostics = {
+          success: false,
+          engine: "Node MsEdgeTTS Neural",
+          error: voiceErr?.message || String(voiceErr)
+        };
+      }
+    } else if (req.query.test_voice === '1') {
       try {
         const testPath = path.join(os.tmpdir(), `test-piper-${Date.now()}.mp3`);
         const synthesizedPath = await generateSpeechWithPiper("Official records confirm this historical documentary investigation.", testPath);
