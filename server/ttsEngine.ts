@@ -300,7 +300,7 @@ export async function generateSpeechWithNodeEdgeDetailed(
   const voice = (rawVoice && !rawVoice.startsWith('Gemini-') && !rawVoice.startsWith('Piper-'))
     ? rawVoice
     : CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '+30%'; // ~150 WPM natural human documentary speed (calibrated from slow +0% 114 WPM)
+  const rate = options.rate || '+15%'; // ~130-135 WPM comfortable, steady human documentary pacing
   const pitch = options.pitch || '+0Hz';
 
   let lastError: any = null;
@@ -424,7 +424,7 @@ export async function generateSpeech(
 
   const targetPath = outputPath || path.join(activeTtsDir, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.mp3`);
   const primaryVoice = cleanVoice || CREATOR_VOICES.deepDocumentaryMale;
-  const rate = options.rate || '+30%';   // ~150 WPM natural human documentary speed
+  const rate = options.rate || '+15%';   // ~130-135 WPM comfortable documentary human pacing
   const pitch = options.pitch || '+0Hz'; // Pure natural neural vocoder pitch (no robotic DSP shift)
 
   // =========================================================================
@@ -610,15 +610,15 @@ export async function generateSpeechWithPiper(
       '--model', modelPath,
       '--output', rawWav,
       '--file', tempTextFile,
-      '--length-scale', '0.82'
+      '--length-scale', '0.90'
     ], { timeout: 35000 });
 
     if (!fsSync.existsSync(rawWav) || fsSync.statSync(rawWav).size < 500) {
       throw new Error('Piper TTS produced empty or invalid WAV output');
     }
 
-    // Convert raw WAV to standardized 44.1kHz broadcast stereo MP3 with warmth EQ, natural human tempo, & compand
-    const broadcastFilter = 'atempo=1.20,volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo,equalizer=f=120:width_type=o:width=1.2:g=2.5,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+    // Convert raw WAV to standardized 44.1kHz broadcast stereo MP3 with warmth EQ, comfortable human tempo, & compand
+    const broadcastFilter = 'atempo=1.10,volume=1.25,aformat=sample_rates=44100:channel_layouts=stereo,equalizer=f=120:width_type=o:width=1.2:g=2.5,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
     await execFileAsync('ffmpeg', [
       '-y',
       '-i', rawWav,
@@ -713,7 +713,7 @@ export async function generateCohesiveReelSpeech(
             parts: [{
               text: fullScriptWithPauses,
               speechMetadata: {
-                style: 'documentary narrator, mature adult male, deep authoritative baritone, brisk and engaging human tempo, fluid continuous storytelling, no slow pauses'
+                style: 'documentary narrator, mature adult male, deep authoritative baritone, natural steady human cadence, articulate and captivating storytelling'
               }
             }]
           }],
@@ -736,8 +736,8 @@ export async function generateCohesiveReelSpeech(
         if (inlineData?.data) {
           await fs.writeFile(masterRawWav, Buffer.from(inlineData.data, 'base64'));
 
-          // Convert master raw audio to broadcast 44.1kHz stereo MP3 with warmth EQ and natural 150 WPM human tempo
-          const broadcastFilter = 'atempo=1.35,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+          // Convert master raw audio to broadcast 44.1kHz stereo MP3 with warmth EQ and comfortable 130-135 WPM human tempo
+          const broadcastFilter = 'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
           try {
             await execFileAsync('ffmpeg', [
               '-y',
@@ -753,7 +753,7 @@ export async function generateCohesiveReelSpeech(
             await execFileAsync('ffmpeg', [
               '-y',
               '-i', masterRawWav,
-              '-af', 'atempo=1.35,volume=1.2',
+              '-af', 'atempo=1.25,volume=1.2',
               '-c:a', 'libmp3lame',
               '-ar', '44100',
               '-ac', '2',
@@ -917,7 +917,7 @@ export async function generateCohesiveReelSpeech(
           try {
             const detail = await generateSpeechWithNodeEdgeDetailed(text, segPath, {
               voice: edgeVoice,
-              rate: options.rate || '+30%',
+              rate: options.rate || '+15%',
               pitch: '+0Hz'
             });
 
@@ -999,7 +999,7 @@ export async function generateCohesiveReelSpeech(
               '--file', tempText,
               '--write-media', segPath,
               '--voice', edgeVoice,
-              '--rate', options.rate || '+30%',
+              '--rate', options.rate || '+15%',
               '--pitch', '+0Hz'
             ], 28000);
 
@@ -1112,7 +1112,7 @@ export async function generateSpeechWithGemini(
       parts: [{
         text,
         speechMetadata: {
-          style: 'documentary narrator, mature adult male, deep baritone, authoritative, brisk and engaging human tempo, fluid continuous storytelling, no slow pauses'
+          style: 'documentary narrator, mature adult male, deep baritone, authoritative, natural steady human cadence, articulate and captivating storytelling'
         }
       }],
     }],
@@ -1141,8 +1141,8 @@ export async function generateSpeechWithGemini(
   await fs.writeFile(rawWav, buffer);
 
   try {
-    // Convert to broadcast 44.1kHz stereo MP3 with warmth EQ and natural 150 WPM human cadence
-    const broadcastFilter = 'atempo=1.35,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+    // Convert to broadcast 44.1kHz stereo MP3 with warmth EQ and comfortable 130-135 WPM human cadence
+    const broadcastFilter = 'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
     await execFileAsync('ffmpeg', [
       '-y',
       '-i', rawWav,
@@ -1157,7 +1157,7 @@ export async function generateSpeechWithGemini(
     await execFileAsync('ffmpeg', [
       '-y',
       '-i', rawWav,
-      '-af', 'atempo=1.35,volume=1.2',
+      '-af', 'atempo=1.25,volume=1.2',
       '-c:a', 'libmp3lame',
       '-ar', '44100',
       '-ac', '2',

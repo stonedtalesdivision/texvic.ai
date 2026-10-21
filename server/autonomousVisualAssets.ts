@@ -492,7 +492,7 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
 
     const calcSceneDur = (script: string, minSec = 6.0) => {
       const words = script.trim().split(/\s+/).filter(Boolean).length;
-      return Math.max(minSec, Number(((words / 2.5) + 0.8).toFixed(1)));
+      return Math.max(minSec, Number(((words / 2.2) + 1.0).toFixed(1)));
     };
 
     const sc0Ctx = extractContextualSceneKeywords(title, sc1Voice, 0);

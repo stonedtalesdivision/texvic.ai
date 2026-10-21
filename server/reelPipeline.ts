@@ -227,7 +227,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       try {
         const lockedMaleVoice = cohesiveResult?.voiceUsed || CREATOR_VOICES.deepDocumentaryMale;
         const fallbackTarget = path.join(process.cwd(), 'data', 'media', 'tts', `fallback-detail-${Date.now()}-${i}.mp3`);
-        const detail = await generateSpeechWithNodeEdgeDetailed(narrationTexts[i], fallbackTarget, { voice: lockedMaleVoice, rate: '+30%' });
+        const detail = await generateSpeechWithNodeEdgeDetailed(narrationTexts[i], fallbackTarget, { voice: lockedMaleVoice, rate: '+15%' });
         segPath = detail.audioPath;
         audioDur = detail.duration;
         timedWords = detail.words;
