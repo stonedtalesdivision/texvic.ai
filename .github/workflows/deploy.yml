@@ -45,10 +45,10 @@ jobs:
             echo "Current commit after reset:"
             git log -n 1 --oneline
 
-            echo "🔨 Rebuilding & launching updated container..."
+            echo "🔨 Building & launching updated container (zero-downtime)..."
+            sudo docker compose build
             sudo docker compose down --remove-orphans || true
-            sudo docker rm -f texvic-ai-agent $(sudo docker ps -a -q --filter "name=texvic-ai") 2>/dev/null || true
-            sudo docker compose build --no-cache
+            sudo docker rm -f texvic-ai-agent $(sudo docker ps -aq --filter "name=texvic-ai") 2>/dev/null || true
             sudo docker compose up -d --force-recreate
 
             echo "🔍 Verifying running container:"
