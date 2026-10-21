@@ -123,7 +123,7 @@ export async function composeCinematicAudio(options: MasterAudioOptions): Promis
 
   // 1. Voice boost & dual-stream splitting: broadcast dynamic vocal compression keeps speech clear at -6 to -10 dBFS
   filterParts.push(
-    '[0:a]volume=1.45,aformat=sample_rates=44100:channel_layouts=stereo,compand=attacks=0.01:decays=0.15:points=-80/-80|-40/-20|-20/-6|0/0:soft-knee=6,asplit=2[voice_mix][voice_sc]'
+    '[0:a]volume=1.35,aformat=sample_rates=44100:channel_layouts=stereo,compand=attacks=0.04:decays=0.30:points=-70/-70|-40/-18|-20/-6|0/0:soft-knee=6,asplit=2[voice_mix][voice_sc]'
   );
 
   // 2. Dynamic sidechain ducking: background music plays at atmospheric 0.22, smoothly ducking down to ~0.08 when narrator speaks

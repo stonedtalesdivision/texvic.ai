@@ -97,6 +97,19 @@ export function resolveGeminiVoiceForTopic(topicOrNiche = '', mood = ''): string
  */
 export function humanizeSpeechText(text: string): string {
   return text
+    // Strip technical archival headers and index codes
+    .replace(/(^|[\.\?\!\n])\s*(documented archival anomaly|declassified index|case file|archive index|classification level)[\s\:\#\d\-]+/gi, '$1 ')
+    .replace(/\(?(declassified\s+index|archival\s+index|file\s+id)\s*[\#\d\-]+\)?/gi, '')
+    // Normalize timecodes so TTS does not say "zero colon zero four"
+    .replace(/\bpause at\s*(\d{1,2}):(\d{2})\b/gi, 'pause at $2 seconds')
+    .replace(/\b(\d{1,2}):(\d{2})\b/g, '$1 $2')
+    // Expand conversational quantities & metrics
+    .replace(/(\d+)\+/g, 'over $1')
+    .replace(/(\d+(?:\.\d+)?)\s*M\b/g, '$1 million')
+    .replace(/(\d+(?:\.\d+)?)\s*k\b/g, '$1 thousand')
+    .replace(/(\d+)\s*ft\b/gi, '$1 feet')
+    .replace(/(\d+)\s*km\b/gi, '$1 kilometers')
+    .replace(/(\d+)\s*mph\b/gi, '$1 miles per hour')
     // Strip markdown formatting & brackets
     .replace(/[*#`[\]()_~]/g, ' ')
     // Strip emojis and non-standard unicode symbols that crash SSML
@@ -109,7 +122,8 @@ export function humanizeSpeechText(text: string): string {
     .replace(/&/g, ' and ')
     .replace(/[<>]/g, '')
     .replace(/\.{3,}/g, '... ')
-    .replace(/:\s+/g, '. ')
+    // Convert colons into natural breathing commas (NEVER full-stop periods, which break sentences!)
+    .replace(/:\s+/g, ', ')
     .replace(/[\r\n]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -289,69 +303,75 @@ export async function generateSpeechWithNodeEdgeDetailed(
   const rate = options.rate || '+0%';
   const pitch = options.pitch || '+0Hz';
 
-  const tts = new MsEdgeTTS({
-    connectionTimeoutMs: 15000,
-    synthesisTimeoutMs: 30000
-  });
-
-  const capturedWords: TimedWord[] = [];
-
-  try {
-    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3, {
-      wordBoundaryEnabled: true,
-      sentenceBoundaryEnabled: false
+  let lastError: any = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const tts = new MsEdgeTTS({
+      connectionTimeoutMs: 15000,
+      synthesisTimeoutMs: 30000
     });
-    const { audioStream, metadataStream } = tts.toStream(cleanedText, { rate, pitch });
+    const capturedWords: TimedWord[] = [];
 
-    if (metadataStream) {
-      metadataStream.on('data', (chunk: Buffer) => {
-        try {
-          const str = chunk.toString('utf8');
-          const parsed = JSON.parse(str);
-          if (Array.isArray(parsed?.Metadata)) {
-            for (const item of parsed.Metadata) {
-              if (item?.Type === 'WordBoundary' && item?.Data) {
-                const offset = Number(item.Data.Offset);
-                const duration = Number(item.Data.Duration);
-                const wordText = String(item.Data.text?.Text || '').trim();
-                if (wordText && Number.isFinite(offset) && Number.isFinite(duration)) {
-                  capturedWords.push({
-                    word: wordText,
-                    start: Number((offset / 10000000).toFixed(3)),
-                    end: Number(((offset + duration) / 10000000).toFixed(3))
-                  });
+    try {
+      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3, {
+        wordBoundaryEnabled: true,
+        sentenceBoundaryEnabled: false
+      });
+      const { audioStream, metadataStream } = tts.toStream(cleanedText, { rate, pitch });
+
+      if (metadataStream) {
+        metadataStream.on('data', (chunk: Buffer) => {
+          try {
+            const str = chunk.toString('utf8');
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed?.Metadata)) {
+              for (const item of parsed.Metadata) {
+                if (item?.Type === 'WordBoundary' && item?.Data) {
+                  const offset = Number(item.Data.Offset);
+                  const duration = Number(item.Data.Duration);
+                  const wordText = String(item.Data.text?.Text || '').trim();
+                  if (wordText && Number.isFinite(offset) && Number.isFinite(duration)) {
+                    capturedWords.push({
+                      word: wordText,
+                      start: Number((offset / 10000000).toFixed(3)),
+                      end: Number(((offset + duration) / 10000000).toFixed(3))
+                    });
+                  }
                 }
               }
             }
-          }
-        } catch {}
-      });
+          } catch {}
+        });
+      }
+
+      const writeStream = fsSync.createWriteStream(outputPath);
+      await pipeline(audioStream, writeStream);
+
+      if (fsSync.existsSync(outputPath) && (await fs.stat(outputPath)).size >= 500) {
+        const duration = await getAudioDuration(outputPath);
+        capturedWords.sort((a, b) => a.start - b.start);
+
+        const finalWords = capturedWords.length > 0
+          ? capturedWords
+          : estimateWordTimings(cleanedText, duration);
+
+        return {
+          audioPath: outputPath,
+          duration,
+          words: finalWords
+        };
+      }
+    } catch (err: any) {
+      lastError = err;
+      const delay = (attempt + 1) * 800;
+      await new Promise(r => setTimeout(r, delay));
+    } finally {
+      try {
+        tts.close();
+      } catch {}
     }
-
-    const writeStream = fsSync.createWriteStream(outputPath);
-    await pipeline(audioStream, writeStream);
-  } finally {
-    try {
-      tts.close();
-    } catch {}
   }
 
-  if (!fsSync.existsSync(outputPath) || (await fs.stat(outputPath)).size < 500) {
-    throw new Error(`Node MsEdgeTTS output missing or empty for voice "${voice}"`);
-  }
-
-  const duration = await getAudioDuration(outputPath);
-  capturedWords.sort((a, b) => a.start - b.start);
-
-  const finalWords = capturedWords.length > 0
-    ? capturedWords
-    : estimateWordTimings(cleanedText, duration);
-
-  return {
-    audioPath: outputPath,
-    duration,
-    words: finalWords
-  };
+  throw lastError || new Error(`Node MsEdgeTTS output missing or empty for voice "${voice}"`);
 }
 
 /**

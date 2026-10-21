@@ -632,14 +632,14 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
     // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
       realSpeechCount++;
-      const sceneDur = Math.max(audioDur + 1.0, 6.0);
+      const sceneDur = Math.max(audioDur + 0.4, 4.0);
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);
       console.log(`[Autonomous 24x7 Engine] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
     } else {
       // Create a synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
-      const fallbackDur = Math.max(Number(sc?.durationSeconds || 8.0), 6.0);
+      const fallbackDur = Math.max(Number(sc?.durationSeconds || 6.0), 4.0);
       const silentSeg = await generateSilentAudioSegment(fallbackDur);
       voiceSegments.push(silentSeg);
       sceneDurations.push(fallbackDur);
@@ -659,7 +659,7 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
         await generateSpeechWithPiper(text, segPath);
         const audioDur = await getAudioDuration(segPath);
         if (audioDur > 0) {
-          const sceneDur = Math.max(audioDur + 1.0, 6.0);
+          const sceneDur = Math.max(audioDur + 0.4, 4.0);
           const paddedSeg = await padAudioSegment(segPath, sceneDur);
           voiceSegments.push(paddedSeg);
           sceneDurations.push(sceneDur);
@@ -670,7 +670,7 @@ async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; 
       } catch (emErr) {
         console.warn(`[Autonomous 24x7 Engine] Emergency scene ${i + 1} TTS error:`, emErr);
       }
-      const fallbackDur = Math.max(Number(rawScenes[i]?.durationSeconds || 8.0), 6.0);
+      const fallbackDur = Math.max(Number(rawScenes[i]?.durationSeconds || 6.0), 4.0);
       const silentSeg = await generateSilentAudioSegment(fallbackDur);
       voiceSegments.push(silentSeg);
       sceneDurations.push(fallbackDur);
@@ -4702,11 +4702,12 @@ function getCuratedArchivalFallback(recentTopics: string[], activeVertical?: Con
 
   // If ALL static catalog items are already in history, dynamically synthesize a unique archival dossier
   const timestamp = Date.now();
-  const pillar = activeVertical?.pillars[Math.floor(Math.random() * (activeVertical.pillars.length || 1))] || 'Documented Historical Discoveries';
-  const dynamicTopic = `Documented Archival Anomaly: ${pillar} (Declassified Index #${timestamp.toString().slice(-5)})`;
+  const rawPillar = activeVertical?.pillars[Math.floor(Math.random() * (activeVertical.pillars.length || 1))] || 'Documented Historical Discoveries';
+  const cleanPillarTitle = rawPillar.split(':')[0].trim();
+  const dynamicTopic = cleanPillarTitle;
   return {
     topic: dynamicTopic,
-    hook: `Declassified government records and verified archival logs confirm an unusual physical anomaly within ${pillar}.`,
+    hook: `Declassified government records and verified archival logs confirm an unusual physical anomaly within ${cleanPillarTitle}.`,
     facts: [
       `Recorded in contemporaneous historical dispatches and official records.`,
       `Validated across multi-agency post-incident reviews and museum preservation files.`,

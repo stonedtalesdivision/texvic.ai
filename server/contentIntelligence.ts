@@ -1666,9 +1666,6 @@ export async function generateAiReelScript(
   caption: string;
   hashtags: string[];
 } | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.length < 5) return null;
-
   const brandName = persona?.brand || 'The Untold Archive';
   const brandHandle = persona?.handle || '@theuntoldarch';
 
@@ -1698,8 +1695,12 @@ STRICT CREATIVE MANDATES:
 2. Write a gripping, authentic, human-level narrative tailored 100% uniquely to this exact event.
    Choose a narrative structure that fits the drama of THIS story (e.g. chronological escalation, cold-open mystery, forensic breakdown, or turning-point countdown).
 3. Split the story into 3 or 4 scenes (30 to 45 seconds total reel duration).
-   Each scene's "voiceScript" must be 18 to 30 words of spoken documentary narration.
-   The voiceover MUST flow seamlessly and naturally like a high-budget BBC, HBO, or Netflix documentary.
+   CRITICAL VOICE REQUIREMENTS:
+   - Each scene's "voiceScript" must be 20 to 35 words of natural, spoken documentary narration.
+   - Every "voiceScript" MUST be a complete, grammatically sound English sentence (or two connected sentences).
+   - NEVER write fragments, standalone titles, or catalog numbers in "voiceScript".
+   - The voiceover MUST flow seamlessly and naturally like a high-budget BBC, HBO, or Netflix documentary.
+   - The narrator should speak continuous, captivating story sentences that hook the viewer, build tension, reveal the turning point, and ask a thought-provoking final question.
 4. For each scene, provide:
    - "headline": Specific 2-4 word UPPERCASE title naming the actual event, location, or moment (e.g. "FLIGHT 305 COMMANDEERED", "THE 10,000-FT PLUNGE", "THE TINA BAR CACHE"). NO generic titles like "DECLASSIFIED FILE" or "CRITICAL TELEMETRY".
    - "highlight": 2-4 word focal phrase from that scene.
@@ -1733,35 +1734,93 @@ Return ONLY valid JSON matching this schema:
   "hashtags": ["#tag1", "#tag2"]
 }`;
 
-  const ai = new GoogleGenAI({ apiKey });
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest'];
+  // 1. Primary: Try Gemini Models (gemini-flash-latest, gemini-3.8-flash, gemini-2.5-flash)
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (apiKey && apiKey.length >= 5) {
+    const ai = new GoogleGenAI({ apiKey });
+    const modelsToTry = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
 
-  for (const model of modelsToTry) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.8
+    for (const model of modelsToTry) {
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout after 7s on ${model}`)), 7000)
+        );
+        const response = await Promise.race([
+          ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.75
+            }
+          }),
+          timeoutPromise
+        ]);
+
+        const text = response.text?.trim() || '';
+        if (!text) continue;
+
+        const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        const parsed = JSON.parse(cleaned);
+
+        if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length >= 3) {
+          const allScenesValid = parsed.scenes.every((s: any) => s && typeof s.voiceScript === 'string' && s.voiceScript.trim().length >= 15);
+          if (allScenesValid) {
+            console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via Gemini (${model}) for "${dossier.subject}" (${parsed.scenes.length} scenes).`);
+            return parsed;
+          }
         }
+      } catch (err: any) {
+        console.warn(`[Content Intelligence] Gemini AI script generation via ${model} notice (${err?.message?.slice(0, 80)}). Trying fallback...`);
+      }
+    }
+  }
+
+  // 2. Secondary: Resilient Multi-Provider Fallback via OpenRouter / Nemotron
+  const nemotronKey = process.env.NEMOTRON_API_KEY;
+  if (nemotronKey && nemotronKey.length >= 5) {
+    try {
+      const model = process.env.NEMOTRON_MODEL || 'nvidia/nemotron-3.5-lightning:free';
+      const url = `${process.env.NVIDIA_NIM_URL || 'https://openrouter.ai/api/v1'}/chat/completions`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${nemotronKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: 'You are the Lead Documentary Director for The Untold Archive. Return valid JSON only.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.7,
+          response_format: { type: 'json_object' }
+        }),
+        signal: controller.signal
       });
+      clearTimeout(timeout);
 
-      const text = response.text?.trim() || '';
-      if (!text) continue;
-
-      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-      const parsed = JSON.parse(cleaned);
-
-      if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length >= 3) {
-        const allScenesValid = parsed.scenes.every((s: any) => s && typeof s.voiceScript === 'string' && s.voiceScript.trim().length >= 15);
-        if (allScenesValid) {
-          console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via ${model} for "${dossier.subject}" (${parsed.scenes.length} scenes).`);
-          return parsed;
+      if (resp.ok) {
+        const payload = await resp.json();
+        const content = payload?.choices?.[0]?.message?.content;
+        if (content) {
+          const cleaned = String(content).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+          const parsed = JSON.parse(cleaned);
+          if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length >= 3) {
+            const allScenesValid = parsed.scenes.every((s: any) => s && typeof s.voiceScript === 'string' && s.voiceScript.trim().length >= 15);
+            if (allScenesValid) {
+              console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via Nemotron (${model}) for "${dossier.subject}" (${parsed.scenes.length} scenes).`);
+              return parsed;
+            }
+          }
         }
       }
-    } catch (err: any) {
-      console.warn(`[Content Intelligence] AI script generation via ${model} failed (${err?.message?.slice(0, 80)}). Trying fallback...`);
+    } catch (nemErr: any) {
+      console.warn(`[Content Intelligence] Nemotron script generation fallback notice:`, nemErr?.message?.slice(0, 80));
     }
   }
 
@@ -1860,26 +1919,35 @@ export async function constructDocumentaryReelPackage(
     // 2. Resilient Organic Fallback (Zero static stock templates, derives narration directly from facts)
     console.warn(`[Content Intelligence] AI script generation offline; assembling organic narrative for "${dossier.subject}"...`);
 
+    const cleanSubject = dossier.subject
+      .replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '')
+      .replace(/\s*\([^\)]*index[^\)]*\)/gi, '')
+      .replace(/\s*\([^\)]*#\d+[^\)]*\)/gi, '')
+      .replace(/:\s+.*$/, '')
+      .trim() || 'This classified event';
+
     const fact0 = dossier.verifiedFacts[0] ? dossier.verifiedFacts[0].trim().replace(/\.+$/, '') : dossier.centralPremise;
     const fact1 = dossier.verifiedFacts[1] ? dossier.verifiedFacts[1].trim().replace(/\.+$/, '') : '';
     const fact2 = dossier.verifiedFacts[2] ? dossier.verifiedFacts[2].trim().replace(/\.+$/, '') : '';
     const aftermath = dossier.uncertaintiesOrLimits[0] ? dossier.uncertaintiesOrLimits[0].trim().replace(/\.+$/, '') : '';
 
-    const sc0Context = extractContextualSceneKeywords(dossier.subject, fact0, 0);
-    const sc1Context = extractContextualSceneKeywords(dossier.subject, fact1, 1);
-    const sc2Context = extractContextualSceneKeywords(dossier.subject, fact2, 2);
-    const sc3Context = extractContextualSceneKeywords(dossier.subject, aftermath, 3);
+    const sc0Context = extractContextualSceneKeywords(cleanSubject, fact0, 0);
+    const sc1Context = extractContextualSceneKeywords(cleanSubject, fact1, 1);
+    const sc2Context = extractContextualSceneKeywords(cleanSubject, fact2, 2);
+    const sc3Context = extractContextualSceneKeywords(cleanSubject, aftermath, 3);
 
-    const scene1Script = `${dossier.subject}: ${fact0}.`;
-    const scene2Script = fact1
-      ? `${fact1}. The documented records substantiate the sequence.`
-      : `Contemporaneous documentation captured the critical developments in detail.`;
-    const scene3Script = fact2
-      ? `${fact2}. It marked an indelible turning point in archival history.`
-      : `Primary field evidence established the permanent significance of the event.`;
+    // Build complete, rich documentary sentences (25-35 words each) with NO catalog headers, colons, or index codes
+    const premiseText = dossier.centralPremise ? dossier.centralPremise.trim().replace(/\.+$/, '') : fact0;
+    const scene1Script = `Deep in the historical record lies the documented account of ${cleanSubject}. ${premiseText}.`;
+    const scene2Script = fact0
+      ? `${fact0}. Official contemporaneous records confirm the operational sequence was documented in meticulous detail.`
+      : `Contemporaneous documentation preserved the sequence of operational developments in meticulous detail.`;
+    const scene3Script = fact1 || fact2
+      ? `${fact1 || fact2}. The physical evidence marked an indelible turning point in archival history.`
+      : `Primary field investigations corroborated the permanent historical significance of the discovery.`;
     const scene4Script = aftermath
-      ? `${aftermath}. To this day, researchers continue to analyze the physical and historical evidence.`
-      : `The historical record remains one of the most compelling documented cases in modern archives.`;
+      ? `${aftermath}. To this day, researchers continue to analyze the physical evidence. Whose account do you actually believe? Comment below.`
+      : `The historical record remains one of the most compelling documented cases in modern archives. Comment your theory below.`;
 
     scenes = [
       {

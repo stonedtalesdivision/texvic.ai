@@ -44,6 +44,19 @@ export function normalizeVideoUrl(videoUrl: string): string {
 export function sanitizeNarrationForTTS(text: string): string {
   if (!text) return '';
   return String(text)
+    // Strip technical archival headers and catalog IDs
+    .replace(/(^|[\.\?\!\n])\s*(documented archival anomaly|declassified index|case file|archive index|classification level)[\s\:\#\d\-]+/gi, '$1 ')
+    .replace(/\(?(declassified\s+index|archival\s+index|file\s+id)\s*[\#\d\-]+\)?/gi, '')
+    // Normalize timecodes so TTS does not say "zero colon zero four"
+    .replace(/\bpause at\s*(\d{1,2}):(\d{2})\b/gi, 'pause at $2 seconds')
+    .replace(/\b(\d{1,2}):(\d{2})\b/g, '$1 $2')
+    // Expand conversational quantities & metrics
+    .replace(/(\d+)\+/g, 'over $1')
+    .replace(/(\d+(?:\.\d+)?)\s*M\b/g, '$1 million')
+    .replace(/(\d+(?:\.\d+)?)\s*k\b/g, '$1 thousand')
+    .replace(/(\d+)\s*ft\b/gi, '$1 feet')
+    .replace(/(\d+)\s*km\b/gi, '$1 kilometers')
+    .replace(/(\d+)\s*mph\b/gi, '$1 miles per hour')
     // Strip timecode prefixes at start of text or after punctuation
     .replace(/(^|[\.\?\!\n])\s*\d{1,2}:\d{2}(:\d{2})?(\s*(am|pm))?(\s*[:\-\—])?\s*/gi, '$1 ')
     // Strip bullet markers & numbers at start of lines: "• ", "- ", "* ", "1. ", "[A] "
@@ -58,7 +71,7 @@ export function sanitizeNarrationForTTS(text: string): string {
     .replace(/\[(?:A|B)\]/gi, '')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/#\w+/g, '')
-    // Clean redundant colons into natural commas
+    // Clean redundant colons into natural breathing commas (never full stops)
     .replace(/\s*:\s*/g, ', ')
     // Clean duplicate dots and spaces
     .replace(/\.{2,}/g, '.')
@@ -226,7 +239,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     // Calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
       realSpeechCount++;
-      const sceneDur = Math.max(audioDur + 1.0, 6.0);
+      const sceneDur = Math.max(audioDur + 0.4, 4.0);
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);
@@ -235,7 +248,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       console.log(`[Reel Video Pipeline] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
     } else {
       // Synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
-      const fallbackDur = Math.max(Number(sc?.durationSeconds || 8.0), 6.0);
+      const fallbackDur = Math.max(Number(sc?.durationSeconds || 6.0), 4.0);
       const silentSeg = await generateSilentAudioSegment(fallbackDur);
       voiceSegments.push(silentSeg);
       sceneDurations.push(fallbackDur);

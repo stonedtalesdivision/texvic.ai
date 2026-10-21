@@ -453,7 +453,13 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
 
   // Resilient fallback: If no scenes could be parsed from DB, synthesize a 3-scene documentary story
   if (!scenes.length) {
-    const title = String(reel?.title || 'The Untold Archive Secret').trim();
+    const rawTitle = String(reel?.title || 'The Untold Archive Secret').trim();
+    const title = rawTitle
+      .replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '')
+      .replace(/\s*\([^\)]*index[^\)]*\)/gi, '')
+      .replace(/\s*\([^\)]*#\d+[^\)]*\)/gi, '')
+      .replace(/:\s+.*$/, '')
+      .trim() || 'This documented event';
     const caption = String(reel?.caption || '').trim();
     const niche = String(reel?.niche || 'Historical Enigma');
     const cleanCaption = caption
@@ -465,13 +471,13 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
     const ensurePeriod = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
     const sc1Voice = captionSentences[0]
       ? ensurePeriod(captionSentences[0])
-      : `${ensurePeriod(title)} Primary archival documentation preserves the sequence of events.`;
+      : `Deep in the historical record lies the documented account of ${title}. Primary archival documentation preserves the sequence of events.`;
     const sc2Voice = captionSentences[1]
       ? ensurePeriod(captionSentences[1])
-      : 'Archival logs and physical evidence corroborate the critical turning point.';
+      : 'Archival logs and physical evidence corroborate the critical turning point in this investigation.';
     const sc3Voice = captionSentences[2]
       ? ensurePeriod(captionSentences[2])
-      : (captionSentences.slice(3).join(' ') || 'The historical implications continue to challenge standard interpretations.');
+      : (captionSentences.slice(3).join(' ') || 'The historical implications continue to challenge standard interpretations across modern archives.');
 
     const calcSceneDur = (script: string, minSec = 8.0) => {
       const words = script.trim().split(/\s+/).filter(Boolean).length;
