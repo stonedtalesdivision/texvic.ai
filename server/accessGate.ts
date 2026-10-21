@@ -160,7 +160,7 @@ button{width:100%;margin-top:16px;padding:13px;border:0;border-radius:12px;backg
 </style>
 </head>
 <body>
-<form class="card" method="post" action="/api/auth/owner/login">
+<form class="card" method="post" action="/owner-login">
 <div class="logo">TX</div>
 <div class="badge">OWNER ACCESS ONLY</div>
 <h1>Welcome to TEXVIC</h1>
@@ -257,7 +257,7 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
     return true;
   }
 
-  if (req.method === "POST" && req.path === "/api/auth/owner/login") {
+  if (req.method === "POST" && (req.path === "/owner-login" || req.path === "/api/auth/owner/login")) {
     const ip = getClientIp(req);
     const now = Date.now();
     const state = failedLogins.get(ip);
@@ -292,6 +292,13 @@ export function ownerAuthRoutes(req: Request, res: Response): boolean {
 
     failedLogins.delete(ip);
     issueSession(res, req);
+
+    const isExplicitApiCall = req.path.startsWith('/api/') && req.is('json') && !req.headers.accept?.includes('text/html');
+    if (isExplicitApiCall) {
+      res.json({ success: true });
+      return true;
+    }
+
     res.redirect("/");
     return true;
   }

@@ -5545,7 +5545,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       ? 45
       : isNetworkError
         ? 5
-        : Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
+        : 15;
     const retryAt = new Date(Date.now() + retryMinutes * 60000).toISOString();
     const stage = isRateLimit ? 'rate_limited' : isNetworkError ? 'network_offline' : 'idle';
 
@@ -5617,12 +5617,14 @@ function initAutonomousDaemon() {
       console.log(`[Autonomous 24x7 Daemon] 🔄 Startup self-healed ${healedReels.changes} interrupted rendering reel(s).`);
     }
 
-    // Reset overdue next_run if server was offline
+    // Reset overdue next_run if server was offline OR if no reel has been published in the last 6 hours
     const cfg = db.prepare('SELECT enabled, next_run FROM autonomous_config WHERE id = ?').get('default_config') as any;
-    if (cfg?.enabled && (!cfg.next_run || new Date(cfg.next_run).getTime() < Date.now() - 5 * 60 * 1000)) {
-      db.prepare(`UPDATE autonomous_config SET next_run = ?, updated_at = ? WHERE id = 'default_config'`)
+    const isOverdue = Boolean(cfg?.enabled && (!cfg.next_run || new Date(cfg.next_run).getTime() < Date.now() - 5 * 60 * 1000));
+    const recentPublished = db.prepare(`SELECT id FROM reels WHERE status = 'published' AND publish_timestamp > ? LIMIT 1`).get(new Date(Date.now() - 6 * 3600 * 1000).toISOString()) as any;
+    if (cfg?.enabled && (isOverdue || !recentPublished)) {
+      db.prepare(`UPDATE autonomous_config SET next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
         .run(new Date(Date.now() + 10000).toISOString(), new Date().toISOString());
-      console.log(`[Autonomous 24x7 Daemon] ⏰ Reset overdue autonomous next_run to trigger in 10s.`);
+      console.log(`[Autonomous 24x7 Daemon] ⏰ Reset next_run to trigger in 10s (overdue=${isOverdue}, recentPublished=${Boolean(recentPublished)}).`);
     }
   } catch (healErr) {
     console.warn('[Autonomous 24x7 Daemon] Startup self-healing check warning:', healErr);

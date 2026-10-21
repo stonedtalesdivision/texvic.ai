@@ -29,8 +29,10 @@ jobs:
             else
               echo "Repository directory not found!" && exit 1
             fi
-            echo "📥 Pulling latest commits from GitHub..."
-            git pull origin main
+            echo "📥 Fetching and syncing latest commits from GitHub..."
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
             echo "🔨 Rebuilding & launching updated container..."
             sudo docker compose down --remove-orphans || true
             sudo docker rm -f texvic-ai-agent $(sudo docker ps -a -q --filter "name=texvic-ai") 2>/dev/null || true
