@@ -490,9 +490,9 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       ? ensurePeriod(captionSentences[2])
       : (captionSentences.slice(3).join(' ') || 'The historical implications continue to challenge standard interpretations across modern archives.');
 
-    const calcSceneDur = (script: string, minSec = 8.0) => {
+    const calcSceneDur = (script: string, minSec = 6.0) => {
       const words = script.trim().split(/\s+/).filter(Boolean).length;
-      return Math.max(minSec, Number(((words / 2.2) + 1.2).toFixed(1)));
+      return Math.max(minSec, Number(((words / 2.5) + 0.8).toFixed(1)));
     };
 
     const sc0Ctx = extractContextualSceneKeywords(title, sc1Voice, 0);
@@ -503,7 +503,7 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       {
         id: `sc-gen-1`,
         order: 1,
-        durationSeconds: calcSceneDur(sc1Voice, 8.5),
+        durationSeconds: calcSceneDur(sc1Voice, 6.0),
         hookText: title,
         headline: sc0Ctx.headline || title.slice(0, 24).toUpperCase(),
         highlight: 'DEEP ARCHIVE FILE',
@@ -520,7 +520,7 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       {
         id: `sc-gen-2`,
         order: 2,
-        durationSeconds: calcSceneDur(sc2Voice, 9.5),
+        durationSeconds: calcSceneDur(sc2Voice, 6.5),
         hookText: sc1Ctx.headline || 'CRITICAL TELEMETRY',
         headline: sc1Ctx.headline || 'CRITICAL TELEMETRY',
         highlight: 'FORENSIC RECORD',
@@ -537,7 +537,7 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
       {
         id: `sc-gen-3`,
         order: 3,
-        durationSeconds: calcSceneDur(sc3Voice, 8.5),
+        durationSeconds: calcSceneDur(sc3Voice, 6.0),
         hookText: sc2Ctx.headline || 'HISTORICAL IMPACT',
         headline: sc2Ctx.headline || 'HISTORICAL IMPACT',
         highlight: 'DECODED ARCHIVE',

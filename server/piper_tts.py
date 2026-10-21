@@ -29,7 +29,7 @@ def main():
 
     voice = PiperVoice.load(args.model)
     with wave.open(args.output, "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
+        voice.synthesize_wav(text, wav_file, length_scale=args.length_scale)
 
 if __name__ == "__main__":
     main()
