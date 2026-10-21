@@ -209,6 +209,17 @@ app.get("/api/health", async (req, res) => {
       }
     }
 
+    if (req.query.trigger_cycle === '1') {
+      console.log(`[Health API] Manual autonomous cycle triggered via query parameter.`);
+      const cycleOutput = await runAutonomous24x7Cycle();
+      return res.json({
+        status: cycleOutput.success ? "cycle_succeeded" : "cycle_failed",
+        cycleOutput,
+        lastCycleError,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     res.json({
       status: "healthy",
       version: "1.1.0",
@@ -224,7 +235,10 @@ app.get("/api/health", async (req, res) => {
           pageId: fbConn?.pageId || null,
           name: fbConn?.name || null
         },
-        autonomous: config || null,
+        autonomous: config ? {
+          ...config,
+          lastCycleError
+        } : null,
         recentReels,
         lastLog: lastLog || null,
         ttsDiagnostics
@@ -4286,27 +4300,40 @@ function contentSimilarity(a: unknown, b: unknown): number {
   return union > 0 ? intersection / union : 0;
 }
 
+const GENERIC_NICHE_STOPWORDS = new Set([
+  'documented', 'archival', 'archive', 'archives', 'anomaly', 'anomalies',
+  'record', 'records', 'declassified', 'classified', 'secret', 'secrets',
+  'history', 'historical', 'investigation', 'incident', 'evidence',
+  'project', 'operation', 'world', 'modern', 'behind',
+  'untold', 'official', 'primary', 'timeline', 'report', 'reports',
+  'discovery', 'discoveries', 'story', 'mystery', 'mysteries', 'file', 'files',
+  'bunker', 'ancient', 'years', 'ground', 'field', 'place', 'places',
+  'about', 'after', 'again', 'against', 'these', 'those', 'where', 'which',
+  'there', 'their', 'under', 'between', 'through', 'during', 'before'
+]);
+
 function isTopicDuplicate(a: unknown, b: unknown): boolean {
   const normA = normalizeContentText(a);
   const normB = normalizeContentText(b);
   if (!normA || !normB) return false;
 
-  // 1. Direct match or substring containment if substantial length
+  // 1. Direct match or substantial substring containment
   if (normA === normB) return true;
-  if ((normA.length >= 10 && normB.includes(normA)) || (normB.length >= 10 && normA.includes(normB))) {
+  if ((normA.length >= 15 && normB.includes(normA)) || (normB.length >= 15 && normA.includes(normB))) {
     return true;
   }
 
-  // 2. Jaccard similarity (0.38 catches near-paraphrased and reworded titles)
+  // 2. High Jaccard similarity (0.60 catches real paraphrased/duplicate titles without false positives on shared niche vocabulary)
   const sim = contentSimilarity(a, b);
-  if (sim >= 0.38) return true;
+  if (sim >= 0.60) return true;
 
-  // 3. Significant entity overlap: shared distinct proper noun or keywords (len >= 5 or digits)
+  // 3. Significant entity overlap: shared distinct subject-specific nouns/entities (len >= 5 or digits)
+  // MUST exclude generic niche/documentary terms so two unrelated stories don't trigger false positives
   const setA = contentWordSet(a);
   const setB = contentWordSet(b);
   const sharedDistinct: string[] = [];
   for (const w of setA) {
-    if (setB.has(w) && (w.length >= 5 || /\d/.test(w))) {
+    if (setB.has(w) && !GENERIC_NICHE_STOPWORDS.has(w) && (w.length >= 5 || /\d/.test(w))) {
       sharedDistinct.push(w);
     }
   }
@@ -4956,6 +4983,8 @@ Respond in JSON:
 }
 
 let isCycleRunning = false;
+let lastCycleError: string | null = null;
+let lastCycleOutput: any = null;
 
 // Check internet connectivity helper (Meta Graph endpoint probe)
 async function checkInternetConnectivity(): Promise<boolean> {
@@ -5516,7 +5545,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
 
     console.log(`[Autonomous 24x7 Engine] ✅ Reel successfully published to Instagram! Media ID: ${pubResult.mediaId}, permalink: ${pubResult.permalink}`);
 
-    return {
+    const result = {
       success: true,
       reel: {
         ...reel,
@@ -5535,8 +5564,13 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
         permalink: pubResult.permalink
       }
     };
+    lastCycleError = null;
+    lastCycleOutput = result;
+    return result;
   } catch (err: any) {
     const message = err?.message || String(err);
+    lastCycleError = message;
+    lastCycleOutput = { success: false, error: message };
     console.error("[Autonomous 24x7 Engine] Cycle execution error:", message);
 
     const isRateLimit = /request limit reached|rate limit|too many requests|OAuthException.*code.*4/i.test(message);

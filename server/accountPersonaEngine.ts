@@ -63,7 +63,7 @@ async function callNemotronJson(prompt: string): Promise<any | null> {
 
 async function generateDnaJson(prompt: string): Promise<any> {
   // 1. Try Gemini models
-  const models = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest'];
   if (process.env.GEMINI_API_KEY) {
     for (const model of models) {
       try {

@@ -369,11 +369,10 @@ Return ONLY valid JSON matching this schema:
     try {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: `Search the live web thoroughly and ${prompt}`,
+        model: 'gemini-2.5-flash',
+        contents: `Search the live web thoroughly and return ONLY valid JSON matching this schema: ${prompt}`,
         config: {
           tools: [{ googleSearch: {} }],
-          responseMimeType: 'application/json',
           temperature: 0.5
         }
       });
@@ -440,7 +439,7 @@ Return ONLY valid JSON matching this schema:
 }`;
 
       const directResponse = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.5-flash',
         contents: directPrompt,
         config: {
           responseMimeType: 'application/json',
@@ -1735,7 +1734,7 @@ Return ONLY valid JSON matching this schema:
 }`;
 
   const ai = new GoogleGenAI({ apiKey });
-  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest'];
 
   for (const model of modelsToTry) {
     try {
