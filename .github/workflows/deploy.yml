@@ -21,22 +21,38 @@ jobs:
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
             set -e
-            echo "🚀 Connecting to Texvic AI repository..."
-            if [ -d "$HOME/texvic.ai" ]; then
-              cd "$HOME/texvic.ai"
-            elif [ -d "$HOME/texvic.ai/texvic.ai" ]; then
-              cd "$HOME/texvic.ai/texvic.ai"
-            else
-              echo "Repository directory not found!" && exit 1
+            echo "🔍 Investigating directories on VPS..."
+            TARGET_DIR=""
+            if [ -d "$HOME/texvic.ai/.git" ]; then
+              TARGET_DIR="$HOME/texvic.ai"
             fi
+            if [ -d "$HOME/texvic.ai/texvic.ai/.git" ]; then
+              TARGET_DIR="$HOME/texvic.ai/texvic.ai"
+            fi
+            if [ -z "$TARGET_DIR" ]; then
+              TARGET_DIR=$(find "$HOME" -maxdepth 3 -name ".git" -exec dirname {} \; | head -n 1)
+            fi
+            echo "📁 Found active repo directory: $TARGET_DIR"
+            cd "$TARGET_DIR"
+
+            echo "🌐 Inspecting Nginx proxy configuration:"
+            sudo grep -rn "proxy_pass" /etc/nginx/sites-enabled/ 2>/dev/null || true
+
             echo "📥 Fetching and syncing latest commits from GitHub..."
             git fetch origin main
             git reset --hard origin/main
             git clean -fd
+            echo "Current commit after reset:"
+            git log -n 1 --oneline
+
             echo "🔨 Rebuilding & launching updated container..."
             sudo docker compose down --remove-orphans || true
             sudo docker rm -f texvic-ai-agent $(sudo docker ps -a -q --filter "name=texvic-ai") 2>/dev/null || true
-            sudo docker compose up -d --build
+            sudo docker compose build --no-cache
+            sudo docker compose up -d --force-recreate
+
+            echo "🔍 Verifying running container:"
+            sudo docker ps
             echo "🧹 Cleaning unused Docker cache..."
             sudo docker system prune -f
             echo "✅ Deployment completed successfully!"
