@@ -1602,12 +1602,149 @@ export function extractContextualSceneKeywords(
     return configs[sceneIndex] || configs[0];
   }
 
+  if (/lufthansa|flight 649|airborne extortion|hijack|hijacking|airplane extortion/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['airplane flying', 'commercial aircraft night', 'aviation sky'],
+        archivalQuery: 'Lufthansa Boeing 707',
+        headline: 'FLIGHT 649 COMMANDEERED',
+        imagePrompt: 'Cinematic 35mm documentary photograph of a 1970s commercial jet airliner flying through dark stormy clouds at dusk, dramatic cabin interior glow. NO text.'
+      },
+      {
+        keywords: ['airplane runway night', 'desert sand dunes', 'airplane cockpit'],
+        archivalQuery: 'Aden Airport',
+        headline: 'THE DESERT TOUCHDOWN',
+        imagePrompt: 'Documentary night shot of a passenger aircraft resting on an isolated desert airstrip under armed standoff, high-contrast spotlight illumination. NO text.'
+      },
+      {
+        keywords: ['money cash', 'counting money', 'bank vault'],
+        archivalQuery: 'Bank vault cash',
+        headline: 'THE $5M DUFFEL DROP',
+        imagePrompt: 'Forensic close-up of heavy canvas military duffel bags packed with stacked 1970s currency bundles resting on desert sand under moonlight. NO text.'
+      },
+      {
+        keywords: ['radar screen', 'airplane night', 'desert dunes aerial'],
+        archivalQuery: 'Lufthansa',
+        headline: 'VANISHED IN THE DUNES',
+        imagePrompt: 'Cinematic wide-angle dawn aerial of endless desert sand dunes, lone vehicle tracks disappearing into the distance, mystery atmosphere. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/azorian|submarine k-129|glomar explorer|sunken soviet/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['submarine ocean', 'deep sea recovery', 'glomar explorer'],
+        archivalQuery: 'Hughes Glomar Explorer',
+        headline: 'PROJECT AZORIAN',
+        imagePrompt: 'Massive Hughes Glomar Explorer mining ship operating on the open Pacific Ocean, giant derrick tower, covert naval salvage atmosphere. NO text.'
+      },
+      {
+        keywords: ['underwater submarine', 'deep sea claw', 'ocean salvage'],
+        archivalQuery: 'Soviet submarine K-129',
+        headline: 'CLEMENTINE CLAW',
+        imagePrompt: 'Subsea robotic illumination showing giant mechanical capture claw descending into dark Pacific depths toward a submerged submarine hull. NO text.'
+      },
+      {
+        keywords: ['sonar radar', 'deep ocean waves', 'naval control room'],
+        archivalQuery: 'Project Azorian',
+        headline: '16,500 FEET DEEP',
+        imagePrompt: 'Naval engineering operations room, acoustic telemetry monitors showing seabed topography miles beneath surface. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/greenbrier|greek island|congress bunker|resort bunker/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['luxury hotel exterior', 'resort mountains', 'vintage hotel'],
+        archivalQuery: 'The Greenbrier',
+        headline: 'LUXURY RESORT COVER',
+        imagePrompt: 'Classic Georgian architecture luxury resort hotel in West Virginia hills, manicured lawn, seemingly tranquil Cold War facade. NO text.'
+      },
+      {
+        keywords: ['25-ton blast door', 'underground bunker entrance', 'vault door'],
+        archivalQuery: 'Project Greek Island blast door',
+        headline: '25-TON BLAST DOOR',
+        imagePrompt: 'Massive subterranean 25-ton blast door concealed behind hotel service corridor, heavy steel reinforcement, classified fallout shelter. NO text.'
+      },
+      {
+        keywords: ['bunker cafeteria', 'underground hospital', 'bunker dormitories'],
+        archivalQuery: 'Project Greek Island bunker',
+        headline: 'CONGRESSIONAL BUNKER',
+        imagePrompt: 'Vast underground bunker facility with endless rows of metal bunks, emergency broadcast booths, self-contained survival complex. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/derinkuyu|underground city|cappadocia/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['cappadocia landscape', 'ancient stone dwellings', 'turkey cave'],
+        archivalQuery: 'Derinkuyu underground city',
+        headline: 'SUBTERRANEAN MEGACITY',
+        imagePrompt: 'Panoramic view of Cappadocia rocky plateau and ancient stone carved dwellings, dramatic natural landscape. NO text.'
+      },
+      {
+        keywords: ['ancient rolling stone door', 'carved rock tunnel', 'subterranean shaft'],
+        archivalQuery: 'Derinkuyu stone door',
+        headline: '1,000-POUND STONE DOORS',
+        imagePrompt: 'Massive circular millstone security door sealing a narrow volcanic tuff tunnel from inside, ancient defense engineering. NO text.'
+      },
+      {
+        keywords: ['underground ventilation shaft', 'deep rock cavern', 'ancient tunnel network'],
+        archivalQuery: 'Derinkuyu',
+        headline: '18 LEVELS DEEP',
+        imagePrompt: 'Looking down a deep vertical rock ventilation shaft carved 180 feet into solid volcanic rock, torchlight atmosphere. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  if (/oak island|money pit|flood tunnel/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['coastal island aerial', 'foggy island woods', 'drone island'],
+        archivalQuery: 'Oak Island Nova Scotia',
+        headline: 'OAK ISLAND 1795',
+        imagePrompt: 'Misty coastal island covered in dense pine trees, rocky shore, mysterious isolated North Atlantic cove. NO text.'
+      },
+      {
+        keywords: ['timber flood tunnel', 'deep muddy pit', 'excavation shaft'],
+        archivalQuery: 'Oak Island Money Pit',
+        headline: 'THE BOOBY TRAP',
+        imagePrompt: 'Heavy wooden timber platforms and stone drainage channels excavated in a deep mud pit, engineering trap mystery. NO text.'
+      },
+      {
+        keywords: ['ancient gold coin', 'archaeology artifacts', 'underwater cavern'],
+        archivalQuery: 'Oak Island treasure',
+        headline: 'THE FLOODED ABYSS',
+        imagePrompt: 'Forensic archaeological lab table displaying encrusted metal artifacts, weathered parchment fragments, and exploration logs. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
   // 2. Dynamic high-specificity keyword extraction for any other historical topic
+  const physicalQueries: string[] = [];
+  if (/airplane|aircraft|flight|aviation|pilot|cockpit|sky/i.test(combined)) physicalQueries.push('airplane flying', 'aircraft flight');
+  if (/desert|dunes|sand|sahara|yemen|arid/i.test(combined)) physicalQueries.push('desert dunes', 'sand storm');
+  if (/cash|money|ransom|million|bank|vault|gold/i.test(combined)) physicalQueries.push('money cash', 'bank vault');
+  if (/ocean|sea|underwater|deep sea|shipwreck|water|waves/i.test(combined)) physicalQueries.push('deep ocean', 'ocean waves');
+  if (/bunker|blast door|underground|tunnel|subterranean/i.test(combined)) physicalQueries.push('underground bunker', 'dark tunnel');
+  if (/radar|satellite|antenna|telemetry|signal/i.test(combined)) physicalQueries.push('radar screen', 'satellite space');
+  if (/ancient|pyramid|temple|ruins|archaeology|roman/i.test(combined)) physicalQueries.push('ancient ruins', 'pyramid');
+  if (/arctic|snow|permafrost|ice|svalbard|glacier/i.test(combined)) physicalQueries.push('arctic mountain', 'snow mountain');
+
   const stopWords = new Set([
     'the', 'this', 'that', 'with', 'from', 'have', 'will', 'your', 'about', 'what', 'when',
     'where', 'into', 'over', 'under', 'between', 'during', 'official', 'record', 'records',
     'archive', 'investigation', 'primary', 'timeline', 'incident', 'story', 'secret',
-    'revealed', 'documented', 'evidence', 'untold', 'aftermath', 'consequence', 'verifiable'
+    'revealed', 'documented', 'evidence', 'untold', 'aftermath', 'consequence', 'verifiable',
+    'whose', 'stand', 'stands', 'close', 'closer', 'came', 'ending', 'decades'
   ]);
 
   const cleanWords = combined.replace(/[^a-z0-9\s]/g, ' ')
@@ -1615,11 +1752,11 @@ export function extractContextualSceneKeywords(
     .filter(t => t.length >= 4 && !stopWords.has(t));
 
   const uniqueNouns = Array.from(new Set(cleanWords)).slice(0, 8);
-  const subjectWords = cleanSubject.split(/\s+/).slice(0, 3).join(' ');
+  const subjectWords = cleanSubject.split(/\s+/).slice(0, 2).join(' ');
 
-  const kwPrimary = uniqueNouns.slice(0, 2).join(' ') || subjectWords;
-  const kwSecondary = uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || 'historical documentary';
-  const kwTertiary = uniqueNouns.slice(4, 6).join(' ') || cleanSubject;
+  const kwPrimary = physicalQueries[0] || (uniqueNouns.slice(0, 2).join(' ') || subjectWords);
+  const kwSecondary = physicalQueries[1] || (uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || 'aerial landscape');
+  const kwTertiary = physicalQueries[2] || (uniqueNouns.slice(4, 6).join(' ') || 'cinematic dark');
 
   const defaultHeadlines = [
     cleanSubject.toUpperCase().slice(0, 24),

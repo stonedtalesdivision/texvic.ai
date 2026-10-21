@@ -112,9 +112,39 @@ export async function fetchWikimediaArchivalImage(query: string, fallbackTerms?:
 
       if (!validImages.length) continue;
 
-      // Pick the best high-resolution archival image
-      const chosen = validImages[0];
-      console.info(`[Archival Engine] 📜 Downloading authentic archival record: "${chosen.title}" (${chosen.width}x${chosen.height})...`);
+      // Extract search keywords from targetQuery, filtering out generic search terms
+      const queryWords = targetQuery
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 3 && !/^(file|photo|image|bitmap|the|and|for|from|with|documented|archival|anomaly|declassified|index)$/i.test(w));
+
+      // Filter and score images by title relevance to target query
+      const scoredImages = validImages
+        .map(img => {
+          const lowerTitle = img.title.toLowerCase();
+          let matchScore = 0;
+          for (const qw of queryWords) {
+            if (lowerTitle.includes(qw)) {
+              matchScore += (qw.length >= 5 ? 3 : 1);
+            }
+          }
+          // Reject completely unrelated domain topics (e.g. tennis players, football, fashion, weddings)
+          if (/tennis|football|soccer|baseball|wrestling|wedding|celebrity|model|actor|actress|pop_singer/i.test(lowerTitle) && !/tennis|sport/i.test(targetQuery)) {
+            matchScore = -10;
+          }
+          return { img, matchScore };
+        })
+        .filter(item => item.matchScore > 0);
+
+      if (!scoredImages.length) {
+        console.info(`[Archival Engine] No image title matched query terms [${queryWords.join(', ')}] on Wikimedia Commons.`);
+        continue;
+      }
+
+      scoredImages.sort((a, b) => b.matchScore - a.matchScore);
+      const chosen = scoredImages[0].img;
+      console.info(`[Archival Engine] 📜 Downloading authentic archival record: "${chosen.title}" (${chosen.width}x${chosen.height}, relevance score ${scoredImages[0].matchScore})...`);
 
       const imgResp = await fetch(chosen.url, {
         headers: {

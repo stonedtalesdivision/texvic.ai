@@ -102,7 +102,12 @@ function cleanBadgeText(badgeText?: string, index = 0): string {
   return index === 0 ? '[ BREAKTHROUGH ]' : index === 1 ? '[ DEEP DIVE ]' : '[ FUTURE INTEL ]';
 }
 
-async function renderGeneratedScene(scene: any, index: number, reel: any): Promise<string> {
+async function renderGeneratedScene(
+  scene: any,
+  index: number,
+  reel: any,
+  extraOpts?: { usedVideoUrls?: Set<string> }
+): Promise<string> {
   await fs.mkdir(GENERATED_DIR, { recursive: true });
   const duration = Math.max(3, Math.min(Number(scene?.durationSeconds || 8), 25));
   const safeId = String(reel?.id || 'autonomous').replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -155,35 +160,83 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
     }
   }
 
-  // 1. Primary Archival Media Engine: Search Wikimedia Commons for real historical records/photos across ALL scenes
-  const archivalQuery = String(scene?.archivalQuery || '').trim();
+  // 1. PRIMARY: Authentic Motion Video Footage from Pixabay / Pexels / Vault (Connected directly to voiceScript!)
+  const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
+  const voiceScript = String(scene?.voiceScript || scene?.voiceText || scene?.text || '').trim();
   const cleanSubject = String(reel?.title || '').split(/[:\-\—\(]/)[0].trim();
-  const shouldTryArchival = Boolean(archivalQuery) || (
-    /history|heist|mystery|incident|disaster|ancient|classified|expedition|bunker|island|vault|war|treaty|monument|manuscript|borehole|ocean|event|conspiracy|discovery|archive/i.test(topicContext)
-  );
 
-  if (shouldTryArchival) {
-    try {
-      const targetQuery = archivalQuery || cleanSubject || rawHeadline;
-      const fallbackList = [cleanSubject, ...(Array.isArray(scene?.bRollKeywords) ? scene.bRollKeywords : [])].filter(Boolean);
-      console.info(`[Autonomous Visual Producer] 🏛️ Resolving authentic archival record (scene ${index + 1}): "${targetQuery.slice(0, 50)}"...`);
-      const archivalResult = await fetchWikimediaArchivalImage(targetQuery, fallbackList);
-      if (archivalResult?.filePath && fsSync.existsSync(archivalResult.filePath)) {
-        const aStats = await fs.stat(archivalResult.filePath);
-        if (aStats.size > 25000) {
-          await fs.copyFile(archivalResult.filePath, imagePath);
-          hasCustomImage = true;
-          console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Authentic archival document locked from Wikimedia Commons (${aStats.size} bytes).`);
-        }
-      }
-    } catch (archErr: any) {
-      console.info(`[Autonomous Visual Producer] Archival lookup skipped: ${archErr?.message?.slice(0, 80) || String(archErr)}`);
+  let customKeywords = Array.isArray(scene?.bRollKeywords) && scene.bRollKeywords.length > 0
+    ? scene.bRollKeywords
+    : undefined;
+
+  if (!customKeywords && (scene?.highlight || rawHeadline || reel?.title)) {
+    const candidateWords = [scene?.highlight, rawHeadline, reel?.title].filter(Boolean)
+      .join(' ')
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !/^(this|that|with|from|have|will|your|about|what|when|where|scene|video|ultra|stop)$/i.test(w));
+    if (candidateWords.length > 0) {
+      customKeywords = candidateWords.slice(0, 4);
     }
   }
 
-  // 1.5. User-Uploaded VPS Background Video Priority Check!
-  // If user uploaded custom background videos in the Asset Library, prioritize them!
-  if (!hasCustomImage && !hasMotionVideo) {
+  const motionQuery = [
+    voiceScript.slice(0, 80),
+    rawHeadline,
+    cleanSubject || topic
+  ].filter(Boolean).join(' ');
+
+  console.info(`[Autonomous Visual Producer] 🎬 Resolving script-connected motion video (scene ${index + 1}): "${rawHeadline.slice(0, 45)}"...`);
+  try {
+    const motionResult = await fetchBestMotionVideo(motionQuery, motionVideoPath, {
+      targetDuration: duration,
+      customKeywords,
+      voiceScript,
+      topic: cleanSubject || topic,
+      sceneIndex: index,
+      usedUrls: extraOpts?.usedVideoUrls
+    });
+    if (motionResult?.source !== 'fallback' && fsSync.existsSync(motionVideoPath)) {
+      const vStats = await fs.stat(motionVideoPath);
+      if (vStats.size > 50000) {
+        hasMotionVideo = true;
+        console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Real motion B-roll video ready via ${motionResult.source} (${vStats.size} bytes).`);
+      }
+    }
+  } catch (err: any) {
+    console.info(`[Autonomous Visual Producer] Motion video fetch skipped: ${err?.message?.slice(0, 100) || String(err)}`);
+  }
+
+  // 2. SECONDARY: Authentic Verified Archival Media (Wikimedia Commons)
+  // Only query Wikimedia Commons if motion video was not found, OR if the scene specifically requested an archival document
+  if (!hasMotionVideo && !hasCustomImage) {
+    const archivalQuery = String(scene?.archivalQuery || '').trim();
+    const shouldTryArchival = Boolean(archivalQuery) || (
+      /history|heist|mystery|incident|disaster|ancient|classified|expedition|bunker|island|vault|war|treaty|monument|manuscript|borehole|ocean|event|conspiracy|discovery|archive/i.test(topicContext)
+    );
+
+    if (shouldTryArchival) {
+      try {
+        const targetQuery = archivalQuery || cleanSubject || rawHeadline;
+        const fallbackList = [cleanSubject, ...(Array.isArray(scene?.bRollKeywords) ? scene.bRollKeywords : [])].filter(Boolean);
+        console.info(`[Autonomous Visual Producer] 🏛️ Resolving verified archival record (scene ${index + 1}): "${targetQuery.slice(0, 50)}"...`);
+        const archivalResult = await fetchWikimediaArchivalImage(targetQuery, fallbackList);
+        if (archivalResult?.filePath && fsSync.existsSync(archivalResult.filePath)) {
+          const aStats = await fs.stat(archivalResult.filePath);
+          if (aStats.size > 25000) {
+            await fs.copyFile(archivalResult.filePath, imagePath);
+            hasCustomImage = true;
+            console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Authentic archival document locked from Wikimedia Commons (${aStats.size} bytes): "${archivalResult.title}".`);
+          }
+        }
+      } catch (archErr: any) {
+        console.info(`[Autonomous Visual Producer] Archival lookup skipped: ${archErr?.message?.slice(0, 80) || String(archErr)}`);
+      }
+    }
+  }
+
+  // 3. User-Uploaded VPS Background Video Priority Check (if user uploaded videos and no motion video was fetched yet)
+  if (!hasMotionVideo && !hasCustomImage) {
     try {
       const customBackgrounds = selectAssets({ type: 'video', category: 'custom-background', limit: 10 });
       const userVideos = customBackgrounds.length > 0
@@ -205,48 +258,6 @@ async function renderGeneratedScene(scene: any, index: number, reel: any): Promi
       }
     } catch (userVidErr: any) {
       console.warn(`[Autonomous Visual Producer] User video selection fallback:`, userVidErr?.message || userVidErr);
-    }
-  }
-
-  // 2. Authentic Motion Video Footage: Pexels Video API, Pixabay, or Local Vault
-  if (!hasCustomImage && !hasMotionVideo) {
-    try {
-      const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
-      let customKeywords = Array.isArray(scene?.bRollKeywords) && scene.bRollKeywords.length > 0
-        ? scene.bRollKeywords
-        : undefined;
-
-      if (!customKeywords && (scene?.highlight || rawHeadline || reel?.title)) {
-        const candidateWords = [scene?.highlight, rawHeadline, reel?.title].filter(Boolean)
-          .join(' ')
-          .replace(/[^\w\s]/g, ' ')
-          .split(/\s+/)
-          .filter(w => w.length >= 4 && !/^(this|that|with|from|have|will|your|about|what|when|where|scene|video|ultra|stop)$/i.test(w));
-        if (candidateWords.length > 0) {
-          customKeywords = candidateWords.slice(0, 4);
-        }
-      }
-
-      const motionQuery = [
-        rawHeadline,
-        cleanSubject || topic,
-        scene?.imagePrompt || scene?.visualTheme || 'cinematic atmospheric footage'
-      ].filter(Boolean).join(' ');
-
-      console.info(`[Autonomous Visual Producer] Resolving real motion B-roll video (scene ${index + 1}): "${rawHeadline.slice(0, 50)}"...`);
-      const motionResult = await fetchBestMotionVideo(motionQuery, motionVideoPath, {
-        targetDuration: duration,
-        customKeywords
-      });
-      if (motionResult?.source !== 'fallback' && fsSync.existsSync(motionVideoPath)) {
-        const vStats = await fs.stat(motionVideoPath);
-        if (vStats.size > 50000) {
-          hasMotionVideo = true;
-          console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Real motion B-roll ready via ${motionResult.source} (${vStats.size} bytes).`);
-        }
-      }
-    } catch (err: any) {
-      console.info(`[Autonomous Visual Producer] Motion video fetch skipped: ${err?.message?.slice(0, 100) || String(err)}`);
     }
   }
 
@@ -546,12 +557,13 @@ export async function ensureAutonomousVisualAssets(reel: any): Promise<{ assets:
   }
   const assets: MediaAsset[] = [];
   const used = new Set<string>();
+  const usedVideoUrls = new Set<string>();
   for (let index = 0; index < scenes.length; index++) {
     const scene = scenes[index];
     const theme = String(scene?.visualTheme || '').toLowerCase();
     const tags = ['documentary', 'archival', 'untold-archive', ...theme.split(/[^a-z0-9]+/i).filter(Boolean).slice(0, 5)];
     // Render each scene with fresh contextual archival/motion media and sharp vector overlay
-    const sourcePath = await renderGeneratedScene(scene, index, reel);
+    const sourcePath = await renderGeneratedScene(scene, index, reel, { usedVideoUrls });
     try {
       const generated = await registerAsset({
         type: 'video', sourcePath, category: 'autonomous-generated', tags,
