@@ -24,6 +24,7 @@ const PUBLIC_PATHS = new Set([
   "/api/video-worker/claim",
   "/api/video-worker/jobs/",
   "/api/health",
+  "/api/auth/instagram/sync-token",
 ]);
 
 function parseCookies(header: string | undefined): Record<string, string> {

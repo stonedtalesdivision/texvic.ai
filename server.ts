@@ -156,10 +156,67 @@ app.use((req, res, next) => {
   ownerAuthMiddleware(req, res, next);
 });
 
+// Instagram Auto-Connection Guard: Ensures Instagram credentials stay alive and can auto-heal from environment variables
+async function ensureInstagramConnected(accountParam?: any): Promise<any> {
+  let account = accountParam || (db.prepare('SELECT * FROM account_connections WHERE id = ?').get('instagram_primary') as any);
+  if (account?.is_connected && account?.access_token && account?.account_id) {
+    return account;
+  }
+
+  const envToken = (process.env.META_ACCESS_TOKEN || '').trim();
+  const envAccountId = (process.env.INSTAGRAM_ACCOUNT_ID || '').trim();
+
+  if (envToken) {
+    try {
+      console.log('[Instagram Connection Guard] Checking fallback environment credentials...');
+      const liveProfile = await getInstagramAccountProfile(envAccountId, envToken);
+      if (liveProfile.success && liveProfile.data) {
+        const p = liveProfile.data;
+        const resolvedAccId = envAccountId || p.id;
+        const now = new Date().toISOString();
+        db.prepare(`
+          UPDATE account_connections
+          SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
+              followers_count = ?, follows_count = ?, media_count = ?, access_token = ?,
+              is_connected = 1, updated_at = ?
+          WHERE id = 'instagram_primary'
+        `).run(
+          resolvedAccId,
+          p.username,
+          p.name,
+          p.profile_picture_url || '',
+          p.biography || '',
+          p.followers_count,
+          p.follows_count,
+          p.media_count,
+          encryptSecret(envToken),
+          now
+        );
+        account = db.prepare('SELECT * FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+        console.log(`[Instagram Connection Guard] Auto-connected @${p.username} from environment variables.`);
+        return account;
+      } else {
+        console.warn('[Instagram Connection Guard] Environment token verification failed:', liveProfile.error);
+      }
+    } catch (e: any) {
+      console.warn('[Instagram Connection Guard] Auto-heal from environment failed:', e?.message || e);
+    }
+  }
+
+  return account;
+}
+
 // Health check endpoint for uptime and deployment monitoring
 app.get("/api/health", async (req, res) => {
   try {
-    const account = db.prepare('SELECT username, account_id, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+    let account = db.prepare('SELECT username, account_id, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+    if (!account?.is_connected && (process.env.META_ACCESS_TOKEN || req.query.sync_instagram === '1')) {
+      const ensured = await ensureInstagramConnected();
+      if (ensured?.is_connected) {
+        account = ensured;
+      }
+    }
+
     const fbConn = getFacebookPageConnection();
     const config = db.prepare('SELECT enabled, interval_minutes, current_stage, next_run, last_run FROM autonomous_config WHERE id = ?').get('default_config') as any;
     const recentReels = db.prepare('SELECT id, title, status, ig_media_id, fb_video_id, fb_status, created_at FROM reels ORDER BY created_at DESC LIMIT 3').all();
@@ -209,6 +266,36 @@ app.get("/api/health", async (req, res) => {
       }
     }
 
+    if (req.query.publish_queued === '1') {
+      const igPrimary = await ensureInstagramConnected();
+      if (igPrimary?.is_connected) {
+        const stalledReel = db.prepare(`
+          SELECT * FROM reels 
+          WHERE status != 'published' 
+            AND status != 'publishing'
+            AND status != 'draft'
+            AND ig_media_id IS NULL
+            AND status = 'publish_queued'
+          ORDER BY created_at ASC LIMIT 1
+        `).get() as any;
+        if (stalledReel) {
+          const pubRes = await publishReelInternal(stalledReel, igPrimary);
+          return res.json({
+            status: "queued_reel_published",
+            reelId: stalledReel.id,
+            title: stalledReel.title,
+            result: pubRes,
+            timestamp: new Date().toISOString()
+          });
+        }
+        return res.json({
+          status: "no_queued_reels",
+          message: "No queued reels pending publication.",
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
     if (req.query.trigger_cycle === '1') {
       console.log(`[Health API] Manual autonomous cycle triggered via query parameter.`);
       const cycleOutput = await runAutonomous24x7Cycle();
@@ -228,7 +315,8 @@ app.get("/api/health", async (req, res) => {
         instagram: {
           connected: Boolean(account?.is_connected),
           username: account?.username || null,
-          accountId: account?.account_id ? `${String(account.account_id).slice(0, 5)}...` : null
+          accountId: account?.account_id ? `${String(account.account_id).slice(0, 5)}...` : null,
+          envConfigured: Boolean(process.env.META_ACCESS_TOKEN && process.env.INSTAGRAM_ACCOUNT_ID)
         },
         facebook_page: {
           connected: Boolean(fbConn?.isConnected),
@@ -1160,7 +1248,10 @@ app.post("/api/auth/instagram/direct-token", async (req, res) => {
     instagramAccountId = p.id;
   }
 
-  // Persist to SQLite
+  const encToken = encryptSecret(metaAccessToken);
+  const now = new Date().toISOString();
+
+  // Persist to SQLite primary account
   const updateAccount = db.prepare(`
     UPDATE account_connections 
     SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
@@ -1178,25 +1269,184 @@ app.post("/api/auth/instagram/direct-token", async (req, res) => {
     p.followers_count,
     p.follows_count,
     p.media_count,
-    encryptSecret(metaAccessToken),
-    new Date().toISOString()
+    encToken,
+    now
   );
 
-  // Sync autonomous engine publishing credentials
+  // Also update active account if different from primary
+  const activeAcc = getActiveAccount();
+  if (activeAcc && activeAcc.id !== 'instagram_primary') {
+    db.prepare(`
+      UPDATE account_connections 
+      SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
+          followers_count = ?, follows_count = ?, media_count = ?, access_token = ?, 
+          is_connected = 1, updated_at = ?
+      WHERE id = ?
+    `).run(
+      instagramAccountId,
+      p.username,
+      p.name,
+      p.profile_picture_url || '',
+      p.biography || '',
+      p.followers_count,
+      p.follows_count,
+      p.media_count,
+      encToken,
+      now,
+      activeAcc.id
+    );
+  }
+
+  // Wake up autonomous engine if it was waiting for instagram
   const updateConfig = db.prepare(`
     UPDATE autonomous_config 
-    SET updated_at = ?
+    SET current_stage = CASE WHEN current_stage = 'waiting_for_instagram' THEN 'idle' ELSE current_stage END,
+        next_run = CASE WHEN current_stage = 'waiting_for_instagram' THEN ? ELSE next_run END,
+        updated_at = ?
     WHERE id = 'default_config'
   `);
-  updateConfig.run(new Date().toISOString());
+  updateConfig.run(now, now);
 
   // Enqueue live insights sync
   enqueueJob('SYNC_INSTAGRAM_INSIGHTS', { initial: true });
+
+  // Trigger immediate publication of any pending queued reel
+  const stalledReel = db.prepare(`
+    SELECT * FROM reels 
+    WHERE status != 'published' 
+      AND status != 'publishing'
+      AND status != 'draft'
+      AND ig_media_id IS NULL
+      AND status = 'publish_queued'
+    ORDER BY created_at ASC LIMIT 1
+  `).get() as any;
+
+  if (stalledReel) {
+    const acc = db.prepare('SELECT * FROM account_connections WHERE id = ?').get('instagram_primary');
+    console.log(`[Direct Token Connect] Waking up queued reel "${stalledReel.title}" (${stalledReel.id}) for immediate publishing...`);
+    publishReelInternal(stalledReel, acc).catch((e: any) => console.warn('[Direct Token Connect] Queued reel publish failed:', e?.message));
+  }
 
   res.json({
     success: true,
     account: p,
     message: `Successfully connected ${p.username} via Meta Graph API.`
+  });
+});
+
+// POST /api/auth/instagram/sync-token - Secure admin endpoint to update Instagram token on remote host
+app.post("/api/auth/instagram/sync-token", async (req, res) => {
+  const secretKey = String(req.body.secretKey || req.headers['x-admin-key'] || '').trim();
+  const token = String(req.body.token || req.body.metaAccessToken || req.body.accessToken || '').trim();
+  let accountId = String(req.body.accountId || req.body.instagramAccountId || '').trim();
+
+  const validKey = (process.env.TOKEN_ENCRYPTION_KEY || '').trim();
+  const workerKey = (process.env.VIDEO_WORKER_TOKEN || '').trim();
+
+  if (!secretKey || (secretKey !== validKey && secretKey !== workerKey)) {
+    return res.status(403).json({ success: false, error: "Invalid admin authorization key." });
+  }
+
+  if (!token) {
+    return res.status(400).json({ success: false, error: "Access token is required." });
+  }
+
+  const profileRes = await getInstagramAccountProfile(accountId, token);
+  if (!profileRes.success || !profileRes.data) {
+    return res.status(400).json({
+      success: false,
+      error: `Meta Graph API validation failed: ${profileRes.error || 'Invalid credentials'}`
+    });
+  }
+
+  const p = profileRes.data;
+  if (!accountId) {
+    accountId = p.id;
+  }
+
+  const encToken = encryptSecret(token);
+  const now = new Date().toISOString();
+
+  // Update primary account
+  db.prepare(`
+    UPDATE account_connections 
+    SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
+        followers_count = ?, follows_count = ?, media_count = ?, access_token = ?, 
+        meta_app_id = NULL, meta_app_secret = NULL, is_connected = 1, updated_at = ?
+    WHERE id = 'instagram_primary'
+  `).run(
+    accountId,
+    p.username,
+    p.name,
+    p.profile_picture_url || '',
+    p.biography || '',
+    p.followers_count,
+    p.follows_count,
+    p.media_count,
+    encToken,
+    now
+  );
+
+  // Also update active account if different from primary
+  const active = getActiveAccount();
+  if (active && active.id !== 'instagram_primary') {
+    db.prepare(`
+      UPDATE account_connections
+      SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
+          followers_count = ?, follows_count = ?, media_count = ?, access_token = ?,
+          is_connected = 1, updated_at = ?
+      WHERE id = ?
+    `).run(
+      accountId,
+      p.username,
+      p.name,
+      p.profile_picture_url || '',
+      p.biography || '',
+      p.followers_count,
+      p.follows_count,
+      p.media_count,
+      encToken,
+      now,
+      active.id
+    );
+  }
+
+  // Wake up autonomous engine if it was waiting for instagram
+  db.prepare(`
+    UPDATE autonomous_config 
+    SET current_stage = CASE WHEN current_stage = 'waiting_for_instagram' THEN 'idle' ELSE current_stage END,
+        next_run = CASE WHEN current_stage = 'waiting_for_instagram' THEN ? ELSE next_run END,
+        updated_at = ?
+    WHERE id = 'default_config'
+  `).run(now, now);
+
+  // Trigger publish of any queued reels
+  let publishedQueuedReel: any = null;
+  const stalledReel = db.prepare(`
+    SELECT * FROM reels 
+    WHERE status != 'published' 
+      AND status != 'publishing'
+      AND status != 'draft'
+      AND ig_media_id IS NULL
+      AND status = 'publish_queued'
+    ORDER BY created_at ASC LIMIT 1
+  `).get() as any;
+
+  if (stalledReel) {
+    const acc = db.prepare('SELECT * FROM account_connections WHERE id = ?').get('instagram_primary');
+    try {
+      console.log(`[Sync-Token] Immediately publishing queued reel "${stalledReel.title}"...`);
+      publishedQueuedReel = await publishReelInternal(stalledReel, acc);
+    } catch (err: any) {
+      console.warn('[Sync-Token] Error immediately publishing queued reel:', err?.message || err);
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Connected successfully to ${p.username}.`,
+    account: p,
+    publishedQueuedReel
   });
 });
 
@@ -1346,7 +1596,7 @@ app.post("/api/auth/instagram/disconnect", (req, res) => {
 
 // GET /api/account/status - Verify the stored Instagram connection against Meta
 app.get("/api/account/status", async (req, res) => {
-  const account = getActiveAccount();
+  let account = getActiveAccount();
 
   const disconnectedAccount = (status: 'disconnected' | 'verification_failed' = 'disconnected', error?: string) => ({
     success: true,
@@ -1367,6 +1617,14 @@ app.get("/api/account/status", async (req, res) => {
     }
   });
 
+  // If DB account is disconnected or missing token, attempt auto-healing from environment variables
+  if (!account?.is_connected || !account.access_token || !account.account_id) {
+    const ensured = await ensureInstagramConnected();
+    if (ensured?.is_connected) {
+      account = ensured;
+    }
+  }
+
   if (!account?.is_connected || !account.access_token || !account.account_id) {
     return res.json(disconnectedAccount());
   }
@@ -1377,7 +1635,7 @@ app.get("/api/account/status", async (req, res) => {
   } catch {
     db.prepare(`
       UPDATE account_connections
-      SET is_connected = 0, access_token = '', updated_at = ?
+      SET is_connected = 0, updated_at = ?
       WHERE id = 'instagram_primary'
     `).run(new Date().toISOString());
     return res.json(disconnectedAccount('verification_failed', 'Stored Instagram credentials could not be decrypted. Please reconnect Instagram.'));
@@ -1442,9 +1700,56 @@ app.get("/api/account/status", async (req, res) => {
     String(liveProfile.errorCode || '') === '190';
 
   if (authFailure) {
+    // Check if fallback environment credentials are valid before marking disconnected
+    const envToken = (process.env.META_ACCESS_TOKEN || '').trim();
+    if (envToken && envToken !== accessToken) {
+      const fallbackProfile = await getInstagramAccountProfile(process.env.INSTAGRAM_ACCOUNT_ID || '', envToken);
+      if (fallbackProfile.success && fallbackProfile.data) {
+        const fb = fallbackProfile.data;
+        const now = new Date().toISOString();
+        db.prepare(`
+          UPDATE account_connections
+          SET account_id = ?, username = ?, name = ?, profile_picture_url = ?, biography = ?,
+              followers_count = ?, follows_count = ?, media_count = ?, access_token = ?,
+              is_connected = 1, updated_at = ?
+          WHERE id = 'instagram_primary'
+        `).run(
+          process.env.INSTAGRAM_ACCOUNT_ID || fb.id,
+          fb.username,
+          fb.name,
+          fb.profile_picture_url || '',
+          fb.biography || '',
+          fb.followers_count,
+          fb.follows_count,
+          fb.media_count,
+          encryptSecret(envToken),
+          now
+        );
+        return res.json({
+          success: true,
+          isConnected: true,
+          connectionStatus: 'connected',
+          verifiedAt: now,
+          account: {
+            handle: fb.username,
+            name: fb.name,
+            avatar: fb.profile_picture_url || '',
+            followers: fb.followers_count,
+            followersChange: 0,
+            following: fb.follows_count,
+            postsCount: fb.media_count,
+            category: 'Creator / Business',
+            bio: fb.biography || '',
+            isVerified: fb.followers_count > 10000
+          }
+        });
+      }
+    }
+
+    // Preserve stored token in DB, only update is_connected = 0
     db.prepare(`
       UPDATE account_connections
-      SET is_connected = 0, access_token = '', updated_at = ?
+      SET is_connected = 0, updated_at = ?
       WHERE id = 'instagram_primary'
     `).run(new Date().toISOString());
 
@@ -2577,7 +2882,7 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
     };
 
     // Resolve destination credentials
-    const account = accountParam || (db.prepare('SELECT account_id, access_token, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any);
+    const account = await ensureInstagramConnected(accountParam);
     const isIgConfigured = Boolean(account?.is_connected && account?.access_token && account?.account_id);
 
     const fbPageConn = getFacebookPageConnection();
@@ -5482,7 +5787,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     db.prepare(`UPDATE autonomous_config SET current_stage = 'validating_publish', updated_at = ? WHERE id = 'default_config'`).run(new Date().toISOString());
     console.log(`[Autonomous 24x7 Engine] Step 6/8: Validating Instagram publishing prerequisites...`);
 
-    const account = db.prepare('SELECT account_id, access_token, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+    const account = await ensureInstagramConnected();
     if (!account?.is_connected || !account?.account_id || !account?.access_token) {
       db.prepare(`UPDATE reels SET status = CASE WHEN status = 'published' OR ig_media_id IS NOT NULL THEN 'published' ELSE 'publish_queued' END, updated_at = ? WHERE id = ?`).run(new Date().toISOString(), reel.id);
       db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'waiting_for_instagram', updated_at = ? WHERE id = 'default_config'`)
@@ -5713,7 +6018,7 @@ function initAutonomousDaemon() {
       // - Must only pick 'scheduled' reels if their scheduled_time has actually arrived (datetime(scheduled_time) <= datetime(?))
       // - Must only pick 'publish_queued' reels (never pick draft or manually prepared video_ready reels)
       // - Must verify Instagram connection exists before attempting to publish to avoid endless retry loops
-      const igPrimary = db.prepare('SELECT account_id, access_token, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+      const igPrimary = await ensureInstagramConnected();
       const isIgReady = Boolean(igPrimary?.is_connected && igPrimary?.access_token && igPrimary?.account_id);
 
       if (isIgReady && !isCycleRunning) {

@@ -496,7 +496,7 @@ if (!existingAccount) {
     null, process.env.META_ACCESS_TOKEN && process.env.INSTAGRAM_ACCOUNT_ID ? 1 : 0,
     new Date().toISOString()
   );
-} else if (!existingAccount.is_connected && process.env.INSTAGRAM_ACCOUNT_ID && process.env.META_ACCESS_TOKEN) {
+} else if ((!existingAccount.is_connected || !existingAccount.access_token) && process.env.INSTAGRAM_ACCOUNT_ID && process.env.META_ACCESS_TOKEN) {
   db.prepare(`
     UPDATE account_connections
     SET account_id = ?, access_token = ?, is_connected = 1, updated_at = ?

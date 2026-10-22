@@ -148,13 +148,15 @@ export async function getInstagramAccountProfile(
 ): Promise<{ success: boolean; data?: MetaAccountDetails; error?: string; errorCode?: number | string; httpStatus?: number }> {
   try {
     const isFacebookGraphToken = accessToken.startsWith('EA');
+    const targetAccountId = _igAccountId ? _igAccountId.trim() : '';
     let igError: any = null;
 
-    // 1. If not an explicit Facebook Graph token, attempt Instagram Graph API first
+    // 1. If not an explicit Facebook Graph token, query Instagram Graph API (graph.instagram.com)
     if (!isFacebookGraphToken) {
-      const url = `${GRAPH_BASE_URL}/me?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
+      // 1A. Attempt /me
+      const meUrl = `${GRAPH_BASE_URL}/me?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
       try {
-        const res = await fetch(url);
+        const res = await fetch(meUrl);
         const data = await res.json();
 
         if (res.ok && !data.error && data.id) {
@@ -177,11 +179,50 @@ export async function getInstagramAccountProfile(
       } catch (err: any) {
         igError = err;
       }
+
+      // 1B. If /me failed but targetAccountId was provided, query account endpoint directly on graph.instagram.com
+      if (targetAccountId) {
+        try {
+          const directUrl = `${GRAPH_BASE_URL}/${encodeURIComponent(targetAccountId)}?fields=id,username,name,profile_picture_url,biography,followers_count,follows_count,media_count,website&access_token=${encodeURIComponent(accessToken)}`;
+          const directRes = await fetch(directUrl);
+          const directData = await directRes.json();
+
+          if (directRes.ok && !directData.error && directData.id) {
+            return {
+              success: true,
+              data: {
+                id: directData.id,
+                username: directData.username ? `@${directData.username.replace(/^@/, '')}` : '@instagram_user',
+                name: directData.name || directData.username || 'Instagram Creator',
+                profile_picture_url: directData.profile_picture_url || '',
+                biography: directData.biography || '',
+                followers_count: Number(directData.followers_count || 0),
+                follows_count: Number(directData.follows_count || 0),
+                media_count: Number(directData.media_count || 0),
+                website: directData.website || ''
+              }
+            };
+          }
+          if (directData?.error) {
+            igError = directData.error;
+          }
+        } catch (err: any) {
+          igError = err;
+        }
+      }
+
+      // Do NOT fall through to graph.facebook.com with an Instagram User Token (IGAA...)
+      // Because graph.facebook.com will always throw OAuthException 190.
+      return {
+        success: false,
+        error: igError?.message || 'Failed to query Instagram Graph API. Ensure token is valid and has instagram_business_basic scope.',
+        errorCode: igError?.code || 190,
+        httpStatus: 401
+      };
     }
 
-    // 2. If it's an EA... token or graph.instagram.com failed, query Meta / Facebook Graph API
+    // 2. If it's an EA... token (Facebook Graph token), query Meta / Facebook Graph API
     const fbApiVersion = GRAPH_API_VERSION;
-    const targetAccountId = _igAccountId ? _igAccountId.trim() : '';
 
     // A) If a target Account ID was explicitly provided
     if (targetAccountId) {
@@ -205,7 +246,12 @@ export async function getInstagramAccountProfile(
             }
           };
         }
-      } catch {}
+        if (fbData?.error) {
+          igError = fbData.error;
+        }
+      } catch (err: any) {
+        igError = err;
+      }
     }
 
     // B) Query /me/accounts to find any linked Instagram Business Account
@@ -234,11 +280,16 @@ export async function getInstagramAccountProfile(
           }
         }
       }
-    } catch {}
+      if (meData?.error) {
+        igError = meData.error;
+      }
+    } catch (err: any) {
+      igError = err;
+    }
 
     return {
       success: false,
-      error: igError?.message || 'Failed to query Instagram Graph API. Ensure token is valid and has instagram_business_basic scope.',
+      error: igError?.message || 'Failed to query Facebook Graph API. Ensure token is valid and has pages_show_list and instagram_basic permissions.',
       errorCode: igError?.code || 190,
       httpStatus: 401
     };
