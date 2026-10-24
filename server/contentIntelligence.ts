@@ -522,14 +522,22 @@ Return ONLY valid JSON matching this schema:
   if (apiKey) {
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `Search the live web thoroughly and return ONLY valid JSON matching this schema: ${prompt}`,
-        config: {
-          tools: [{ googleSearch: {} }],
-          temperature: 0.5
+      let response: any = null;
+      for (const model of ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']) {
+        try {
+          response = await ai.models.generateContent({
+            model,
+            contents: `Search the live web thoroughly and return ONLY valid JSON matching this schema: ${prompt}`,
+            config: {
+              tools: [{ googleSearch: {} }],
+              temperature: 0.5
+            }
+          });
+          if (response?.text) break;
+        } catch {
+          // Try next model
         }
-      });
+      }
 
       const text = response.text?.trim() || '';
       if (text) {
@@ -611,14 +619,22 @@ Return ONLY valid JSON matching this schema:
   "notes": "Brief editorial summary of why this subject is credible and high-impact."
 }`;
 
-      const directResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: directPrompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.85
+      let directResponse: any = null;
+      for (const model of ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']) {
+        try {
+          directResponse = await ai.models.generateContent({
+            model,
+            contents: directPrompt,
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.85
+            }
+          });
+          if (directResponse?.text) break;
+        } catch {
+          // Try next model
         }
-      });
+      }
 
       const text = directResponse.text?.trim() || '';
       if (text) {
@@ -2495,7 +2511,7 @@ Return ONLY valid JSON matching this schema:
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (apiKey && apiKey.length >= 5) {
     const ai = new GoogleGenAI({ apiKey });
-    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest'];
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 
     for (const model of modelsToTry) {
       try {
