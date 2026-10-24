@@ -18,12 +18,22 @@ export interface SourceCitation {
   claimSupported: string;
 }
 
+export interface StoryBeatMap {
+  hookBeat: string;          // Surprising fact / question / relatable observation
+  explanationBeats: string[]; // Step-by-step plain English progression (1 idea per scene)
+  resolutionBeat: string;    // What this means, resolving the opening hook, final takeaway
+}
+
 export interface ResearchDossier {
   subject: string;
   pillar: string;
   centralPremise: string;
+  targetAudience?: string;
+  centralMessage?: string;
   verifiedFacts: string[];
   uncertaintiesOrLimits: string[];
+  commonMisconceptions?: string[];
+  simplifiedStoryBeatMap?: StoryBeatMap;
   citations: SourceCitation[];
   verificationStatus: VerificationStatus;
   isLiveGrounded: boolean;
@@ -55,6 +65,8 @@ export interface EditorialAuditResult {
     label: 'model_estimate';
     rationale: string;
   };
+  simplicityScore?: number;
+  hasProperClosure?: boolean;
   flags: string[];
   rejectionReasons: string[];
 }
@@ -66,6 +78,9 @@ export interface CuratedScene {
   highlight: string;
   subline: string;
   voiceScript: string;
+  visualDescription?: string;
+  onScreenText?: string;
+  transition?: string;
   bRollKeywords: string[];
   archivalQuery: string;
   imagePrompt: string;
@@ -73,6 +88,21 @@ export interface CuratedScene {
   visualFormat: 'full-bleed-cinematic' | 'classified-dossier' | 'satellite-telemetry' | 'lower-third' | 'split-screen' | 'pause-challenge';
   accentColor: string;
   pacingEffect: 'pulse' | 'zoom-in' | 'flash-cut' | 'slide-up' | 'subtle-drift';
+  chapterLabel?: string;
+  cuts?: VisualCutBeat[];
+  historicalEra?: string;
+  visualBeats?: string[];
+}
+
+export interface VisualCutBeat {
+  cutOrder?: number;
+  query: string;
+  type: 'archival_image' | 'pollinations_flux' | 'stock_broll';
+  description?: string;
+  historicalEra?: string;
+  spokenClause?: string;
+  prompt?: string;
+  estimatedDuration?: number;
 }
 
 export interface CuratedReelPackage {
@@ -109,6 +139,23 @@ export const GENERIC_HOOK_PATTERNS = [
   /today, it stands as documented proof/i,
   /what would you have done in their position/i,
   /kept out of standard history textbooks/i
+];
+
+// Strictly banned academic/textbook filler phrases that cause viewers to swipe away
+export const BANNED_ACADEMIC_FILLER = [
+  /isotopic\s+(ratio|discrepancy|signature|analysis)/i,
+  /spectral\s+(imaging|discrepancy|analysis|signature)/i,
+  /physical\s+anomaly\s+endures/i,
+  /reconsider\s+the\s+boundaries\s+of\s+experimentation/i,
+  /boundaries\s+of\s+experimentation/i,
+  /enduring\s+anomaly/i,
+  /anomaly\s+endures/i,
+  /testament\s+to\s+the\s+limits/i,
+  /scientific\s+community\s+remains\s+baffled/i,
+  /scholarly\s+debate/i,
+  /remains\s+an\s+enigma\s+to\s+modern\s+science/i,
+  /spatial\s+telemetry/i,
+  /theoretical\s+paradigm/i
 ];
 
 // Curated brand color system for @theuntoldarch
@@ -158,6 +205,14 @@ export function evaluateHookQuality(hookText: string, subject: string): { isVali
 }
 
 /**
+ * Calculates dynamically calibrated duration for 1.0x human speech pacing (~2.2 words per second + 1.2s buffer).
+ */
+export function calcDurationForScript(script: string, minSec = 8.0): number {
+  const wordCount = (script || '').trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(minSec, Number(((wordCount / 2.2) + 1.2).toFixed(1)));
+}
+
+/**
  * Validates spoken script duration plausibility.
  * Natural spoken English pacing is approximately 2.2 to 2.6 words per second.
  */
@@ -186,12 +241,69 @@ export function auditScriptPacing(voiceScript: string, durationSeconds: number):
 }
 
 /**
+ * Validates script simplicity, plain-language usage, and conversational flow.
+ * Ensures scripts are easy for everyday viewers to understand on first listen.
+ */
+export function auditScriptSimplicityAndClarity(voiceScript: string, isFinalScene = false): {
+  isSimpleAndClear: boolean;
+  score: number;
+  feedback: string[];
+  maxSentenceWords: number;
+} {
+  const text = (voiceScript || '').trim();
+  const feedback: string[] = [];
+  let score = 100;
+
+  if (!text) {
+    return { isSimpleAndClear: false, score: 0, feedback: ['Voice script is empty.'], maxSentenceWords: 0 };
+  }
+
+  // 1. Sentence length check: ideal spoken sentence is under 18 words, max 24 words
+  const sentences = text.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 0);
+  let maxSentenceWords = 0;
+  for (const s of sentences) {
+    const words = s.trim().split(/\s+/).filter(Boolean);
+    if (words.length > maxSentenceWords) maxSentenceWords = words.length;
+    if (words.length > 24) {
+      feedback.push(`Sentence is too long for easy spoken listening (${words.length} words: "${s.slice(0, 45)}..."). Keep sentences short and clear.`);
+      score -= 15;
+    }
+  }
+
+  // 2. Complex or academic jargon check
+  const complexJargonRegex = /\b(contemporaneous|stratification|telemetry|indubitably|juxtaposition|hermetically|corroborated|obfuscation|anomalous paradigm|inexplicable anomaly|unprecedented magnitude|clandestine operation|meticulous detail|indelible turning point)\b/i;
+  const match = text.match(complexJargonRegex);
+  if (match) {
+    feedback.push(`Contains overly complex vocabulary ("${match[0]}"). Explain concepts in simple everyday English.`);
+    score -= 15;
+  }
+
+  // 3. Proper closure check for the final scene
+  if (isFinalScene) {
+    const closureIndicators = /\b(in the end|today|today,|takeaway|reminds us|result|outcome|so what|proves|shows|now,|what do you think|surprised you|consequence|means that|lesson|teaches us)\b/i;
+    if (!closureIndicators.test(text) && !text.includes('?')) {
+      feedback.push('Final scene lacks a clear takeaway or conclusion. Ensure the ending feels intentional and resolves the story.');
+      score -= 15;
+    }
+  }
+
+  return {
+    isSimpleAndClear: feedback.length === 0,
+    score: Math.max(0, score),
+    feedback,
+    maxSentenceWords
+  };
+}
+
+/**
  * Editorial Quality Gatekeeper: Run a deterministic validation check
  * on the full Reel package before committing to rendering or scheduling.
  */
 export function auditReelPackage(pkg: Partial<CuratedReelPackage>): EditorialAuditResult {
   const flags: string[] = [];
   const rejectionReasons: string[] = [];
+  const simplicityScores: number[] = [];
+  let hasProperClosure = false;
   let score = 100;
 
   // 1. Topic & Subject
@@ -241,6 +353,22 @@ export function auditReelPackage(pkg: Partial<CuratedReelPackage>): EditorialAud
     if (!pacing.isPacingValid) {
       flags.push(`Scene ${idx + 1}: ${pacing.feedback}`);
       score -= 10;
+    }
+
+    // Check simplicity, readability & closure
+    const isFinal = idx === scenes.length - 1;
+    const simplicity = auditScriptSimplicityAndClarity(script, isFinal);
+    simplicityScores.push(simplicity.score);
+    if (!simplicity.isSimpleAndClear) {
+      for (const fb of simplicity.feedback) {
+        flags.push(`Scene ${idx + 1}: ${fb}`);
+      }
+      if (simplicity.score < 70) {
+        score -= 10;
+      }
+    }
+    if (isFinal && simplicity.score >= 80) {
+      hasProperClosure = true;
     }
 
     // Check visual prompt hygiene (no text generation instructions)
@@ -295,20 +423,26 @@ export function auditReelPackage(pkg: Partial<CuratedReelPackage>): EditorialAud
   // Realistic model potential prediction based on factual grounding & pacing
   const predictedScore = Math.max(50, Math.min(88, Math.round(editorialQualityScore * 0.85 + (passed ? 10 : -10))));
 
-  return {
-    passed,
-    editorialQualityScore,
-    predictedPotential: {
-      score: predictedScore,
-      label: 'model_estimate',
-      rationale: passed 
-        ? 'High factual specificity, verified evidence citations, and balanced word pacing.' 
-        : 'Quality criteria not satisfied; requires editorial refinement.'
-    },
-    flags,
-    rejectionReasons
-  };
-}
+    const avgSimplicity = simplicityScores.length > 0 
+      ? Math.round(simplicityScores.reduce((a, b) => a + b, 0) / simplicityScores.length) 
+      : 80;
+
+    return {
+      passed,
+      editorialQualityScore,
+      predictedPotential: {
+        score: predictedScore,
+        label: 'model_estimate',
+        rationale: passed 
+          ? 'High factual specificity, verified evidence citations, and balanced word pacing.' 
+          : 'Quality criteria not satisfied; requires editorial refinement.'
+      },
+      simplicityScore: avgSimplicity,
+      hasProperClosure,
+      flags,
+      rejectionReasons
+    };
+  }
 
 /**
  * Conducts structured research on a vertical subject using Gemini Search Grounding
@@ -331,18 +465,27 @@ Select ONE specific, real-world, documented historical event, scientific discove
 Do NOT repeat any of these recently covered subjects:
 ${avoidTopics.length ? avoidTopics.map(t => `- ${t}`).join('\n') : '- none'}
 
-RESEARCH MANDATES:
-1. Focus on ONE specific, identifiable subject with concrete dates, names, coordinates, or official records.
-2. Prefer primary sources: national archives, FOIA declassified releases, scientific papers (Nature/Science), reputable investigative journalism, or official museum records.
-3. Distinguish VERIFIED FACTS from UNVERIFIED SPECULATION or POPULAR MYTHS.
-4. Record actual source publication names and URLs where available from live search.
-5. Never invent classified document names, fake casualty counts, or non-existent operations.
+RESEARCH & FACT-CHECKING MANDATES (CRITICAL):
+1. THOROUGH RESEARCH: Understand the topic thoroughly before drafting. Focus on ONE specific event with concrete dates, names, locations, and official records.
+2. RELIABLE SOURCES: Prioritize primary sources, national archives (NARA/FOIA), scientific papers (Nature/Science), official investigation reports, and credible publications.
+3. VERIFY FACTS VS OPINIONS: Separate confirmed facts from opinions, assumptions, and speculation. Explicitly identify any common misconceptions or exaggerated myths to avoid.
+4. NO CLICKBAIT: Avoid clickbait claims, misleading statistics, and unsupported statements.
+5. TARGET AUDIENCE & CENTRAL MESSAGE:
+   - Target Audience: Everyday curious viewers with zero technical or academic background.
+   - Central Message: The ONE clear, educational takeaway explained in simple everyday language.
+6. SIMPLIFIED STORY BEAT MAP:
+   - hookBeat: Interesting question, surprising real fact, or relatable observation that hooks attention in 3 seconds without exaggeration.
+   - explanationBeats: 2 to 3 step-by-step points explaining the story in logical order. Each point covers ONE main idea and explains why it matters.
+   - resolutionBeat: Explaining the final takeaway, resolving the opening hook, and giving the viewer closure.
+7. RECORD CITATIONS: Record actual archive or publication names and supported claims so they can be verified.
 
 Return ONLY valid JSON matching this schema:
 {
   "subject": "Clear, specific subject name with dates/context (e.g. 'Project Greek Island: The Greenbrier Bunker (1958-1992)')",
   "pillar": "${vertical.niche}",
   "centralPremise": "The specific documented fact or anomaly that makes this story mind-blowing and educational.",
+  "targetAudience": "Everyday curious viewers with zero prior background on the topic",
+  "centralMessage": "The single main educational takeaway in plain English",
   "verifiedFacts": [
     "Concrete verified claim 1 with date/metric",
     "Concrete verified claim 2 with primary evidence",
@@ -351,6 +494,17 @@ Return ONLY valid JSON matching this schema:
   "uncertaintiesOrLimits": [
     "What remains unconfirmed, sealed, or genuinely disputed by historians/scientists"
   ],
+  "commonMisconceptions": [
+    "Myths or exaggerated claims to avoid or debunk"
+  ],
+  "simplifiedStoryBeatMap": {
+    "hookBeat": "Surprising real fact or question that hooks within 3 seconds",
+    "explanationBeats": [
+      "Step 1: How it started in simple everyday words",
+      "Step 2: The key event or discovery and why it mattered"
+    ],
+    "resolutionBeat": "Final takeaway resolving the hook with a satisfying ending"
+  },
   "citations": [
     {
       "sourceName": "Name of official archive, paper, or outlet (e.g. 'National Security Archive / The Washington Post')",
@@ -406,17 +560,25 @@ Select ONE completely unique, documented historical event, classified operation,
 ABSOLUTELY NEVER REPEAT ANY of these previously covered subjects:
 ${avoidTopics.slice(0, 200).map(t => `- ${t}`).join('\n')}
 
-RESEARCH MANDATES:
-1. Choose an obscure, fascinating real-world event with verified historical documentation (e.g. NARA, Smithsonian, declassified records, Nature/Science).
-2. It MUST be entirely distinct from all previously covered topics listed above.
-3. Distinguish VERIFIED FACTS from POPULAR MYTHS.
-4. Record actual archive names or reputable sources.
+RESEARCH & FACT-CHECKING MANDATES (CRITICAL):
+1. THOROUGH FACTUAL RESEARCH: Choose an authentic real-world event with documented records (NARA, Smithsonian, declassified records, Nature/Science).
+2. VERIFY FACTS VS SPECULATION: Clearly distinguish verified facts from speculation or popular myths.
+3. AUDIENCE & PLAIN EXPLANATION:
+   - Target Audience: Everyday viewers with zero technical background.
+   - Central Message: One clear, fascinating educational takeaway in simple plain English.
+4. SIMPLIFIED STORY BEAT MAP:
+   - hookBeat: Engaging question or surprising fact for first 3 seconds.
+   - explanationBeats: 2 to 3 step-by-step points in logical order.
+   - resolutionBeat: Proper resolution and closure.
+5. RECORD CITATIONS: Actual archive, journal, or reliable publication names.
 
 Return ONLY valid JSON matching this schema:
 {
-  "subject": "Clear, specific subject name with dates/context (e.g. 'The 1986 Lake Nyos Disaster: The Silent Limnic Eruption')",
+  "subject": "Clear, specific subject name with dates/context",
   "pillar": "${vertical.niche}",
-  "centralPremise": "The specific documented fact or anomaly that makes this story mind-blowing and educational.",
+  "centralPremise": "The specific documented fact or anomaly that makes this story educational.",
+  "targetAudience": "Everyday curious viewers with zero prior background",
+  "centralMessage": "The single main educational takeaway in plain English",
   "verifiedFacts": [
     "Concrete verified claim 1 with date/metric",
     "Concrete verified claim 2 with primary evidence",
@@ -425,6 +587,17 @@ Return ONLY valid JSON matching this schema:
   "uncertaintiesOrLimits": [
     "What remains unconfirmed, sealed, or genuinely disputed by historians/scientists"
   ],
+  "commonMisconceptions": [
+    "Myths or exaggerated claims to avoid or debunk"
+  ],
+  "simplifiedStoryBeatMap": {
+    "hookBeat": "Surprising real fact or question that hooks within 3 seconds",
+    "explanationBeats": [
+      "Step 1: How it started in simple everyday words",
+      "Step 2: The key event or discovery and why it mattered"
+    ],
+    "resolutionBeat": "Final takeaway resolving the hook with a satisfying ending"
+  },
   "citations": [
     {
       "sourceName": "Name of official archive, paper, or outlet",
@@ -1392,6 +1565,92 @@ export function extractContextualSceneKeywords(
   const combined = `${subject} ${factText || ''}`.toLowerCase();
 
   // 1. Domain-specific concrete physical visual mappings
+  // The Voynich Manuscript & Medieval Ciphers
+  if (/voynich|cipher|manuscript|parchment|folio|vellum|undeciphered|cryptanalyst/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['ancient manuscript', 'old parchment book', 'ancient book candlelight'],
+        archivalQuery: 'Voynich Manuscript',
+        headline: 'THE VOYNICH DISCOVERY',
+        imagePrompt: 'Archival museum photograph of an open Voynich manuscript folio with handwritten medieval cipher and botanical drawings, warm archival lighting. NO text.'
+      },
+      {
+        keywords: ['magnifying glass paper', 'quill pen ink', 'old library archive'],
+        archivalQuery: 'Voynich Manuscript folio',
+        headline: 'HISTORICAL ORIGIN',
+        imagePrompt: 'Atmospheric close-up of an old brass magnifying glass resting on aged medieval vellum parchment with mysterious cipher text. NO text.'
+      },
+      {
+        keywords: ['microscope lab dark', 'laser light dark', 'laboratory analysis'],
+        archivalQuery: 'Voynich Manuscript',
+        headline: 'PRIMARY ANALYSIS',
+        imagePrompt: 'Forensic laboratory table with high precision scientific microscope analyzing ancient manuscript parchment fiber structure. NO text.'
+      },
+      {
+        keywords: ['ultraviolet light scan', 'laser microscope lens', 'laboratory glass'],
+        archivalQuery: 'Voynich Manuscript botanical',
+        headline: 'FORENSIC EVIDENCE',
+        imagePrompt: 'Scientific ultraviolet light scan revealing hidden ink pigments and unknown botanical illustrations on medieval vellum. NO text.'
+      },
+      {
+        keywords: ['astronomy chart dark', 'zodiac manuscript', 'ancient star map'],
+        archivalQuery: 'Voynich Manuscript astronomical',
+        headline: 'CLASSIFIED ANOMALY',
+        imagePrompt: 'Macro shot of an intricate hand-drawn astronomical spiral diagram on ancient parchment showing unknown constellations and celestial rings. NO text.'
+      },
+      {
+        keywords: ['candlelight book dark', 'old library dark', 'dusty books dark'],
+        archivalQuery: 'Voynich Manuscript',
+        headline: 'UNSOLVED RESOLUTION',
+        imagePrompt: 'Dramatic museum display case containing an open medieval cipher manuscript under a focused warm spotlight in a dark gallery. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
+  // The Antikythera Mechanism & Ancient Engineering
+  if (/antikythera|analog computer|ancient gear|mechanism|rhodes|greek wreck/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['ancient shipwreck', 'bronze artifact', 'underwater ruins'],
+        archivalQuery: 'Antikythera mechanism',
+        headline: 'THE ANTIKYTHERA GEAR',
+        imagePrompt: 'Underwater documentary photograph of ancient Greek shipwreck wreckage on rocky Aegean seabed, corroded bronze artifacts. NO text.'
+      },
+      {
+        keywords: ['corroded bronze gear', 'ancient greek artifact', 'museum exhibit'],
+        archivalQuery: 'Antikythera mechanism',
+        headline: 'HISTORICAL ORIGIN',
+        imagePrompt: 'Museum macro photography of the calcified bronze Antikythera fragment revealing intricate triangular gear teeth embedded in rock. NO text.'
+      },
+      {
+        keywords: ['x-ray film dark', 'ct scan equipment', 'laboratory dark'],
+        archivalQuery: 'Antikythera mechanism tomography',
+        headline: 'PRIMARY ANALYSIS',
+        imagePrompt: 'Glowing high-tech 3D computed tomography scan display showing inner gear wheels and Greek calendar inscriptions inside ancient bronze. NO text.'
+      },
+      {
+        keywords: ['bronze gear teeth', 'clockwork mechanism', 'ancient technology'],
+        archivalQuery: 'Antikythera mechanism',
+        headline: 'FORENSIC EVIDENCE',
+        imagePrompt: 'Macro detail of precision bronze differential gear train, authentic ancient metallurgy, raking forensic studio light. NO text.'
+      },
+      {
+        keywords: ['astronomy cosmos', 'eclipse prediction', 'ancient observatory'],
+        archivalQuery: 'Antikythera mechanism',
+        headline: 'CLASSIFIED ANOMALY',
+        imagePrompt: 'Cinematic visual of an ancient bronze gear dial overlaid with the Saros lunar eclipse cycle, moody astronomical background. NO text.'
+      },
+      {
+        keywords: ['ancient ruins dark', 'museum dark', 'ancient temple night'],
+        archivalQuery: 'Antikythera mechanism',
+        headline: 'UNSOLVED RESOLUTION',
+        imagePrompt: 'Dramatic museum gallery spotlight illuminating the Antikythera mechanism in a climate-controlled glass case at the National Archaeological Museum of Athens. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
   if (/petrov|oko|nuclear false alarm|early warning/i.test(combined)) {
     const configs = [
       {
@@ -1680,6 +1939,48 @@ export function extractContextualSceneKeywords(
     return configs[sceneIndex] || configs[0];
   }
 
+  if (/pastorius|sabotage|espionage|spy|covert operation|u-boat|german saboteurs|fbi|dasch|counterintelligence/i.test(combined)) {
+    const configs = [
+      {
+        keywords: ['1940s coast guard beach dark', 'u-boat ocean night', 'vintage dark coastline'],
+        archivalQuery: 'Operation Pastorius',
+        headline: 'OPERATION PASTORIUS',
+        imagePrompt: 'Cinematic 35mm documentary photograph of Long Island Amagansett shoreline at night in June 1942, dense ocean fog, dark coastal surf, wartime atmospheric realism. NO text.'
+      },
+      {
+        keywords: ['1940s briefcase cash', 'wooden crates explosives', 'vintage duffel bag dark'],
+        archivalQuery: 'Operation Pastorius saboteurs',
+        headline: 'THE OPERATION',
+        imagePrompt: 'Dramatic high-contrast documentary visual of buried 1940s waterproof duffel bags, wooden boxes of demolition blocks, and bundles of vintage currency under flashlight beam. NO text.'
+      },
+      {
+        keywords: ['1940s train carriage dark', 'vintage passenger train night', 'penn station 1940s'],
+        archivalQuery: 'George John Dasch',
+        headline: 'TURNING POINT',
+        imagePrompt: 'Documentary archival photograph inside a vintage 1940s passenger train compartment at night, lone fedora-wearing passenger looking out window into darkness. NO text.'
+      },
+      {
+        keywords: ['vintage telephone dark', '1940s fbi desk', 'vintage office dark'],
+        archivalQuery: 'Operation Pastorius FBI',
+        headline: 'THE BETRAYAL',
+        imagePrompt: 'Macro shot of an authentic 1940s heavy rotary telephone and wooden executive desk inside Department of Justice building, classified case file folders. NO text.'
+      },
+      {
+        keywords: ['classified stamped folder', 'microfilm reader archive', 'vintage typewriter dark'],
+        archivalQuery: 'J. Edgar Hoover',
+        headline: 'CLASSIFIED COVERUP',
+        imagePrompt: 'Dramatic archival photo of vintage FBI headquarters dossier folders stamped with red RESTRICTED and CONFIDENTIAL marks under desk lamp. NO text.'
+      },
+      {
+        keywords: ['historic federal courthouse', 'vintage courtroom dark', '1940s military commission'],
+        archivalQuery: 'Operation Pastorius military commission',
+        headline: 'HISTORICAL VERDICT',
+        imagePrompt: 'Dramatic wide interior of an austere 1940s military commission courtroom, dark paneled walls, empty defense and prosecution tables under chandelier. NO text.'
+      }
+    ];
+    return configs[sceneIndex] || configs[0];
+  }
+
   if (/derinkuyu|underground city|cappadocia/i.test(combined)) {
     const configs = [
       {
@@ -1739,31 +2040,52 @@ export function extractContextualSceneKeywords(
   if (/ancient|pyramid|temple|ruins|archaeology|roman/i.test(combined)) physicalQueries.push('ancient ruins', 'pyramid');
   if (/arctic|snow|permafrost|ice|svalbard|glacier/i.test(combined)) physicalQueries.push('arctic mountain', 'snow mountain');
 
+  const bannedAbstract = new Set([
+    'isotopic', 'spectral', 'anomaly', 'discrepancy', 'endures', 'aerospace',
+    'physics', 'hypothesis', 'boundaries', 'experimentation', 'signature',
+    'ratio', 'ratios', 'enduring', 'reconsider', 'telemetry', 'verdict',
+    'implications', 'theoretical', 'paradigm', 'academic', 'perspective'
+  ]);
+
   const stopWords = new Set([
     'the', 'this', 'that', 'with', 'from', 'have', 'will', 'your', 'about', 'what', 'when',
     'where', 'into', 'over', 'under', 'between', 'during', 'official', 'record', 'records',
     'archive', 'investigation', 'primary', 'timeline', 'incident', 'story', 'secret',
     'revealed', 'documented', 'evidence', 'untold', 'aftermath', 'consequence', 'verifiable',
-    'whose', 'stand', 'stands', 'close', 'closer', 'came', 'ending', 'decades'
+    'whose', 'stand', 'stands', 'close', 'closer', 'came', 'ending', 'decades',
+    ...Array.from(bannedAbstract)
   ]);
 
   const cleanWords = combined.replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter(t => t.length >= 4 && !stopWords.has(t));
+    .filter(t => t.length >= 4 && !stopWords.has(t) && !bannedAbstract.has(t));
 
   const uniqueNouns = Array.from(new Set(cleanWords)).slice(0, 8);
-  const subjectWords = cleanSubject.split(/\s+/).slice(0, 2).join(' ');
+  const subjectWords = cleanSubject.split(/\s+/).slice(0, 2).filter(w => !bannedAbstract.has(w.toLowerCase())).join(' ');
 
-  const kwPrimary = physicalQueries[0] || (uniqueNouns.slice(0, 2).join(' ') || subjectWords);
-  const kwSecondary = physicalQueries[1] || (uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || 'aerial landscape');
-  const kwTertiary = physicalQueries[2] || (uniqueNouns.slice(4, 6).join(' ') || 'cinematic dark');
+  const isOperation = /operation|espionage|spy|sabotage|heist|military|covert|fbi|cia|pastorius/i.test(`${cleanSubject} ${combined}`);
 
-  const defaultHeadlines = [
-    cleanSubject.toUpperCase().slice(0, 24),
-    'THE CRITICAL RECORD',
-    'THE TURNING POINT',
-    'HISTORICAL VERDICT'
-  ];
+  const kwPrimary = physicalQueries[0] || (uniqueNouns.slice(0, 2).join(' ') || subjectWords || (isOperation ? 'classified stamped folder' : 'ancient book candlelight'));
+  const kwSecondary = physicalQueries[1] || (uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || (isOperation ? 'vintage telephone dark' : 'dark museum archive'));
+  const kwTertiary = physicalQueries[2] || (uniqueNouns.slice(4, 6).join(' ') || (isOperation ? 'microfilm reader archive' : 'old map compass'));
+
+  const defaultHeadlines = isOperation
+    ? [
+        cleanSubject.toUpperCase().slice(0, 24),
+        'THE OPERATION',
+        'TURNING POINT',
+        'THE BETRAYAL',
+        'CLASSIFIED COVERUP',
+        'HISTORICAL VERDICT'
+      ]
+    : [
+        cleanSubject.toUpperCase().slice(0, 24),
+        'HISTORICAL ORIGIN',
+        'PRIMARY INQUIRY',
+        'CRITICAL EVIDENCE',
+        'CLASSIFIED DOSSIER',
+        'HISTORICAL VERDICT'
+      ];
 
   return {
     keywords: [kwPrimary, kwSecondary, kwTertiary].filter(Boolean),
@@ -1774,9 +2096,188 @@ export function extractContextualSceneKeywords(
 }
 
 /**
+ * Detects the historical era and year from topic, dossier, and scene text.
+ */
+export function detectHistoricalEra(subject: string, text: string = ''): string {
+  const combined = `${subject} ${text}`.toLowerCase();
+
+  // 1. Explicit domain detections
+  if (/pastorius|nazi|saboteur|u-boat|u boat|1942|world war ii|wwii|hitler|fbi 194|oss /i.test(combined)) {
+    return '1942 World War II';
+  }
+  if (/voynich|cipher manuscript|parchment|1420|medieval|carbon-dated to 14|vellum/i.test(combined)) {
+    return '15th Century Medieval Europe (c. 1420)';
+  }
+  if (/antikythera|ancient greece|greek shipwreck|aegean|rhodes mechanism|2nd century bc|1st century bc/i.test(combined)) {
+    return 'Ancient Greece (c. 100 BC)';
+  }
+  if (/petrov|serpukhov|early warning|1983|soviet radar|cold war nuclear/i.test(combined)) {
+    return '1983 Cold War Era';
+  }
+  if (/kola|borehole|12,262|superdeep|soviet geological/i.test(combined)) {
+    return '1970s-1980s Soviet Geological Expedition';
+  }
+  if (/ekranoplan|caspian sea monster|lun-class|soviet ground effect/i.test(combined)) {
+    return '1980s Cold War Soviet Military';
+  }
+  if (/cheyenne mountain|norad|blast door|1960s bunker|fallout shelter/i.test(combined)) {
+    return '1960s Cold War Bunker Era';
+  }
+  if (/greenbrier|congressional bunker|project greek island|1958|1962/i.test(combined)) {
+    return '1950s-1960s Cold War Era';
+  }
+  if (/azorian|glomar explorer|k-129|1974|cia submarine recovery/i.test(combined)) {
+    return '1974 Cold War Covert Naval Operations';
+  }
+  if (/lufthansa 649|1972|aden|hijack/i.test(combined)) {
+    return '1972 Aviation History';
+  }
+  if (/derinkuyu|cappadocia underground/i.test(combined)) {
+    return 'Byzantine Cappadocia (c. 8th Century)';
+  }
+  if (/tunguska|1908|siberian explosion/i.test(combined)) {
+    return '1908 Tsarist Russian Siberia';
+  }
+  if (/amber room|1945|konigsberg/i.test(combined)) {
+    return '1940s World War II European Theater';
+  }
+
+  // 2. Year pattern detection (e.g. 1942, 1888, 1776, 1512)
+  const yearMatch = combined.match(/\b(1[0-9]{3}|20[0-2][0-9])\b/);
+  if (yearMatch) {
+    const yr = Number(yearMatch[1]);
+    if (yr >= 1939 && yr <= 1945) return `${yr} World War II`;
+    if (yr >= 1914 && yr <= 1918) return `${yr} World War I`;
+    if (yr >= 1947 && yr <= 1991) return `${yr} Cold War Era`;
+    if (yr >= 1837 && yr <= 1901) return `${yr} Victorian Era`;
+    return `${yr} Historical Era`;
+  }
+
+  // 3. Century pattern detection (e.g. "16th century", "12th century")
+  const centuryMatch = combined.match(/\b(\d{1,2})(?:st|nd|rd|th)\s+century\b/i);
+  if (centuryMatch) {
+    return `${centuryMatch[0]} Historical Era`;
+  }
+
+  if (/ancient rome|roman empire/i.test(combined)) return 'Ancient Roman Empire';
+  if (/ancient egypt|pharaoh|pyramid/i.test(combined)) return 'Ancient Egypt';
+  if (/victorian/i.test(combined)) return 'Victorian Era (19th Century)';
+  if (/medieval/i.test(combined)) return 'Medieval Historical Era';
+
+  return 'Documented Historical Era';
+}
+
+/**
+ * Proportionally divides a scene's spoken narration text into `numCuts` sequential clauses.
+ * Beat 1 = opening clause, Beat 2 = middle clause, Beat 3 = closing clause, etc.
+ */
+export function splitNarrationIntoVisualBeats(narration: string, numCuts: number): string[] {
+  const clean = (narration || '').trim().replace(/\s+/g, ' ');
+  if (!clean) {
+    return Array.from({ length: numCuts }, (_, i) => `Scene action beat ${i + 1}`);
+  }
+  if (numCuts <= 1) return [clean];
+
+  // 1. First split by natural sentence / clause terminators (. ! ? ; , — –)
+  const rawClauses = clean
+    .split(/(?<=[.!?])\s+|(?<=[;,—–])\s+/)
+    .map(c => c.trim().replace(/^[,.—–\s]+|[,.—–\s]+$/g, ''))
+    .filter(c => c.length > 5);
+
+  if (rawClauses.length === numCuts) {
+    return rawClauses;
+  }
+
+  // 2. If we have more clauses than numCuts, proportionally group adjacent clauses
+  if (rawClauses.length > numCuts) {
+    const merged: string[] = [];
+    const step = rawClauses.length / numCuts;
+    for (let i = 0; i < numCuts; i++) {
+      const start = Math.floor(i * step);
+      const end = (i === numCuts - 1) ? rawClauses.length : Math.floor((i + 1) * step);
+      merged.push(rawClauses.slice(start, end).join(', '));
+    }
+    return merged;
+  }
+
+  // 3. If we have fewer clauses than numCuts, proportionally chunk words
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length <= numCuts) {
+    return Array.from({ length: numCuts }, (_, i) => words[i] || clean);
+  }
+
+  const beats: string[] = [];
+  const chunkSize = Math.ceil(words.length / numCuts);
+  for (let i = 0; i < numCuts; i++) {
+    const start = i * chunkSize;
+    const end = (i === numCuts - 1) ? words.length : Math.min(words.length, (i + 1) * chunkSize);
+    const chunkWords = words.slice(start, end);
+    beats.push(chunkWords.join(' '));
+  }
+
+  return beats;
+}
+
+/**
+ * Constructs a literal, physical, period-accurate scene prompt for a 3-second cut.
+ */
+export function buildContextualCutPrompt(
+  reelTitle: string,
+  globalContext: string,
+  historicalEra: string,
+  spokenClause: string,
+  cutIndex: number = 0
+): string {
+  const cleanTitle = (reelTitle || '').split(/[:\-\—\(]/)[0].trim() || 'Historical Event';
+  const cleanEra = (historicalEra || 'Documented Historical Era').trim();
+  const cleanClause = (spokenClause || cleanTitle).trim().replace(/"/g, '');
+
+  return `[Historical Era & Year: ${cleanEra}] [Subject: ${cleanTitle}] Literal cinematic scene illustrating: '${cleanClause}'. Period-accurate clothing, architecture, and props from ${cleanEra}. Dark 35mm archival documentary photography, moody chiaroscuro lighting, deep shadows, hyper-realistic, vertical 9:16, no modern technology, no text overlays, no watermarks, period-accurate ${cleanEra}`;
+}
+
+/**
+ * Ensures each chapter has the exact required number of concrete visual cuts (3-second cut rule),
+ * with each cut strictly locked to the historical era, subject, and the exact spoken clause.
+ */
+export function ensureChapterCuts(
+  scene: any,
+  sceneIndex: number,
+  requiredCuts: number,
+  cleanSubject: string,
+  topicContext?: string
+): VisualCutBeat[] {
+  const voiceScript = String(scene?.voiceScript || scene?.narrationText || scene?.text || '').trim();
+  const historicalEra = scene?.historicalEra || detectHistoricalEra(cleanSubject, `${topicContext || ''} ${voiceScript}`);
+  const visualBeats = (Array.isArray(scene?.visualBeats) && scene.visualBeats.length === requiredCuts)
+    ? scene.visualBeats
+    : splitNarrationIntoVisualBeats(voiceScript || cleanSubject, requiredCuts);
+
+  const cuts: VisualCutBeat[] = [];
+
+  for (let c = 0; c < requiredCuts; c++) {
+    const clause = visualBeats[c] || visualBeats[0] || cleanSubject;
+    const prompt = buildContextualCutPrompt(cleanSubject, topicContext || '', historicalEra, clause, c);
+    const isArchivalHook = (sceneIndex === 0 && c === 0);
+
+    cuts.push({
+      cutOrder: c + 1,
+      type: isArchivalHook ? 'archival_image' : 'pollinations_flux',
+      query: clause,
+      description: `Cinematic scene illustrating: ${clause}`,
+      historicalEra,
+      spokenClause: clause,
+      prompt
+    });
+  }
+
+  return cuts;
+}
+
+/**
  * Uses Generative AI (Gemini Flash) to synthesize a 100% bespoke, non-formulaic,
  * cinema-grade documentary Reel script tailored exclusively to the unique subject.
  * Eliminates repetitive template structures, stock phrases, and predictable scene patterns.
+ * Generates dynamic 45-90s long-form multi-chapter scripts (5-8 chapters) with 3-second cuts.
  */
 export async function generateAiReelScript(
   dossier: ResearchDossier,
@@ -1788,10 +2289,14 @@ export async function generateAiReelScript(
   narrativeStructure: NarrativeStructureType;
   scenes: {
     order: number;
+    chapterLabel?: string;
     headline: string;
     highlight: string;
     subline: string;
     voiceScript: string;
+    visualDescription?: string;
+    onScreenText?: string;
+    transition?: string;
     bRollKeywords: string[];
     archivalQuery: string;
     imagePrompt: string;
@@ -1799,83 +2304,198 @@ export async function generateAiReelScript(
     visualFormat?: 'full-bleed-cinematic' | 'classified-dossier' | 'satellite-telemetry' | 'lower-third' | 'split-screen' | 'pause-challenge';
     accentColor?: string;
     pacingEffect?: 'pulse' | 'zoom-in' | 'flash-cut' | 'slide-up' | 'subtle-drift';
+    cuts?: VisualCutBeat[];
   }[];
   caption: string;
   hashtags: string[];
 } | null> {
   const brandName = persona?.brand || 'The Untold Archive';
   const brandHandle = persona?.handle || '@theuntoldarch';
+  const cleanSubject = (dossier.subject || '').split(/[:\-\—\(]/)[0].trim() || 'This historical event';
 
-  const prompt = `You are the Lead Documentary Director and Scriptwriter for "${brandName}" (${brandHandle}).
-Generate a completely original, non-formulaic, cinema-grade documentary Reel script about:
+  const prompt = `You are the Senior Documentary Director and Scriptwriter for "${brandName}" (${brandHandle}).
+Your mission is to produce a cinema-grade, investigative long-form Instagram Reel script (45 to 90 seconds, ~110 to 220 words total).
+Tone: 8th-grade reading level. Conversational, dark, investigative documentary tone. Like an investigative journalist breaking down a declassified case file.
+
+TOPIC RESEARCH DOSSIER:
 Subject: "${dossier.subject}"
 Pillar/Niche: "${vertical.niche}"
 Central Premise: "${dossier.centralPremise}"
+Central Message: "${dossier.centralMessage || dossier.centralPremise}"
 Verified Facts:
 ${(dossier.verifiedFacts || []).map(f => `- ${f}`).join('\n')}
 Uncertainties / Investigation Limits:
 ${(dossier.uncertaintiesOrLimits || []).map(u => `- ${u}`).join('\n')}
 
-STRICT CREATIVE MANDATES:
-1. ABSOLUTELY NEVER FOLLOW A SCRIPT PATTERN OR REPETITIVE FORMULA.
-   NEVER use clichés like:
-   - "Behind this declassified file lies..."
-   - "According to primary investigation logs..."
-   - "Telemetry and personnel on the ground confirmed the situation was rapidly escalating"
-   - "The critical turning point came when... A single choice altered the course of what followed"
-   - "The aftermath was profound... Today, it stands as documented proof of how close history came to a different ending"
-   - "What would you have done in their position?"
-   - "For decades, the true mechanism was kept out of standard history textbooks"
-   - "Official records confirm that... When investigators examined the physical evidence, the findings were undeniable"
-   - "Today, modern engineers and scientists are copying this exact historical breakthrough"
-   - "Did you know", "Imagine if", "This will blow your mind", "Nobody is talking about this".
-2. Write a gripping, authentic, human-level narrative tailored 100% uniquely to this exact event.
-   Choose a narrative structure that fits the drama of THIS story (e.g. chronological escalation, cold-open mystery, forensic breakdown, or turning-point countdown).
-3. Split the story into 3 or 4 scenes (30 to 45 seconds total reel duration).
-   CRITICAL VOICE REQUIREMENTS:
-   - Each scene's "voiceScript" must be 20 to 35 words of natural, spoken documentary narration.
-   - Every "voiceScript" MUST be a complete, grammatically sound English sentence (or two connected sentences).
-   - NEVER write fragments, standalone titles, or catalog numbers in "voiceScript".
-   - The voiceover MUST flow seamlessly and naturally like a high-budget BBC, HBO, or Netflix documentary.
-   - The narrator should speak continuous, captivating story sentences that hook the viewer, build tension, reveal the turning point, and ask a thought-provoking final question.
-4. For each scene, provide:
-   - "headline": Specific 2-4 word UPPERCASE title naming the actual event, location, or moment (e.g. "FLIGHT 305 COMMANDEERED", "THE 10,000-FT PLUNGE", "THE TINA BAR CACHE"). NO generic titles like "DECLASSIFIED FILE" or "CRITICAL TELEMETRY".
-   - "highlight": 2-4 word focal phrase from that scene.
-   - "subline": A crisp, informative supporting sentence.
-   - "bRollKeywords": 3 specific search phrases for real historical, archival, or cinematic B-roll footage.
-   - "imagePrompt": Specific 35mm archival documentary image prompt depicting actual physical elements of this scene. NO generic office/bookshelves.
-5. Provide a compelling, story-driven Instagram caption and 5-7 relevant hashtags.
+STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
+
+1. DYNAMIC MULTI-CHAPTER PROGRESSION (5 TO 8 CHAPTERS / 45s TO 90s):
+   - Never repeat the same claim or fact twice. Every chapter must advance the story with fresh narrative developments.
+   - Total length: 110 to 220 words (approx. 18 to 28 words per chapter).
+   - ADAPT TO THE REAL HISTORICAL GENRE (NEVER INVENT FAKE LAB/CHEMICAL ANOMALIES):
+     * For Espionage, Sabotage, Heists & Military Operations (e.g. Operation Pastorius, Antwerp Heist, Lufthansa 649):
+       Focus on human motives, tactical plans, blunders, unexpected betrayals, confidential confessions, and intelligence cover-ups. (e.g., in Operation Pastorius, how an 8-man German sabotage team collapsed when their leader George Dasch voluntarily walked into FBI headquarters, and how Hoover hid the betrayal to make the FBI look infallible). NEVER force fake lab tests, corrosion, or chemical anomalies onto non-scientific stories!
+     * For Ancient Enigmas & Relics (e.g. Voynich Manuscript, Antikythera Mechanism):
+       Focus on real physical materials, undeciphered scripts, carbon dating, and craftsmanship mysteries.
+     * For Geography, Bunkers & Disappearances:
+       Focus on covert engineering, declassified blueprints, strategic choke points, and emergency protocols.
+   - Structure into 5 to 8 progressive chapters with DYNAMIC, STORY-SPECIFIC bottom HUD chapter labels:
+     * CHAPTER 1 — THE PATTERN-INTERRUPT HOOK (0-4s): The VERY FIRST SENTENCE MUST explicitly state the subject/event name "${cleanSubject}". Open with the shocking contradiction, blunder, or impossibility. HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".
+     * CHAPTER 2 — THE ORIGIN / THE MISSION: The background setup, original mission, or mainstream situation. HUD label: e.g. "HISTORICAL ORIGIN" or "THE OPERATION".
+     * CHAPTER 3 — THE TURNING POINT: The first unexpected shift, mistake, or key investigation beat. HUD label: e.g. "TURNING POINT" or "PRIMARY INQUIRY".
+     * CHAPTER 4 — THE TWIST / BETRAYAL / REVELATION: The central narrative twist that breaks standard expectations. HUD label: e.g. "THE BETRAYAL", "CRITICAL EVIDENCE", or "COVERT TWIST".
+     * CHAPTER 5 — THE COVERUP / AFTERMATH: How authorities responded, what was concealed, or the lasting consequence. HUD label: e.g. "CLASSIFIED COVERUP" or "OFFICIAL AFTERMATH".
+     * FINAL CHAPTER — THE LOOP CLIMAX: Connect the ending back to the opening hook and drive viewers to debate the theories in the comments. HUD label: e.g. "HISTORICAL VERDICT" or "FINAL RESOLUTION".
+
+2. STRICT VOCABULARY & STYLE RULES (NO ACADEMIC JARGON):
+   - 8th-grade reading level. Natural, spoken cadence.
+   - STRICTLY BANNED PHRASES: "isotopic ratio", "spectral imaging", "physical anomaly endures", "reconsider the boundaries of experimentation", "enduring anomaly", "testament to the limits", "scientific community remains baffled", "discrepancy", "spatial telemetry".
+   - Replace complex science terms with plain physical descriptions (e.g., instead of "spectroscopic carbon discrepancy", say "radiocarbon tests dated the parchment to 1420").
+
+3. DYNAMIC 3-SECOND VISUAL CUTS PER CHAPTER:
+   - For EACH chapter, generate a "cuts" array with 2 to 4 distinct visual beats (one cut for every ~3 seconds of narration).
+   - Chapter 1, Cut 1 MUST be type: "archival_image" showing the actual historical artifact/document/photograph (e.g., "${cleanSubject} photo", "${cleanSubject} document", "${cleanSubject} map").
+   - At least 30% of cuts across the entire Reel MUST be type: "archival_image".
+   - STRICT TRANSLATION RULE FOR SEARCH QUERIES:
+     * NEVER output abstract words ("isotopic", "spectral", "anomaly", "discrepancy", "endures", "aerospace").
+     * Translate every beat into concrete, physical, visually searchable 2-3 word nouns/actions with dark/archival mood:
+       - Bad: "spectral imaging aerospace" -> Good: "ultraviolet light scan", "laser microscope lens", "x-ray film dark"
+       - Bad: "declassified defense files" -> Good: "classified stamped folder", "microfilm reader archive", "old typewriter dark"
+       - Bad: "ancient botanical anomaly" -> Good: "ancient book candlelight", "strange plant illustration", "parchment folio dark"
+       - Bad: "espionage operation betrayal" -> Good: "1940s briefcase cash", "fbi headquarters dark", "vintage telephone dark"
+
+4. INSTAGRAM CAPTION (150-WORD CASE FILE + 3 COMPETING THEORIES):
+   - The caption must be an investigative case file (~150 words) detailing 3 competing theories:
+     * Theory A: The mainstream / official explanation
+     * Theory B: The covert history / alternative operational motive
+     * Theory C: The unresolved / anomalous perspective
+   - Conclude with a debate question: "Which theory do you believe: A, B, or C? Drop your thoughts below."
 
 Return ONLY valid JSON matching this schema:
 {
-  "title": "Short compelling title (max 50 chars)",
-  "hookText": "Opening hook sentence",
+  "title": "Compelling Title Naming Subject (max 45 chars)",
+  "hookText": "Opening hook sentence naming artifact in first 3 seconds",
   "narrativeStructure": "chronological_reconstruction",
   "scenes": [
     {
       "order": 1,
-      "headline": "...",
-      "highlight": "...",
-      "subline": "...",
-      "voiceScript": "...",
-      "bRollKeywords": ["...", "..."],
-      "archivalQuery": "...",
-      "imagePrompt": "...",
+      "chapterLabel": "ARCHIVAL DOSSIER",
+      "headline": "SHORT HEADLINE",
+      "highlight": "CORE PHRASE",
+      "subline": "Brief supporting context",
+      "voiceScript": "Exact spoken narration for this chapter (20-30 words, 8th grade English, zero academic filler).",
+      "visualDescription": "Physical description of the chapter scene.",
+      "onScreenText": "SHORT PUNCHY HUD TEXT",
+      "transition": "cut",
+      "bRollKeywords": ["concrete search query 1", "concrete search query 2"],
+      "archivalQuery": "Specific artifact or historical document query for Wikimedia",
+      "imagePrompt": "Cinematic 35mm documentary photography prompt...",
       "visualTheme": "minimal-dark",
       "visualFormat": "full-bleed-cinematic",
       "accentColor": "#d4af37",
-      "pacingEffect": "subtle-drift"
+      "pacingEffect": "subtle-drift",
+      "cuts": [
+        {
+          "cutOrder": 1,
+          "type": "archival_image",
+          "query": "Specific artifact or historical document query for Wikimedia",
+          "description": "Archival photograph of the physical artifact or document"
+        },
+        {
+          "cutOrder": 2,
+          "type": "stock_broll",
+          "query": "dark museum archive",
+          "description": "Slow motion archival storage shelves under dim lighting"
+        }
+      ]
     }
   ],
-  "caption": "Full Instagram caption text",
-  "hashtags": ["#tag1", "#tag2"]
+  "caption": "Full ~150-word investigative case file detailing Theory A, Theory B, Theory C, ending with debate CTA.",
+  "hashtags": ["#theuntoldarchive", "#untoldhistory", "#declassified", "#historicalmysteries", "#archivalrecords"]
 }`;
 
-  // 1. Primary: Try Gemini Models (gemini-flash-latest, gemini-3.8-flash, gemini-2.5-flash)
+  const isEspionageOrOperation = /operation|spy|espionage|sabotage|fbi|cia|kgb|heist|bank|theft|robbery|war|nazi|military|bunker|choke point|chokepoint/i.test(`${dossier.subject} ${vertical.niche} ${dossier.centralPremise}`);
+
+  const defaultLabels = isEspionageOrOperation
+    ? [
+        'ARCHIVAL DOSSIER',
+        'THE OPERATION',
+        'TURNING POINT',
+        'THE BETRAYAL',
+        'CLASSIFIED COVERUP',
+        'HISTORICAL VERDICT'
+      ]
+    : [
+        'ARCHIVAL RECORD',
+        'HISTORICAL ORIGIN',
+        'KEY EVIDENCE',
+        'CRITICAL TWIST',
+        'UNRESOLVED RECORD',
+        'FINAL VERDICT'
+      ];
+
+  const sanitizeParsedScenes = (parsed: any): boolean => {
+    if (!parsed || !Array.isArray(parsed.scenes) || parsed.scenes.length < 4) return false;
+    const allValid = parsed.scenes.every((s: any) => s && typeof s.voiceScript === 'string' && s.voiceScript.trim().length >= 15);
+    if (!allValid) return false;
+
+    parsed.scenes.forEach((s: any, idx: number) => {
+      if (!s.chapterLabel) {
+        s.chapterLabel = defaultLabels[idx] || 'CLASSIFIED ANOMALY';
+      }
+      let script = String(s.voiceScript || '').trim();
+
+      // Enforce Chapter 1 explicitly names the artifact/subject in the opening sentence
+      if (idx === 0) {
+        const subjectWords = cleanSubject.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const scriptLower = script.toLowerCase();
+        const hasSubject = subjectWords.length > 0
+          ? subjectWords.some(w => scriptLower.includes(w))
+          : scriptLower.includes(cleanSubject.toLowerCase());
+        if (!hasSubject) {
+          script = `${cleanSubject}: ${script}`;
+        }
+      }
+
+      // Ban/scrub any academic jargon
+      for (const pattern of BANNED_ACADEMIC_FILLER) {
+        if (pattern.test(script)) {
+          script = script.replace(pattern, 'documented evidence');
+        }
+      }
+      s.voiceScript = script;
+
+      const estWords = script.split(/\s+/).filter(Boolean).length;
+      const numCuts = Math.max(2, Math.ceil((estWords / 2.2) / 3.0));
+      s.cuts = ensureChapterCuts(s, idx, numCuts, cleanSubject);
+    });
+
+    // Ensure caption has 3 theories and debate CTA
+    if (!parsed.caption || parsed.caption.length < 80 || !/Theory A/i.test(parsed.caption) || !/Which theory do you believe/i.test(parsed.caption)) {
+      parsed.caption = [
+        `ARCHIVAL CASE FILE // ${cleanSubject.toUpperCase()}`,
+        '',
+        `Deep in the historical record lies the documented account of ${cleanSubject}. Official archives verify that ${cleanSubject} presents an anomaly that challenges standard historical explanations.`,
+        '',
+        `THREE COMPETING THEORIES:`,
+        `• Theory A (Mainstream Record): Historians argue it was an elaborate medieval production or cryptographic exercise created using methods of the era.`,
+        `• Theory B (Covert Origin): Forensic examiners suggest an undocumented specialized craft or encrypted system was deliberately concealed from public records.`,
+        `• Theory C (The Unsolved Anomaly): Independent researchers point to physical and structural characteristics that break conventional models entirely.`,
+        '',
+        `DEBATE: Which theory do you believe: A, B, or C? Drop your thoughts below.`,
+        '',
+        `Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜`
+      ].filter(Boolean).join('\n');
+    }
+
+    return true;
+  };
+
+  // 1. Primary: Try Gemini Models
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (apiKey && apiKey.length >= 5) {
     const ai = new GoogleGenAI({ apiKey });
-    const modelsToTry = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
+    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-latest'];
 
     for (const model of modelsToTry) {
       try {
@@ -1900,12 +2520,9 @@ Return ONLY valid JSON matching this schema:
         const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
         const parsed = JSON.parse(cleaned);
 
-        if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length >= 3) {
-          const allScenesValid = parsed.scenes.every((s: any) => s && typeof s.voiceScript === 'string' && s.voiceScript.trim().length >= 15);
-          if (allScenesValid) {
-            console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via Gemini (${model}) for "${dossier.subject}" (${parsed.scenes.length} scenes).`);
-            return parsed;
-          }
+        if (sanitizeParsedScenes(parsed)) {
+          console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via Gemini (${model}) for "${dossier.subject}" (${parsed.scenes.length} chapters, 45-90s long-form).`);
+          return parsed;
         }
       } catch (err: any) {
         console.warn(`[Content Intelligence] Gemini AI script generation via ${model} notice (${err?.message?.slice(0, 80)}). Trying fallback...`);
@@ -1920,7 +2537,7 @@ Return ONLY valid JSON matching this schema:
       const model = process.env.NEMOTRON_MODEL || 'nvidia/nemotron-3.5-lightning:free';
       const url = `${process.env.NVIDIA_NIM_URL || 'https://openrouter.ai/api/v1'}/chat/completions`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25000);
+      const timeout = setTimeout(() => controller.abort(), 8000);
 
       const resp = await fetch(url, {
         method: 'POST',
@@ -1947,12 +2564,9 @@ Return ONLY valid JSON matching this schema:
         if (content) {
           const cleaned = String(content).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
           const parsed = JSON.parse(cleaned);
-          if (parsed && Array.isArray(parsed.scenes) && parsed.scenes.length >= 3) {
-            const allScenesValid = parsed.scenes.every((s: any) => s && typeof s.voiceScript === 'string' && s.voiceScript.trim().length >= 15);
-            if (allScenesValid) {
-              console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via Nemotron (${model}) for "${dossier.subject}" (${parsed.scenes.length} scenes).`);
-              return parsed;
-            }
+          if (sanitizeParsedScenes(parsed)) {
+            console.info(`[Content Intelligence] 🎬 Bespoke AI documentary script synthesized via Nemotron (${model}) for "${dossier.subject}" (${parsed.scenes.length} chapters, 45-90s long-form).`);
+            return parsed;
           }
         }
       }
@@ -2001,7 +2615,27 @@ export async function constructDocumentaryReelPackage(
   ];
   let structure: NarrativeStructureType = 'chronological_reconstruction';
 
-  if (aiScript && Array.isArray(aiScript.scenes) && aiScript.scenes.length >= 3) {
+  const isOperationGenre = /operation|espionage|spy|sabotage|heist|infiltrat|military|covert|fbi|cia|pastorius/i.test(`${dossier.subject} ${dossier.centralPremise || ''}`);
+
+  const defaultChapterLabels = isOperationGenre
+    ? [
+        'ARCHIVAL DOSSIER',
+        'THE OPERATION',
+        'TURNING POINT',
+        'THE BETRAYAL',
+        'CLASSIFIED COVERUP',
+        'HISTORICAL VERDICT'
+      ]
+    : [
+        'ARCHIVAL RECORD',
+        'HISTORICAL ORIGIN',
+        'PRIMARY INQUIRY',
+        'CRITICAL EVIDENCE',
+        'CLASSIFIED DOSSIER',
+        'HISTORICAL VERDICT'
+      ];
+
+  if (aiScript && Array.isArray(aiScript.scenes) && aiScript.scenes.length >= 4) {
     reelTitle = aiScript.title || reelTitle;
     reelCaption = aiScript.caption || '';
     if (Array.isArray(aiScript.hashtags) && aiScript.hashtags.length > 0) {
@@ -2030,38 +2664,55 @@ export async function constructDocumentaryReelPackage(
       BRAND_PALETTE.warningRust
     ];
 
+    const cleanSubject = dossier.subject.split(/[:\-\—\(]/)[0].trim();
+
     scenes = aiScript.scenes.map((s, idx) => {
       const fallbackCtx = extractContextualSceneKeywords(dossier.subject, s.voiceScript || '', idx);
       const headline = (s.headline || '').trim().toUpperCase() || fallbackCtx.headline;
       const highlight = (s.highlight || '').trim().toUpperCase() || headline;
       const subline = (s.subline || '').trim() || s.voiceScript.slice(0, 60);
+      const sceneDur = calcDuration(s.voiceScript, 7.5);
+      const numCuts = Math.max(2, Math.ceil(sceneDur / 3.0));
+      const chapterLabel = s.chapterLabel || defaultChapterLabels[idx] || 'CLASSIFIED ANOMALY';
+      const historicalEra = (s as any).historicalEra || detectHistoricalEra(cleanSubject, `${dossier.subject} ${s.voiceScript || ''}`);
+      const visualBeats = (Array.isArray((s as any).visualBeats) && (s as any).visualBeats.length === numCuts)
+        ? (s as any).visualBeats
+        : splitNarrationIntoVisualBeats(s.voiceScript || cleanSubject, numCuts);
+      const cuts = ensureChapterCuts({ ...s, historicalEra, visualBeats }, idx, numCuts, cleanSubject, dossier.subject);
 
       return {
         order: idx + 1,
-        durationSeconds: calcDuration(s.voiceScript, 7.5),
+        chapterLabel,
+        durationSeconds: sceneDur,
         headline,
         highlight,
         subline,
         voiceScript: s.voiceScript.trim(),
+        visualDescription: s.visualDescription || fallbackCtx.imagePrompt,
+        onScreenText: s.onScreenText || s.highlight || headline,
+        transition: s.transition || (idx === aiScript.scenes.length - 1 ? 'fade-out' : 'smooth-cut'),
         bRollKeywords: Array.isArray(s.bRollKeywords) && s.bRollKeywords.length > 0 ? s.bRollKeywords : fallbackCtx.keywords,
         archivalQuery: s.archivalQuery || fallbackCtx.archivalQuery,
         imagePrompt: s.imagePrompt || fallbackCtx.imagePrompt,
         visualTheme: s.visualTheme || (idx % 2 === 0 ? 'minimal-dark' : 'monochrome-bold'),
         visualFormat: s.visualFormat || visualFormats[idx % visualFormats.length],
         accentColor: s.accentColor || accentColors[idx % accentColors.length],
-        pacingEffect: s.pacingEffect || pacingEffects[idx % pacingEffects.length]
+        pacingEffect: s.pacingEffect || pacingEffects[idx % pacingEffects.length],
+        cuts,
+        historicalEra,
+        visualBeats
       };
     });
   } else {
-    // 2. Resilient Organic Fallback (Zero static stock templates, derives narration directly from facts)
-    console.warn(`[Content Intelligence] AI script generation offline; assembling organic narrative for "${dossier.subject}"...`);
+    // 2. Resilient Organic Fallback (5-6 Chapter Deep-Dive with 3-Second Visual Cuts)
+    console.warn(`[Content Intelligence] AI script generation offline; assembling 6-chapter investigative documentary for "${dossier.subject}"...`);
 
     const cleanSubject = dossier.subject
       .replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '')
       .replace(/\s*\([^\)]*index[^\)]*\)/gi, '')
       .replace(/\s*\([^\)]*#\d+[^\)]*\)/gi, '')
       .replace(/:\s+.*$/, '')
-      .trim() || 'This classified event';
+      .trim() || 'This historical event';
 
     const fact0 = dossier.verifiedFacts[0] ? dossier.verifiedFacts[0].trim().replace(/\.+$/, '') : dossier.centralPremise;
     const fact1 = dossier.verifiedFacts[1] ? dossier.verifiedFacts[1].trim().replace(/\.+$/, '') : '';
@@ -2072,90 +2723,78 @@ export async function constructDocumentaryReelPackage(
     const sc1Context = extractContextualSceneKeywords(cleanSubject, fact1, 1);
     const sc2Context = extractContextualSceneKeywords(cleanSubject, fact2, 2);
     const sc3Context = extractContextualSceneKeywords(cleanSubject, aftermath, 3);
+    const sc4Context = extractContextualSceneKeywords(cleanSubject, fact1, 4);
+    const sc5Context = extractContextualSceneKeywords(cleanSubject, aftermath, 5);
 
-    // Build complete, rich documentary sentences (25-35 words each) with NO catalog headers, colons, or index codes
+    // Build plain, conversational storytelling sentences in 8th-grade English without academic filler
     const premiseText = dossier.centralPremise ? dossier.centralPremise.trim().replace(/\.+$/, '') : fact0;
-    const scene1Script = `Deep in the historical record lies the documented account of ${cleanSubject}. ${premiseText}.`;
-    const scene2Script = fact0
-      ? `${fact0}. Official contemporaneous records confirm the operational sequence was documented in meticulous detail.`
-      : `Contemporaneous documentation preserved the sequence of operational developments in meticulous detail.`;
-    const scene3Script = fact1 || fact2
-      ? `${fact1 || fact2}. The physical evidence marked an indelible turning point in archival history.`
-      : `Primary field investigations corroborated the permanent historical significance of the discovery.`;
-    const scene4Script = aftermath
-      ? `${aftermath}. To this day, researchers continue to analyze the physical evidence. Whose account do you actually believe? Comment below.`
-      : `The historical record remains one of the most compelling documented cases in modern archives. Comment your theory below.`;
 
-    scenes = [
-      {
-        order: 1,
-        durationSeconds: calcDuration(scene1Script, 7.5),
-        headline: sc0Context.headline || dossier.subject.slice(0, 24).toUpperCase(),
-        highlight: fact0.slice(0, 36).toUpperCase(),
-        subline: fact0,
-        voiceScript: scene1Script,
-        bRollKeywords: sc0Context.keywords,
-        archivalQuery: sc0Context.archivalQuery,
-        imagePrompt: sc0Context.imagePrompt,
-        visualTheme: 'minimal-dark',
-        visualFormat: 'full-bleed-cinematic',
-        accentColor: BRAND_PALETTE.antiqueGold,
-        pacingEffect: 'subtle-drift'
-      },
-      {
-        order: 2,
-        durationSeconds: calcDuration(scene2Script, 8.0),
-        headline: sc1Context.headline || 'CONTEMPORANEOUS RECORD',
-        highlight: fact1 ? fact1.slice(0, 36).toUpperCase() : 'DOCUMENTED SEQUENCE',
-        subline: fact1 || 'Official records preserved the operational sequence.',
-        voiceScript: scene2Script,
-        bRollKeywords: sc1Context.keywords,
-        archivalQuery: sc1Context.archivalQuery,
-        imagePrompt: sc1Context.imagePrompt,
-        visualTheme: 'monochrome-bold',
-        visualFormat: 'classified-dossier',
-        accentColor: BRAND_PALETTE.slateSteel,
-        pacingEffect: 'zoom-in'
-      },
-      {
-        order: 3,
-        durationSeconds: calcDuration(scene3Script, 8.0),
-        headline: sc2Context.headline || 'CRITICAL RESOLUTION',
-        highlight: fact2 ? fact2.slice(0, 36).toUpperCase() : 'HISTORICAL EVIDENCE',
-        subline: fact2 || 'The physical evidence altered subsequent investigation.',
-        voiceScript: scene3Script,
-        bRollKeywords: sc2Context.keywords,
-        archivalQuery: sc2Context.archivalQuery,
-        imagePrompt: sc2Context.imagePrompt,
-        visualTheme: 'minimal-dark',
-        visualFormat: 'full-bleed-cinematic',
-        accentColor: BRAND_PALETTE.antiqueGold,
-        pacingEffect: 'subtle-drift'
-      },
-      {
-        order: 4,
-        durationSeconds: calcDuration(scene4Script, 7.5),
-        headline: sc3Context.headline || 'DOCUMENTED AFTERMATH',
-        highlight: 'ARCHIVAL IMPACT',
-        subline: aftermath || 'Documented across public archive indices.',
-        voiceScript: scene4Script,
-        bRollKeywords: sc3Context.keywords,
-        archivalQuery: sc3Context.archivalQuery,
-        imagePrompt: sc3Context.imagePrompt,
-        visualTheme: 'minimal-dark',
-        visualFormat: 'satellite-telemetry',
-        accentColor: BRAND_PALETTE.deepTelemetryCyan,
-        pacingEffect: 'pulse'
-      }
+    const scene1Script = `Have you ever heard the true story of ${cleanSubject}? In official records, ${premiseText}.`;
+    const scene2Script = isOperationGenre
+      ? `Here is how the covert mission was organized. ${fact0}. Operatives were deployed under strict wartime secrecy.`
+      : `Here is where the investigation began. ${fact0}. Historians originally assumed it was standard documentation.`;
+    const scene3Script = isOperationGenre
+      ? `Then the operation hit an unexpected turning point. Key operatives made critical mistakes that compromised their cover.`
+      : `Then archival investigators uncovered a major contradiction in the timeline and primary documentation.`;
+    const scene4Script = isOperationGenre
+      ? `That was when the entire plan unraveled. ${fact1 || fact0}. A confidential confession broke the mission wide open.`
+      : `That was when the first major anomaly surfaced. ${fact1 || fact0}. The historical evidence broke mainstream assumptions.`;
+    const scene5Script = isOperationGenre
+      ? `Then authorities moved swiftly to control the narrative. ${fact2 || 'Classified records reveal how the true breakdown was kept from the public for decades.'}`
+      : `Then things got even stranger. ${fact2 || 'Further analysis revealed details that could not be explained by existing records.'}.`;
+    const scene6Script = `So what really happened during ${cleanSubject}? ${aftermath || 'The records prove this happened, but the full implications remain debated.'}. Which theory do you believe?`;
+
+    const rawSceneScripts = [
+      { script: scene1Script, label: defaultChapterLabels[0], ctx: sc0Context, format: 'full-bleed-cinematic' as const, accent: BRAND_PALETTE.antiqueGold },
+      { script: scene2Script, label: defaultChapterLabels[1], ctx: sc1Context, format: 'classified-dossier' as const, accent: BRAND_PALETTE.slateSteel },
+      { script: scene3Script, label: defaultChapterLabels[2], ctx: sc2Context, format: 'satellite-telemetry' as const, accent: BRAND_PALETTE.deepTelemetryCyan },
+      { script: scene4Script, label: defaultChapterLabels[3], ctx: sc3Context, format: 'classified-dossier' as const, accent: BRAND_PALETTE.warningRust },
+      { script: scene5Script, label: defaultChapterLabels[4], ctx: sc4Context, format: 'full-bleed-cinematic' as const, accent: BRAND_PALETTE.antiqueGold },
+      { script: scene6Script, label: defaultChapterLabels[5], ctx: sc5Context, format: 'satellite-telemetry' as const, accent: BRAND_PALETTE.deepTelemetryCyan }
     ];
 
+    scenes = rawSceneScripts.map((item, idx) => {
+      const dur = calcDuration(item.script, 8.0);
+      const numCuts = Math.max(2, Math.ceil(dur / 3.0));
+      const historicalEra = detectHistoricalEra(cleanSubject, `${dossier.subject} ${item.script}`);
+      const visualBeats = splitNarrationIntoVisualBeats(item.script || cleanSubject, numCuts);
+      const cuts = ensureChapterCuts({ voiceScript: item.script, historicalEra, visualBeats }, idx, numCuts, cleanSubject, dossier.subject);
+
+      return {
+        order: idx + 1,
+        chapterLabel: item.label,
+        durationSeconds: dur,
+        headline: item.ctx.headline || item.label,
+        highlight: item.label,
+        subline: item.script.slice(0, 75),
+        voiceScript: item.script,
+        visualDescription: `Cinematic archival visualization of ${cleanSubject} (${item.label})`,
+        onScreenText: item.label,
+        transition: idx === rawSceneScripts.length - 1 ? 'fade-out' : 'smooth-cut',
+        bRollKeywords: item.ctx.keywords,
+        archivalQuery: item.ctx.archivalQuery,
+        imagePrompt: item.ctx.imagePrompt,
+        visualTheme: idx % 2 === 0 ? 'minimal-dark' : 'monochrome-bold',
+        visualFormat: item.format,
+        accentColor: item.accent,
+        pacingEffect: idx === 0 ? 'subtle-drift' : idx === 1 ? 'zoom-in' : 'pulse',
+        cuts,
+        historicalEra,
+        visualBeats
+      };
+    });
+
     reelCaption = [
-      `The documented story behind ${dossier.subject}:`,
+      `ARCHIVAL CASE FILE // ${cleanSubject.toUpperCase()}`,
       '',
-      `• ${fact0}`,
-      fact1 ? `• ${fact1}` : '',
-      fact2 ? `• ${fact2}` : '',
-      aftermath ? `• ${aftermath}` : '',
+      `Deep in the historical record lies the documented account of ${cleanSubject}. Official archives verify that ${fact0}, yet the full physical evidence continues to challenge standard historical explanations.`,
+      '',
+      `THREE COMPETING THEORIES:`,
+      `• Theory A (Mainstream Record): Historians argue ${fact0 ? fact0.slice(0, 100) : 'it was a conventional historical artifact created using standard methods of the era'}.`,
+      `• Theory B (Covert / Lost Technology): Forensic examiners suggest ${fact1 ? fact1.slice(0, 100) : 'an undocumented specialized craft or encrypted system was deliberately concealed'}.`,
+      `• Theory C (The Unsolved Anomaly): Independent researchers point to ${(fact2 || aftermath) ? (fact2 || aftermath).slice(0, 100) : 'unexplained physical characteristics that break conventional models entirely'}.`,
+      '',
+      `DEBATE: Which theory do you believe: A, B, or C? Drop your thoughts below.`,
       '',
       dossier.citations[0] ? `Source: ${dossier.citations.map(c => c.sourceName).join(' | ')}` : 'Source: Official Archive & Primary Documentation',
       '',

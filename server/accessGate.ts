@@ -42,7 +42,7 @@ function safeEqual(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-function constantTimeStringEqual(a: string, b: string): boolean {
+export function constantTimeStringEqual(a: string, b: string): boolean {
   const hashA = crypto.createHash("sha256").update(a).digest();
   const hashB = crypto.createHash("sha256").update(b).digest();
   return crypto.timingSafeEqual(hashA, hashB);
@@ -50,15 +50,21 @@ function constantTimeStringEqual(a: string, b: string): boolean {
 
 function getClientIp(req: Request): string {
   const cfIp = req.headers["cf-connecting-ip"];
-  if (typeof cfIp === "string" && cfIp.trim()) return cfIp.trim();
+  if (typeof cfIp === "string" && cfIp.trim()) {
+    const clean = cfIp.trim().replace(/[^a-fA-F0-9:.]/g, "");
+    if (clean) return clean;
+  }
   const xRealIp = req.headers["x-real-ip"];
-  if (typeof xRealIp === "string" && xRealIp.trim()) return xRealIp.trim();
+  if (typeof xRealIp === "string" && xRealIp.trim()) {
+    const clean = xRealIp.trim().replace(/[^a-fA-F0-9:.]/g, "");
+    if (clean) return clean;
+  }
   const xff = req.headers["x-forwarded-for"];
   if (typeof xff === "string" && xff.trim()) {
-    const first = xff.split(",")[0].trim();
+    const first = xff.split(",")[0].trim().replace(/[^a-fA-F0-9:.]/g, "");
     if (first) return first;
   }
-  return req.ip || req.socket.remoteAddress || "unknown";
+  return (req.ip || req.socket.remoteAddress || "unknown").replace(/[^a-fA-F0-9:.]/g, "");
 }
 
 function verifyPassword(password: string, encodedHash: string): boolean {
@@ -112,7 +118,7 @@ function clearSession(res: Response, req?: Request): void {
   );
 }
 
-function hasValidSession(req: Request): boolean {
+export function hasValidSession(req: Request): boolean {
   const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
   if (!token) return false;
 
@@ -125,6 +131,29 @@ function hasValidSession(req: Request): boolean {
   }
 
   return true;
+}
+
+export function isAuthorizedAdminRequest(req: Request): boolean {
+  if (hasValidSession(req)) return true;
+
+  const headerKey = String(
+    req.headers["x-admin-key"] ||
+    req.headers["x-texvic-worker-token"] ||
+    (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "") ||
+    ""
+  ).trim();
+
+  if (!headerKey || headerKey.length < 16) return false;
+
+  const validKey = (process.env.TOKEN_ENCRYPTION_KEY || "").trim();
+  const workerKey = (process.env.VIDEO_WORKER_TOKEN || "").trim();
+  const ownerPass = (process.env.TEXVIC_OWNER_PASSWORD || "").trim();
+
+  if (validKey && validKey.length >= 16 && constantTimeStringEqual(headerKey, validKey)) return true;
+  if (workerKey && workerKey.length >= 16 && constantTimeStringEqual(headerKey, workerKey)) return true;
+  if (ownerPass && ownerPass.length >= 8 && constantTimeStringEqual(headerKey, ownerPass)) return true;
+
+  return false;
 }
 
 function isPublicPath(req: Request): boolean {

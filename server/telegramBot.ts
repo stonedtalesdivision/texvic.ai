@@ -75,6 +75,14 @@ export function saveTelegramConfig(token: string, chatId: string): { success: bo
     const cleanToken = token.trim();
     const cleanChatId = chatId.trim();
 
+    if (!/^[0-9]+:[a-zA-Z0-9_-]+$/.test(cleanToken)) {
+      return { success: false, message: 'Invalid Telegram Bot Token format. Expected format: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ' };
+    }
+
+    if (!/^-?[0-9]+$/.test(cleanChatId)) {
+      return { success: false, message: 'Invalid Telegram Chat ID format. Expected numeric identifier.' };
+    }
+
     process.env.TELEGRAM_BOT_TOKEN = cleanToken;
     process.env.TELEGRAM_CHAT_ID = cleanChatId;
 

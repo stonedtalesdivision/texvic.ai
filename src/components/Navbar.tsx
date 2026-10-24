@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Instagram, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, LogOut, Archive, Users, ChevronDown, Dna, Plus } from 'lucide-react';
+import { Sparkles, Instagram, Facebook, Flame, MessageSquare, Calendar, Film, BarChart3, Bot, CheckCircle2, Zap, LogOut, Archive, Users, ChevronDown, Dna, Plus } from 'lucide-react';
 import { AccountAnalytics, ManagedAccount } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -8,10 +8,11 @@ interface NavbarProps {
   setActiveTab: (tab: 'analytics' | 'reels' | 'posts' | 'comments' | 'schedule' | 'gallery' | 'assets' | 'autonomous' | 'swarm') => void;
   analytics: AccountAnalytics;
   instagramConnected: boolean;
+  facebookConnected?: boolean;
   autonomousMode: boolean;
   setAutonomousMode: (val: boolean | ((prev: boolean) => boolean)) => void;
   pendingCommentsCount: number;
-  onOpenAccountConnector?: () => void;
+  onOpenAccountConnector?: (channel?: 'instagram' | 'facebook_page' | 'facebook_account') => void;
   autonomous24x7Enabled?: boolean;
   onLogout?: () => void;
   accounts?: ManagedAccount[];
@@ -27,6 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   analytics,
   instagramConnected,
+  facebookConnected = false,
   autonomousMode,
   setAutonomousMode,
   pendingCommentsCount,
@@ -190,11 +192,33 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {onOpenAccountConnector && (
-            <button type="button" onClick={onOpenAccountConnector} className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors">
-              <Instagram className="w-3.5 h-3.5 text-pink-400" />
-              <span className="hidden xs:inline">{instagramConnected ? 'Instagram Connected' : 'Connect Instagram'}</span>
-              <span className="xs:hidden">{instagramConnected ? 'Connected' : 'Connect IG'}</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => onOpenAccountConnector('instagram')}
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title={instagramConnected ? 'Instagram Account Connected' : 'Connect Instagram Account'}
+              >
+                <Instagram className="w-3.5 h-3.5 text-pink-400" />
+                <span className="hidden xs:inline">{instagramConnected ? 'Instagram Connected' : 'Connect Instagram'}</span>
+                <span className="xs:hidden">{instagramConnected ? 'IG Live' : 'Connect IG'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onOpenAccountConnector('facebook_page')}
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  facebookConnected
+                    ? 'bg-blue-950/40 hover:bg-blue-900/50 text-blue-300 border-blue-500/40 shadow-sm shadow-blue-500/10'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                }`}
+                title={facebookConnected ? 'Facebook Page Connected & Ready for Cross-Posting' : 'Connect Facebook Page for Cross-Posting'}
+              >
+                <Facebook className="w-3.5 h-3.5 text-blue-400" />
+                <span className="hidden xs:inline">{facebookConnected ? 'FB Page Connected' : 'Connect FB Page'}</span>
+                <span className="xs:hidden">{facebookConnected ? 'FB Live' : 'Connect FB'}</span>
+              </button>
+            </div>
           )}
 
           <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800">

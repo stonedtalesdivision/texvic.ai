@@ -3,7 +3,7 @@ import {
   Play, Pause, Volume2, VolumeX, Heart, MessageCircle, Send, Bookmark, 
   Music, Eye, Share2, Sparkles, Check, Download, Calendar, Layers, ShieldCheck,
   Trash2, Loader2, CheckCircle2, ExternalLink, X, ChevronLeft, ChevronRight,
-  Gauge, Copy
+  Gauge, Copy, Facebook
 } from 'lucide-react';
 import { ReelItem, TrendingAudio } from '../types';
 import { playTrendingAudioTrack, stopAudioTrack, setBeatListener } from '../utils/audioSynth';
@@ -15,6 +15,8 @@ interface ReelPlayerProps {
   onPublishNow?: (reel: ReelItem) => void | Promise<void>;
   onDelete?: (reel: ReelItem) => void | Promise<void>;
   onClose?: () => void;
+  onOpenAccountConnector?: (channel?: 'instagram' | 'facebook_page' | 'facebook_account') => void;
+  onShowToast?: (msg: string) => void;
 }
 
 const IMPACT_WORD_REGEX = /^(lost|doomsday|secret|secrets|stolen|heist|never|banned|truth|archive|warning|found|killed|disappeared|classified|hidden|conspiracy|unsolved|trillion|billion|million|cad|autocad|rhino|revit|bim|ai|pros|pro|shortcut|shortcuts|trick|tricks|hack|hacks|mistake|mistakes|blueprint|blueprints|rule|rules|workflow|workflows|drawing|drawings|render|rendering|speed|faster|fast|free|stop|destroys|destroy|illegal|power|powerful|ultimate|cheat|code|floorplan|3d|\$\d+.*|\d+[%a-z]*|#\d+)$/i;
@@ -86,7 +88,16 @@ function renderSingleFocusText(
   });
 }
 
-export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave, onPublishNow, onDelete, onClose }) => {
+export const ReelPlayer: React.FC<ReelPlayerProps> = ({ 
+  reel, 
+  onSchedule, 
+  onSave, 
+  onPublishNow, 
+  onDelete, 
+  onClose,
+  onOpenAccountConnector,
+  onShowToast
+}) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -555,13 +566,63 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
     setTimeout(() => setExported(false), 2400);
   };
 
+  const [localFbPermalink, setLocalFbPermalink] = useState<string | null>(reel.fb_permalink || null);
+  const [localIgPermalink, setLocalIgPermalink] = useState<string | null>(reel.permalink || null);
+  const [localPublished, setLocalPublished] = useState<boolean>(
+    reel.status === 'published' || Boolean(reel.instagramPostId) || Boolean(reel.ig_media_id)
+  );
+
+  useEffect(() => {
+    if (reel.fb_permalink) setLocalFbPermalink(reel.fb_permalink);
+    if (reel.permalink) setLocalIgPermalink(reel.permalink);
+    if (reel.status === 'published' || Boolean(reel.instagramPostId) || Boolean(reel.ig_media_id)) {
+      setLocalPublished(true);
+    }
+  }, [reel.fb_permalink, reel.permalink, reel.status, reel.instagramPostId, reel.ig_media_id]);
+
   const handlePublishClick = async () => {
     if (!onPublishNow) return;
     setIsPublishing(true);
     try {
       await onPublishNow(reel);
+      setLocalPublished(true);
+      if (reel.permalink) setLocalIgPermalink(reel.permalink);
+      if (reel.fb_permalink) setLocalFbPermalink(reel.fb_permalink);
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  const [isPublishingFb, setIsPublishingFb] = useState(false);
+
+  const handlePublishFacebookClick = async () => {
+    setIsPublishingFb(true);
+    try {
+      const res = await fetch('/api/reels/publish-facebook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reelId: reel.id })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to publish Reel to Facebook Page.');
+      }
+      reel.fb_video_id = data.videoId;
+      reel.fb_permalink = data.permalink;
+      reel.fb_status = 'published';
+      setLocalFbPermalink(data.permalink);
+    } catch (err: any) {
+      const msg = err?.message || 'Failed to publish to Facebook Page.';
+      if (onShowToast) {
+        onShowToast(msg);
+      }
+      if (/configured|credentials|connect/i.test(msg) && onOpenAccountConnector) {
+        onOpenAccountConnector('facebook_page');
+      } else if (!onShowToast) {
+        alert(msg);
+      }
+    } finally {
+      setIsPublishingFb(false);
     }
   };
 
@@ -1330,46 +1391,121 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({ reel, onSchedule, onSave
 
         {/* Action Buttons */}
         <div className="flex flex-col gap-2.5 pt-2 border-t border-white/10">
-          {/* Prominent Publish Now Button or Published Live Badge */}
-          {reel.status === 'published' || Boolean(reel.instagramPostId) || Boolean(reel.ig_media_id) ? (
-            <div className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center justify-between shadow-sm">
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                Published Live on Instagram
-              </span>
-              {reel.permalink && (
-                <a
-                  href={reel.permalink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-emerald-300 hover:text-white underline inline-flex items-center gap-1 transition-colors"
-                >
-                  View Live <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-          ) : (
-            onPublishNow && (
-              <button
-                type="button"
-                disabled={isPublishing}
-                onClick={handlePublishClick}
-                className="w-full py-2.5 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-pink-600 via-rose-600 to-red-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-lg shadow-pink-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 active:scale-[0.99] cursor-pointer"
-              >
-                {isPublishing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Publishing Reel to Instagram Live...
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    Publish Now to Instagram
-                  </>
+          {/* Multi-Platform Publishing Controls */}
+          {(() => {
+            const hasIgPublished = Boolean(localPublished || localIgPermalink || reel.instagramPostId || reel.ig_media_id);
+            const hasFbPublished = Boolean(localFbPermalink || reel.fb_video_id || reel.fb_status === 'published');
+            const effectiveIgUrl = localIgPermalink || reel.permalink;
+            const effectiveFbUrl = localFbPermalink || reel.fb_permalink;
+
+            return (
+              <div className="space-y-2">
+                {/* Live Badges for already published platforms */}
+                {hasIgPublished && (
+                  <div className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center justify-between shadow-sm">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      Published Live on Instagram
+                    </span>
+                    {effectiveIgUrl && (
+                      <a
+                        href={effectiveIgUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-emerald-300 hover:text-white underline inline-flex items-center gap-1 transition-colors"
+                      >
+                        View IG <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
                 )}
-              </button>
-            )
-          )}
+
+                {hasFbPublished && (
+                  <div className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center justify-between shadow-sm">
+                    <span className="flex items-center gap-1.5">
+                      <Facebook className="w-4 h-4 text-blue-400" />
+                      Published Live on Facebook Page
+                    </span>
+                    {effectiveFbUrl && (
+                      <a
+                        href={effectiveFbUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-blue-300 hover:text-white underline inline-flex items-center gap-1 transition-colors"
+                      >
+                        View FB <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* If neither platform is published yet, offer a primary Broadcast to All button */}
+                {!hasIgPublished && !hasFbPublished && onPublishNow && (
+                  <button
+                    type="button"
+                    disabled={isPublishing || isPublishingFb}
+                    onClick={handlePublishClick}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-pink-600 via-purple-600 to-blue-600 hover:from-pink-500 hover:to-blue-500 text-white shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50 active:scale-[0.99] cursor-pointer"
+                    title="Broadcast this Reel simultaneously to Instagram and Facebook Page"
+                  >
+                    {isPublishing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Broadcasting Reel to All Channels...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        Broadcast to All (Instagram + Facebook Page)
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Dedicated Action Buttons for individual channels */}
+                <div className="flex gap-2">
+                  {!hasIgPublished && onPublishNow && (
+                    <button
+                      type="button"
+                      disabled={isPublishing || isPublishingFb}
+                      onClick={handlePublishClick}
+                      className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
+                      title="Post this Reel to Instagram"
+                    >
+                      {isPublishing ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      Post to Instagram
+                    </button>
+                  )}
+
+                  {!hasFbPublished && (
+                    <button
+                      type="button"
+                      disabled={isPublishingFb || isPublishing}
+                      onClick={handlePublishFacebookClick}
+                      className={`${!hasIgPublished ? 'flex-1' : 'w-full'} py-2 px-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 active:scale-[0.99] cursor-pointer`}
+                      title="Post this Reel directly to Facebook Page"
+                    >
+                      {isPublishingFb ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                          Posting to FB...
+                        </>
+                      ) : (
+                        <>
+                          <Facebook className="w-3.5 h-3.5 text-white fill-white" />
+                          Post to Facebook Page
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="flex gap-2">
             <button

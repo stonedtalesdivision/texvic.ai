@@ -184,11 +184,6 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     })()
   };
 
-  const prepared = await ensureAutonomousVisualAssets(reel);
-  if (!prepared.assets.length) {
-    throw new Error(`Failed to generate or select visual assets for reel "${reel.title || reel.id}".`);
-  }
-
   const rawScenes = Array.isArray(reel.scenes) ? reel.scenes : [];
   // Extract narration text for each scene
   const narrationTexts: string[] = rawScenes.map((sc: any, i: number) => 
@@ -245,6 +240,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       sceneDurations.push(sceneDur);
       speechDurations.push(audioDur);
       wordsList.push(timedWords);
+      rawScenes[i].durationSeconds = sceneDur;
       console.log(`[Reel Video Pipeline] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
     } else {
       // Synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
@@ -254,6 +250,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       sceneDurations.push(fallbackDur);
       speechDurations.push(0);
       wordsList.push([]);
+      rawScenes[i].durationSeconds = fallbackDur;
       console.warn(`[Reel Video Pipeline] Scene ${i + 1} generated silent sync bed (${fallbackDur}s).`);
     }
   }
@@ -279,6 +276,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
           speechDurations.push(audioDur);
           wordsList.push([]);
           realSpeechCount++;
+          rawScenes[i].durationSeconds = sceneDur;
           console.log(`[Reel Video Pipeline] Emergency scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s.`);
           continue;
         }
@@ -291,6 +289,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       sceneDurations.push(fallbackDur);
       speechDurations.push(0);
       wordsList.push([]);
+      rawScenes[i].durationSeconds = fallbackDur;
     }
   }
 
@@ -301,6 +300,12 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     console.log(`[Reel Video Pipeline] Master voiceover ready: ${voiceSegments.length} scene(s) concatenated (${realSpeechCount} active voice segments).`);
   } else {
     throw new Error(`[Reel Video Pipeline] Fatal: No voiceover could be produced for reel "${reel.title || reel.id}". Video composition aborted to prevent silent broadcast.`);
+  }
+
+  // Generate visual assets precisely calibrated to speech durations with dynamic 3-second cuts
+  const prepared = await ensureAutonomousVisualAssets(reel, { sceneDurations });
+  if (!prepared.assets.length) {
+    throw new Error(`Failed to generate or select visual assets for reel "${reel.title || reel.id}".`);
   }
 
   const scenes = prepared.assets.map((asset: any, index: number) => {
@@ -320,8 +325,8 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       crop: 'center' as const,
       zoom: isPortrait ? 1 : Number(scene.pacingEffect === 'zoom-in' ? 1.05 : 1),
       speed: 1,
-      transition: 'cut' as const,
-      text: scene.headline || scene.hookText || scene.secondaryText || scene.text || narrationText,
+      transition: (scene.transition === 'fade-out' ? 'fade' : 'cut') as any,
+      text: scene.onScreenText || scene.headline || scene.hookText || scene.secondaryText || scene.text || narrationText,
       voiceScript: scene.voiceScript || narrationText,
       voiceText: scene.voiceText || narrationText
     };

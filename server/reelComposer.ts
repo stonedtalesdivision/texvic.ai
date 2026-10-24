@@ -7,6 +7,7 @@ import { db } from './database.js';
 import { getAsset, markAssetUsed, selectAssets } from './assetLibrary.js';
 import { generateKineticAssSubtitles, type TimedSceneNarration } from './kineticSubtitleEngine.js';
 import { composeCinematicAudio } from './cinematicAudioEngine.js';
+import { composeWithHyperframes } from './hyperframesCompositor.js';
 
 export interface ReelScene {
   assetId: string;
@@ -21,6 +22,7 @@ export interface ReelScene {
   text?: string;
   narrationText?: string;
   voiceScript?: string;
+  voiceText?: string;
 }
 
 export interface ReelComposition {
@@ -100,9 +102,11 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       }
       vf.push('setsar=1');
 
-      // Subtle documentary film grading & vignette
-      vf.push('eq=contrast=1.06:saturation=1.12:brightness=-0.01');
-      vf.push('vignette=PI/4.5');
+      // For non-autonomous footage, apply unified Dark Archive grade (autonomous clips already graded before HUD)
+      if (!isFullVertical) {
+        vf.push('eq=saturation=0.45:contrast=1.25:brightness=-0.12');
+        vf.push('vignette=PI/4');
+      }
 
       const filters = [
         `setpts=PTS/${Math.max(0.25, Math.min(scene.speed || 1, 2))}`,
@@ -144,7 +148,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     let assPath: string | null = input.subtitlesPath || null;
     if (!assPath) {
       const timedNarrations: TimedSceneNarration[] = input.scenes.map(s => ({
-        text: s.narrationText || s.voiceScript || s.text || '',
+        text: s.narrationText || s.voiceScript || s.voiceText || s.text || '',
         duration: s.duration,
         speechDuration: s.speechDuration || s.audioDuration || s.duration,
         words: s.words || []
@@ -204,8 +208,50 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       }
     }
 
-    // 5. Final Assembly & Export
+    // 5. Studio-Grade HyperFrames Composition Engine
     const outputPath = input.outputPath || path.join(COMPOSER_DIR, `${input.reelId}-${Date.now()}.mp4`);
+    let reelRecord: any = null;
+    try {
+      reelRecord = db.prepare('SELECT title, vertical_badge FROM reels WHERE id = ?').get(input.reelId) as any;
+    } catch {}
+
+    try {
+      console.info(`[Reel Composer] 🎨 Attempting studio render via HyperFrames Compositor Engine...`);
+      const hfScenes = resolved.map((r, i) => ({
+        assetId: r.scene.assetId,
+        filePath: normalized[i] && fsSync.existsSync(normalized[i]) ? normalized[i] : r.asset.file_path,
+        duration: Math.max(0.5, r.scene.duration),
+        speechDuration: r.scene.speechDuration,
+        chapterLabel: (r.scene as any).chapterLabel,
+        headline: (r.scene as any).headline,
+        highlight: (r.scene as any).highlight,
+        subline: (r.scene as any).subline,
+        narrationText: r.scene.narrationText || r.scene.voiceScript || r.scene.voiceText || r.scene.text,
+        words: r.scene.words
+      }));
+
+      const hfResult = await composeWithHyperframes({
+        reelId: input.reelId,
+        scenes: hfScenes,
+        totalDuration,
+        masterAudioPath: (masterAudioPath && fsSync.existsSync(masterAudioPath)) ? masterAudioPath : input.voicePath,
+        outputPath,
+        reelTitle: reelRecord?.title || 'Historical Event',
+        verticalBadge: reelRecord?.vertical_badge || 'CLASSIFIED DOSSIER',
+        accentColor: input.accentColor || '#d4af37',
+        fps: input.fps || 30
+      });
+
+      if (hfResult.success && hfResult.outputPath && fsSync.existsSync(hfResult.outputPath)) {
+        console.info(`[Reel Composer] 🏆 HyperFrames Compositor completed broadcast master: ${hfResult.outputPath}`);
+        return { outputPath: hfResult.outputPath, reelId: input.reelId, scenes: input.scenes };
+      }
+      console.warn(`[Reel Composer] HyperFrames compositor notice (${hfResult.error || 'unspecified'}), falling back to direct FFmpeg assembly...`);
+    } catch (hfErr: any) {
+      console.warn(`[Reel Composer] HyperFrames compositor exception, continuing with FFmpeg fallback:`, hfErr?.message || hfErr);
+    }
+
+    // 6. Final Assembly & Export (FFmpeg Fallback)
     const finalArgs: string[] = ['-y', '-i', silentVideoPath];
 
     if (masterAudioPath && fsSync.existsSync(masterAudioPath)) {

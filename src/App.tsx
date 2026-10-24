@@ -64,9 +64,11 @@ export default function App() {
   const [insights, setInsights] = useState<StrategyInsight[]>(DEFAULT_STRATEGY_INSIGHTS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+  const [accountModalInitialChannel, setAccountModalInitialChannel] = useState<'instagram' | 'facebook_page' | 'facebook_account'>('instagram');
   const [isPersonaModalOpen, setIsPersonaModalOpen] = useState<boolean>(false);
   const [previewReel, setPreviewReel] = useState<ReelItem | null>(null);
   const [instagramConnected, setInstagramConnected] = useState(false);
+  const [facebookConnected, setFacebookConnected] = useState(false);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [activeAccountId, setActiveAccountId] = useState<string>('instagram_primary');
 
@@ -150,6 +152,12 @@ export default function App() {
           if (status.success && status.account && status.isConnected) {
             setAnalytics(prev => ({ ...prev, profile: status.account }));
           }
+        }
+
+        const fbStatusRes = await fetch('/api/auth/facebook/status');
+        if (fbStatusRes.ok) {
+          const fbStatus = await fbStatusRes.json().catch(() => ({}));
+          setFacebookConnected(Boolean(fbStatus?.success && fbStatus.page?.isConnected));
         }
 
         const res = await fetch('/api/state');
@@ -449,12 +457,24 @@ export default function App() {
       setReels(prev => prev.map(r => r.id === item.id ? {
         ...r,
         status: 'published',
-        instagramPostId: data.mediaId,
-        permalink: data.permalink,
+        instagramPostId: data.mediaId || r.instagramPostId,
+        ig_media_id: data.mediaId || r.ig_media_id,
+        permalink: data.permalink || r.permalink,
+        fb_video_id: data.fbVideoId || r.fb_video_id,
+        fb_permalink: data.fbPermalink || r.fb_permalink,
+        fb_status: data.fbVideoId ? 'published' : r.fb_status,
+        platforms_published: data.platformsPublished || r.platforms_published,
         publishTimestamp: new Date().toISOString()
       } : r));
 
-      showToast(`Published Reel "${item.title}" to Instagram.`);
+      if (data.facebookWarning) {
+        showToast(`Instagram published! (Note: ${data.facebookWarning})`);
+      } else {
+        const platformsStr = (data.platformsPublished && data.platformsPublished.length > 0)
+          ? data.platformsPublished.join(' & ')
+          : 'connected channels';
+        showToast(data.message || `Published Reel "${item.title}" to ${platformsStr}.`);
+      }
     } else {
       const res = await fetch('/api/posts/publish-now', {
         method: 'POST',
@@ -682,10 +702,14 @@ export default function App() {
         setActiveTab={setActiveTab}
         analytics={analytics}
         instagramConnected={instagramConnected}
+        facebookConnected={facebookConnected}
         autonomousMode={autonomousMode}
         setAutonomousMode={setAutonomousMode}
         pendingCommentsCount={pendingCommentsCount}
-        onOpenAccountConnector={() => setIsAccountModalOpen(true)}
+        onOpenAccountConnector={(channel = 'instagram') => {
+          setAccountModalInitialChannel(channel);
+          setIsAccountModalOpen(true);
+        }}
         autonomous24x7Enabled={autonomousConfig.enabled}
         onLogout={handleLogout}
         accounts={accounts}
@@ -702,10 +726,12 @@ export default function App() {
         onClose={() => setIsAccountModalOpen(false)}
         currentProfile={analytics.profile}
         isConnected={instagramConnected}
+        initialChannel={accountModalInitialChannel}
         onResetToZero={handleResetToZero}
         onOAuthConnected={handleOAuthConnected}
         onRefreshStatus={handleRefreshInstagramStatus}
         onDisconnect={handleDisconnectInstagram}
+        onFacebookStatusChanged={setFacebookConnected}
       />
 
       {/* Account Persona & Content DNA Studio Modal */}
@@ -778,7 +804,16 @@ export default function App() {
               {/* Scrollable Modal Content */}
               <div className="overflow-y-auto p-1.5 sm:p-5 no-scrollbar flex-1 flex flex-col items-center justify-center">
                 <div className="w-full">
-                  <ReelPlayer reel={previewReel} onClose={() => setPreviewReel(null)} />
+                  <ReelPlayer 
+                    reel={previewReel} 
+                    onClose={() => setPreviewReel(null)}
+                    onPublishNow={(reel) => handlePublishNow(reel, 'reel')}
+                    onOpenAccountConnector={(channel = 'facebook_page') => {
+                      setAccountModalInitialChannel(channel);
+                      setIsAccountModalOpen(true);
+                    }}
+                    onShowToast={showToast}
+                  />
                 </div>
               </div>
             </motion.div>
@@ -891,6 +926,11 @@ export default function App() {
                 onPublishNow={handlePublishNow}
                 onDeleteScheduled={handleDeleteScheduled}
                 onNavigateToCreate={() => setActiveTab('reels')}
+                onOpenAccountConnector={(channel = 'facebook_page') => {
+                  setAccountModalInitialChannel(channel);
+                  setIsAccountModalOpen(true);
+                }}
+                onShowToast={showToast}
               />
             </motion.div>
           )}
@@ -916,6 +956,10 @@ export default function App() {
                 onToggleTheme={toggleTheme}
                 onConvertedToReel={(newReel) => setReels(prev => [newReel, ...prev])}
                 onShowToast={showToast}
+                onOpenAccountConnector={(channel = 'facebook_page') => {
+                  setAccountModalInitialChannel(channel);
+                  setIsAccountModalOpen(true);
+                }}
               />
             </motion.div>
           )}

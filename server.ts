@@ -33,6 +33,7 @@ import {
   publishReelToFacebookAccount,
   getFacebookPageProfile,
   getFacebookUserProfile,
+  autoDetectFacebookPages,
   publishCarouselToInstagram,
   fetchLiveInstagramInsights, 
   fetchLiveInstagramComments, 
@@ -42,7 +43,7 @@ import {
 import { renderCarouselPostSlides } from "./server/carouselRenderer.js";
 import { learnAccountPersona } from "./server/accountPersonaEngine.js";
 import { encryptSecret, decryptSecret } from "./server/tokenVault.js";
-import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance } from "./server/accessGate.js";
+import { ownerAuthMiddleware, ownerAuthRoutes, startAuthMaintenance, hasValidSession, constantTimeStringEqual, isAuthorizedAdminRequest } from "./server/accessGate.js";
 import { THEME_PAGE_PROFILE, getActivePersona, buildThemeResearchContext, selectDynamicVertical, CONTENT_VERTICALS, type ContentVertical } from "./server/themePage.js";
 import { createVideoJob, getVideoJob, listVideoJobs, claimNextVideoJob, saveVideoOutput, updateVideoJob, verifyVideoWorkerToken, getVideoWorkerContract, verifyMediaSignature } from "./server/videoEngine.js";
 import multer from "multer";
@@ -58,7 +59,7 @@ import {
   computeStrategyFeedback, 
   StrategyFeedback 
 } from "./server/jobQueue.js";
-import { renderReelVideo, normalizeVideoUrl, extractSceneNarration } from "./server/reelPipeline.js";
+import { renderReelVideo, normalizeVideoUrl, extractSceneNarration, prepareReelSceneAssets } from "./server/reelPipeline.js";
 import { 
   conductDocumentaryResearch, 
   constructDocumentaryReelPackage, 
@@ -206,10 +207,60 @@ async function ensureInstagramConnected(accountParam?: any): Promise<any> {
   return account;
 }
 
+// Auto-heal / discover Facebook Page connection from environment variables or active token
+async function ensureFacebookPageConnected() {
+  let conn = getFacebookPageConnection();
+  if (conn?.isConnected && conn.pageId && conn.accessToken) {
+    return conn;
+  }
+
+  const envPageId = (process.env.FACEBOOK_PAGE_ID || '').trim();
+  const envToken = (process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || '').trim();
+
+  if (envToken && !envToken.startsWith('IG')) {
+    try {
+      console.log('[Facebook Connection Guard] Checking environment credentials for Facebook Page...');
+      const detectRes = await autoDetectFacebookPages(envToken, envPageId || undefined);
+      if (detectRes.success && detectRes.autoSelectedPage) {
+        const p = detectRes.autoSelectedPage;
+        saveFacebookConnection({
+          target: 'page',
+          id: p.id,
+          name: p.name || 'Facebook Page',
+          accessToken: p.accessToken,
+          username: p.name
+        });
+        console.log(`[Facebook Connection Guard] Auto-connected Facebook Page "${p.name}" (${p.id}) from environment variables.`);
+        return getFacebookPageConnection();
+      }
+    } catch (e: any) {
+      console.warn('[Facebook Connection Guard] Auto-heal from environment failed:', e?.message || e);
+    }
+  }
+
+  return conn;
+}
+
 // Health check endpoint for uptime and deployment monitoring
 app.get("/api/health", async (req, res) => {
   try {
     let account = db.prepare('SELECT username, account_id, is_connected FROM account_connections WHERE id = ?').get('instagram_primary') as any;
+
+    const hasMutatingAction = 
+      req.query.trigger_cycle === '1' ||
+      req.query.publish_queued === '1' ||
+      req.query.test_edge === '1' ||
+      req.query.test_voice === '1' ||
+      req.query.sync_instagram === '1';
+
+    if (hasMutatingAction && !isAuthorizedAdminRequest(req)) {
+      return res.status(401).json({
+        success: false,
+        error: "Administrative authorization required to trigger operational actions.",
+        hint: "Provide an active owner session or an admin authorization header (x-admin-key)."
+      });
+    }
+
     if (!account?.is_connected && (process.env.META_ACCESS_TOKEN || req.query.sync_instagram === '1')) {
       const ensured = await ensureInstagramConnected();
       if (ensured?.is_connected) {
@@ -670,158 +721,8 @@ async function validateRenderedReel(videoPath: string): Promise<{
 }
 
 async function selectAutonomousSceneAssets(reel: any): Promise<{ scenes: any[]; musicPath?: string; voicePath?: string } | null> {
-  const prepared = await ensureAutonomousVisualAssets(reel);
-  if (!prepared.assets.length || prepared.assets.length < (Array.isArray(reel.scenes) ? reel.scenes.length : 0)) {
-    return null;
-  }
-
-  // 1. Synthesize authentic neural voiceover FIRST and calculate exact duration for each scene!
-  let masterVoicePath: string | undefined;
-  const rawScenes = Array.isArray(reel.scenes) ? reel.scenes : [];
-
-  // Extract narration texts for cohesive studio synthesis
-  const narrationTexts: string[] = rawScenes.map((sc: any, i: number) =>
-    extractSceneNarration(sc, i, rawScenes.length, reel)
-  );
-
-  let cohesiveResult: any = null;
-  const hasNarration = narrationTexts.some(t => t && t.trim().length > 0);
-  if (hasNarration) {
-    try {
-      cohesiveResult = await generateCohesiveReelSpeech(narrationTexts, {
-        topic: reel?.title || reel?.niche,
-        mood: reel?.audio?.mood
-      });
-      console.log(`[Autonomous 24x7 Engine] 🎙️ Cohesive voice locked: "${cohesiveResult.voiceUsed}" across ${cohesiveResult.sceneAudioPaths.length} scene(s).`);
-    } catch (bulkErr) {
-      console.warn('[Autonomous 24x7 Engine] Cohesive TTS failed, falling back to scene loop:', bulkErr);
-    }
-  }
-
-  const voiceSegments: string[] = [];
-  const sceneDurations: number[] = [];
-  let realSpeechCount = 0;
-
-  for (let i = 0; i < rawScenes.length; i++) {
-    const sc = rawScenes[i];
-    let segPath: string | null = cohesiveResult?.sceneAudioPaths?.[i] || null;
-    let audioDur = cohesiveResult?.sceneDurations?.[i] || 0;
-
-    if (!segPath && narrationTexts[i]) {
-      try {
-        const selectedVoice = cohesiveResult?.voiceUsed || resolveBestVoiceForTopic(reel?.title || reel?.niche, reel?.audio?.mood);
-        segPath = await generateSpeech(narrationTexts[i], undefined, { voice: selectedVoice, rate: '+0%' });
-        audioDur = await getAudioDuration(segPath);
-      } catch (segErr) {
-        console.warn(`[Autonomous 24x7 Engine] Primary voiceover failed for scene ${i + 1}:`, segErr);
-      }
-    }
-
-    // If speech was produced, calibrate scene duration to speech plus breathing buffer and pad audio precisely
-    if (segPath && audioDur > 0) {
-      realSpeechCount++;
-      const sceneDur = Math.max(audioDur + 0.4, 4.0);
-      const paddedSeg = await padAudioSegment(segPath, sceneDur);
-      voiceSegments.push(paddedSeg);
-      sceneDurations.push(sceneDur);
-      console.log(`[Autonomous 24x7 Engine] Scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s scene duration.`);
-    } else {
-      // Create a synchronized silent spacer so subsequent scene voiceovers never fall out of alignment
-      const fallbackDur = Math.max(Number(sc?.durationSeconds || 6.0), 4.0);
-      const silentSeg = await generateSilentAudioSegment(fallbackDur);
-      voiceSegments.push(silentSeg);
-      sceneDurations.push(fallbackDur);
-      console.warn(`[Autonomous 24x7 Engine] Scene ${i + 1} generated silent sync bed (${fallbackDur}s).`);
-    }
-  }
-
-  // Guaranteed Safeguard: If primary neural TTS produced 0 speech segments, trigger guaranteed Piper Male TTS
-  if (realSpeechCount === 0 && narrationTexts.some(t => Boolean(t?.trim()))) {
-    console.warn(`[Autonomous 24x7 Engine] ⚠️ Emergency vocal synthesis triggered: primary TTS engines produced 0 segments. Synthesizing voiceover via guaranteed Piper Male TTS (Ryan Baritone)...`);
-    voiceSegments.length = 0;
-    sceneDurations.length = 0;
-    for (let i = 0; i < rawScenes.length; i++) {
-      const text = narrationTexts[i] || reel?.title || '';
-      try {
-        const segPath = path.join(process.cwd(), 'data', 'media', 'tts', `emergency-piper-${Date.now()}-${i}.mp3`);
-        await generateSpeechWithPiper(text, segPath);
-        const audioDur = await getAudioDuration(segPath);
-        if (audioDur > 0) {
-          const sceneDur = Math.max(audioDur + 0.4, 4.0);
-          const paddedSeg = await padAudioSegment(segPath, sceneDur);
-          voiceSegments.push(paddedSeg);
-          sceneDurations.push(sceneDur);
-          realSpeechCount++;
-          console.log(`[Autonomous 24x7 Engine] Emergency scene ${i + 1} voiceover: ${audioDur.toFixed(1)}s speech padded to ${sceneDur.toFixed(1)}s.`);
-          continue;
-        }
-      } catch (emErr) {
-        console.warn(`[Autonomous 24x7 Engine] Emergency scene ${i + 1} TTS error:`, emErr);
-      }
-      const fallbackDur = Math.max(Number(rawScenes[i]?.durationSeconds || 6.0), 4.0);
-      const silentSeg = await generateSilentAudioSegment(fallbackDur);
-      voiceSegments.push(silentSeg);
-      sceneDurations.push(fallbackDur);
-    }
-  }
-
-  if (voiceSegments.length > 0 && realSpeechCount > 0) {
-    const masterPath = path.join(process.cwd(), 'data', 'media', 'tts', `master-${reel.id || Date.now()}.mp3`);
-    masterVoicePath = await concatenateAudioTracks(voiceSegments, masterPath);
-    console.log(`[Autonomous 24x7 Engine] Master voiceover ready: ${voiceSegments.length} scene(s) concatenated (${realSpeechCount} active voice segments).`);
-  } else {
-    throw new Error(`[Autonomous 24x7 Engine] Fatal: No voiceover could be produced for reel "${reel.title || reel.id}". Reel generation aborted to prevent silent broadcast.`);
-  }
-
-  // 2. Assemble scenes with DYNAMICALLY CALIBRATED DURATIONS based on the TTS audio!
-  const scenes = prepared.assets.map((asset: any, index: number) => {
-    const scene = rawScenes[index] || {};
-    const dynamicDuration = sceneDurations[index] || Number(scene.durationSeconds || 8.0);
-    const isPortrait = (asset.width === 1080 && asset.height === 1920) || asset.source === "ffmpeg-autonomous-visual-producer";
-    const narrationText = extractSceneNarration(scene, index, prepared.assets.length, reel);
-    
-    // Choose clean, contextual on-screen caption matching what is spoken (no generic template clichés)
-    const onScreenPhrase = (() => {
-      const candidate = String(scene.highlight || scene.subline || scene.hookText || scene.secondaryText || scene.text || narrationText || '').trim();
-      if (!candidate || /^(the evidence|the outcome|the untold evidence|who do you believe\??|documented record)$/i.test(candidate)) {
-        return narrationText ? narrationText.slice(0, 70).replace(/[\.\,\:\;]+$/, '') : (scene.headline || reel?.title || '');
-      }
-      return candidate.slice(0, 70).replace(/[\.\,\:\;]+$/, '');
-    })();
-
-    return {
-      ...scene,
-      assetId: asset.id,
-      duration: dynamicDuration,
-      crop: "center",
-      zoom: isPortrait ? 1 : Number(scene.pacingEffect === "zoom-in" ? 1.05 : 1),
-      speed: 1,
-      transition: "cut",
-      headline: scene.headline || (index === 0 ? (reel?.title?.slice(0, 24)?.toUpperCase() || 'SPECIAL DOSSIER') : `FILE PART ${index + 1}`),
-      text: onScreenPhrase,
-      voiceScript: scene.voiceScript || narrationText,
-      voiceText: scene.voiceText || narrationText
-    };
-  });
-
-  // Calculate and update total duration on reel
-  const totalReelDuration = scenes.reduce((sum: number, s: any) => sum + s.duration, 0);
-  reel.duration = totalReelDuration;
-  console.log(`[Autonomous 24x7 Engine] Reel duration dynamically calibrated to ${totalReelDuration.toFixed(1)}s based on full TTS narration.`);
-
-  // Always use authentic, studio-produced royalty-free audio tracks (no robotic sine beeps)
-  const musicAsset = await ensureAutonomousAudioAsset(reel);
-  if (!musicAsset?.file_path) {
-    throw new Error("Autonomous Reel requires an authentic studio music asset.");
-  }
-
-  console.log(`[Autonomous 24x7 Engine] Media producer ready: ${prepared.generated} generated visual asset(s), ${prepared.assets.length} scene asset(s), audio=${musicAsset.id}, voice=${masterVoicePath ? 'present' : 'none'}.`);
-
-  return {
-    scenes,
-    musicPath: musicAsset.file_path,
-    voicePath: masterVoicePath
-  };
+  // Delegate strictly to prepareReelSceneAssets so TTS audio duration is the single source of truth
+  return prepareReelSceneAssets(reel);
 }
 // ==========================================
 // REUSABLE ASSET + REEL COMPOSER ENGINE
@@ -1342,8 +1243,16 @@ app.post("/api/auth/instagram/sync-token", async (req, res) => {
 
   const validKey = (process.env.TOKEN_ENCRYPTION_KEY || '').trim();
   const workerKey = (process.env.VIDEO_WORKER_TOKEN || '').trim();
+  const ownerPass = (process.env.TEXVIC_OWNER_PASSWORD || '').trim();
 
-  if (!secretKey || (secretKey !== validKey && secretKey !== workerKey)) {
+  const isKeyValid = Boolean(
+    (validKey && validKey.length >= 16 && constantTimeStringEqual(secretKey, validKey)) ||
+    (workerKey && workerKey.length >= 16 && constantTimeStringEqual(secretKey, workerKey)) ||
+    (ownerPass && ownerPass.length >= 8 && constantTimeStringEqual(secretKey, ownerPass)) ||
+    hasValidSession(req)
+  );
+
+  if (!isKeyValid) {
     return res.status(403).json({ success: false, error: "Invalid admin authorization key." });
   }
 
@@ -1771,6 +1680,7 @@ app.get("/api/account/status", async (req, res) => {
 
 // GET /api/auth/facebook/status - Get status of Facebook Page and Facebook User Account connections
 app.get("/api/auth/facebook/status", async (req, res) => {
+  await ensureFacebookPageConnected();
   const pageConn = getFacebookPageConnection();
   const accountConn = getFacebookAccountConnection();
 
@@ -1813,23 +1723,107 @@ app.get("/api/auth/facebook/status", async (req, res) => {
   });
 });
 
-// POST /api/auth/facebook/connect-page - Connect Facebook Page using Page ID & Page Access Token
-app.post("/api/auth/facebook/connect-page", async (req, res) => {
-  const pageId = String(req.body.pageId || '').trim();
-  const accessToken = String(req.body.accessToken || '').trim();
+// POST /api/auth/facebook/auto-detect - Auto-detect and auto-connect Facebook Pages from ANY Facebook Token
+app.post("/api/auth/facebook/auto-detect", async (req, res) => {
+  const token = String(req.body.token || req.body.accessToken || '').trim();
+  const pageIdentifier = req.body.pageIdentifier ? String(req.body.pageIdentifier).trim() : undefined;
+  const autoConnect = req.body.autoConnect !== false;
 
-  if (!pageId || !accessToken) {
+  if (!token) {
+    return res.status(400).json({ success: false, error: "Facebook access token is required." });
+  }
+
+  try {
+    const detectRes = await autoDetectFacebookPages(token, pageIdentifier);
+    if (!detectRes.success) {
+      return res.status(400).json(detectRes);
+    }
+
+    let connectedPage: any = null;
+    if (autoConnect && detectRes.autoSelectedPage) {
+      const p = detectRes.autoSelectedPage;
+      saveFacebookConnection({
+        target: 'page',
+        id: p.id,
+        name: p.name || 'Facebook Page',
+        accessToken: p.accessToken,
+        username: p.name
+      });
+      connectedPage = p;
+      console.log(`[Facebook Auth] ✅ Auto-detected and connected Facebook Page "${p.name}" (${p.id})`);
+    }
+
+    res.json({
+      success: true,
+      isPageToken: detectRes.isPageToken,
+      isUserToken: detectRes.isUserToken,
+      pages: detectRes.pages,
+      autoSelectedPage: detectRes.autoSelectedPage,
+      autoConnected: Boolean(connectedPage),
+      connectedPage,
+      message: connectedPage 
+        ? `Successfully connected Facebook Page "${connectedPage.name}" (${connectedPage.id})!` 
+        : `Found ${detectRes.pages?.length || 0} Facebook Pages. Please choose one to connect.`
+    });
+  } catch (err: any) {
+    console.error("[Facebook Auto-Detect] Error:", err);
+    res.status(500).json({ success: false, error: err?.message || 'Error during Facebook auto-detection.' });
+  }
+});
+
+// POST /api/auth/facebook/connect-page - Connect Facebook Page using Page ID & Page Access Token (or auto-detect if pageId omitted)
+app.post("/api/auth/facebook/connect-page", async (req, res) => {
+  let pageId = String(req.body.pageId || '').trim();
+  let accessToken = String(req.body.accessToken || '').trim();
+
+  if (!accessToken) {
     return res.status(400).json({
       success: false,
-      error: "Both Facebook Page ID and Page Access Token are required."
+      error: "Facebook Access Token is required."
     });
+  }
+
+  if (accessToken.startsWith('IGAA') || accessToken.startsWith('IGQ') || accessToken.startsWith('IG')) {
+    return res.status(400).json({
+      success: false,
+      error: "The provided token is an Instagram User Access Token (starts with 'IG...'). Facebook Pages require a Facebook Page Access Token (starts with 'EAAB...' or 'EAA...'). Please generate a Page Access Token in Meta Business Suite or Meta Graph API Explorer with 'pages_manage_posts' and 'publish_video' permissions."
+    });
+  }
+
+  // If pageId was omitted or empty, run auto-detection
+  if (!pageId) {
+    const detectRes = await autoDetectFacebookPages(accessToken);
+    if (!detectRes.success) {
+      return res.status(400).json({
+        success: false,
+        error: `Could not auto-detect Facebook Page from token: ${detectRes.error}`
+      });
+    }
+
+    if (detectRes.autoSelectedPage) {
+      pageId = detectRes.autoSelectedPage.id;
+      if (detectRes.autoSelectedPage.accessToken) {
+        accessToken = detectRes.autoSelectedPage.accessToken;
+      }
+    } else if (detectRes.pages && detectRes.pages.length > 1) {
+      return res.status(200).json({
+        success: true,
+        requiresSelection: true,
+        pages: detectRes.pages,
+        message: "Multiple Facebook Pages found. Please select which page to connect."
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "No Facebook Pages found associated with this token."
+      });
+    }
   }
 
   // Validate credentials live against Meta Graph API
   const profileRes = await getFacebookPageProfile(pageId, accessToken);
   if (!profileRes.success || !profileRes.data) {
     console.warn(`[Facebook Auth] Page validation notice: ${profileRes.error}`);
-    // If Meta returns error, return informative message to user
     return res.status(400).json({
       success: false,
       error: `Meta Graph API validation failed for Facebook Page: ${profileRes.error || 'Invalid credentials'}`
@@ -2225,6 +2219,12 @@ function getDatabaseState() {
     commentsCount: r.comments_count,
     shares: r.shares,
     reach: r.reach,
+    researchDossier: (() => {
+      try { return r.research_dossier_json ? JSON.parse(r.research_dossier_json) : undefined; } catch { return undefined; }
+    })(),
+    audit: (() => {
+      try { return r.audit_json ? JSON.parse(r.audit_json) : undefined; } catch { return undefined; }
+    })(),
     createdAt: r.created_at
   }));
 
@@ -2596,7 +2596,8 @@ app.post("/api/reels", (req, res) => {
       UPDATE reels 
       SET title = ?, niche = ?, duration = ?, audio_json = ?, scenes_json = ?, caption = ?, 
           hashtags_json = ?, hook_score = ?, retention_estimate = ?, status = ?, 
-          video_template_id = ?, video_url = ?, updated_at = ?
+          video_template_id = ?, video_url = ?, research_dossier_json = coalesce(?, research_dossier_json),
+          audit_json = coalesce(?, audit_json), updated_at = ?
       WHERE id = ?
     `).run(
       reel.title,
@@ -2611,6 +2612,8 @@ app.post("/api/reels", (req, res) => {
       resolvedStatus,
       reel.videoTemplateId || 'template-fast-hook',
       reel.videoUrl || null,
+      reel.researchDossier ? JSON.stringify(reel.researchDossier) : null,
+      reel.audit ? JSON.stringify(reel.audit) : null,
       new Date().toISOString(),
       reel.id
     );
@@ -2618,8 +2621,9 @@ app.post("/api/reels", (req, res) => {
     db.prepare(`
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
-        hook_score, retention_estimate, status, video_template_id, video_url, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        hook_score, retention_estimate, status, video_template_id, video_url,
+        research_dossier_json, audit_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       reel.id,
       reel.title,
@@ -2634,6 +2638,8 @@ app.post("/api/reels", (req, res) => {
       resolvedStatus,
       reel.videoTemplateId || 'template-fast-hook',
       reel.videoUrl || null,
+      reel.researchDossier ? JSON.stringify(reel.researchDossier) : null,
+      reel.audit ? JSON.stringify(reel.audit) : null,
       new Date().toISOString(),
       new Date().toISOString()
     );
@@ -2820,20 +2826,77 @@ Rules:
 const activePublishingReels = new Set<string>();
 const activePublishingPosts = new Set<string>();
 
-// Internal helper for publishing a reel to Instagram directly
-async function publishReelInternal(rawReel: any, accountParam?: any) {
+// Internal helper for publishing a reel to Instagram, Facebook Page, or Facebook Profile
+async function publishReelInternal(
+  rawReel: any,
+  accountParam?: any,
+  targetDestinations?: ('instagram' | 'facebook_page' | 'facebook_account')[]
+) {
   const reelId = rawReel?.id;
   const dbReel = reelId ? (db.prepare('SELECT * FROM reels WHERE id = ?').get(reelId) as any) : null;
   const currentReel = dbReel || rawReel;
 
-  // 1. Idempotency Guard: Never publish a reel that already has an Instagram media ID or is published
-  if (currentReel.status === 'published' || Boolean(currentReel.ig_media_id)) {
-    console.warn(`[Reel Publish] ⚠️ Reel "${currentReel.title}" (${currentReel.id}) is ALREADY published to Instagram (Media ID: ${currentReel.ig_media_id}). Preventing duplicate post.`);
+  // Resolve destination credentials
+  let account: any = null;
+  try {
+    account = await ensureInstagramConnected(accountParam);
+  } catch {
+    // Instagram may be unconfigured if only publishing to Facebook
+  }
+  const isIgConfigured = Boolean(account?.is_connected && account?.access_token && account?.account_id);
+
+  const fbPageConn = getFacebookPageConnection();
+  const isFbPageConfigured = Boolean(fbPageConn?.isConnected && fbPageConn.pageId && fbPageConn.accessToken);
+
+  const fbAccountConn = getFacebookAccountConnection();
+  const isFbAccountConfigured = Boolean(fbAccountConn?.isConnected && fbAccountConn.userId && fbAccountConn.accessToken);
+
+  if (!isIgConfigured && !isFbPageConfigured && !isFbAccountConfigured) {
+    throw new Error("No social destination connected. Please connect Instagram or Facebook credentials in Settings before publishing.");
+  }
+
+  // Parse existing published platforms
+  let existingPlatforms: string[] = [];
+  try {
+    const raw = typeof currentReel.platforms_published_json === 'string'
+      ? JSON.parse(currentReel.platforms_published_json)
+      : currentReel.platforms_published_json;
+    if (Array.isArray(raw)) existingPlatforms = [...raw];
+  } catch {}
+  if (currentReel.ig_media_id && !existingPlatforms.includes('instagram')) existingPlatforms.push('instagram');
+  if (currentReel.fb_video_id && !existingPlatforms.includes('facebook_page')) existingPlatforms.push('facebook_page');
+  if (currentReel.fb_account_video_id && !existingPlatforms.includes('facebook_account')) existingPlatforms.push('facebook_account');
+
+  // Check if Facebook Page was explicitly requested but is unconfigured
+  if (targetDestinations && targetDestinations.includes('facebook_page') && !targetDestinations.includes('instagram') && !isFbPageConfigured) {
+    throw new Error("Facebook Page credentials are not configured. Please open Settings -> Facebook Page and connect your Facebook Page before publishing.");
+  }
+
+  // Determine which destinations are requested and actually need publishing
+  const wantsIg = !targetDestinations || targetDestinations.includes('instagram');
+  const wantsFbPage = !targetDestinations || targetDestinations.includes('facebook_page');
+  const wantsFbAccount = !targetDestinations || targetDestinations.includes('facebook_account');
+
+  const needsInstagram = isIgConfigured && wantsIg && !Boolean(currentReel.ig_media_id);
+  const needsFbPage = isFbPageConfigured && wantsFbPage && (!Boolean(currentReel.fb_video_id) || currentReel.fb_status !== 'published');
+  const needsFbAccount = isFbAccountConfigured && wantsFbAccount && (!Boolean(currentReel.fb_account_video_id) || currentReel.fb_account_status !== 'published');
+
+  // 1. Idempotency Guard: If none of the requested & configured channels need publishing, exit early safely
+  if (!needsInstagram && !needsFbPage && !needsFbAccount) {
+    if (wantsFbPage && !isFbPageConfigured && (!currentReel.fb_video_id || currentReel.fb_status !== 'published')) {
+      throw new Error("Facebook Page credentials are not configured. Please open Settings -> Facebook Page to connect your Page before publishing.");
+    }
+    console.warn(`[Reel Publish] ℹ️ Reel "${currentReel.title}" (${currentReel.id}) is already published to all requested/configured channels. Preventing duplicate post.`);
     return {
       success: true,
       mediaId: currentReel.ig_media_id,
       permalink: currentReel.permalink,
       containerId: currentReel.ig_container_id,
+      fbVideoId: currentReel.fb_video_id,
+      fbPermalink: currentReel.fb_permalink,
+      fbAccountVideoId: currentReel.fb_account_video_id,
+      fbAccountPermalink: currentReel.fb_account_permalink,
+      platformsPublished: existingPlatforms,
       alreadyPublished: true
     };
   }
@@ -2841,7 +2904,7 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
   // 2. Concurrency Guard: Never allow simultaneous publishing of the same reel
   if (reelId && (activePublishingReels.has(reelId) || currentReel.status === 'publishing')) {
     console.warn(`[Reel Publish] ⚠️ Reel "${currentReel.title}" (${reelId}) is currently in the middle of being published. Aborting duplicate request.`);
-    throw new Error(`Reel "${currentReel.title}" is already being published to Instagram. Please wait for the current upload to finish.`);
+    throw new Error(`Reel "${currentReel.title}" is already being published. Please wait for the current upload to finish.`);
   }
 
   if (reelId) {
@@ -2881,20 +2944,6 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
           })()
     };
 
-    // Resolve destination credentials
-    const account = await ensureInstagramConnected(accountParam);
-    const isIgConfigured = Boolean(account?.is_connected && account?.access_token && account?.account_id);
-
-    const fbPageConn = getFacebookPageConnection();
-    const isFbPageConfigured = Boolean(fbPageConn?.isConnected && fbPageConn.pageId && fbPageConn.accessToken);
-
-    const fbAccountConn = getFacebookAccountConnection();
-    const isFbAccountConfigured = Boolean(fbAccountConn?.isConnected && fbAccountConn.userId && fbAccountConn.accessToken);
-
-    if (!isIgConfigured && !isFbPageConfigured && !isFbAccountConfigured) {
-      throw new Error("No social destination connected. Please connect Instagram or Facebook credentials in Settings before publishing.");
-    }
-
     let localDiskPath: string | undefined;
     let videoUrl = reel.video_url;
     if (videoUrl) {
@@ -2930,8 +2979,8 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
     const hashtagStr = Array.isArray(hashtags) ? hashtags.join(' ') : '';
     const fullCaption = `${reel.caption || reel.title}${hashtagStr ? `\n\n${hashtagStr}` : ''}`;
 
-    console.log(`[Reel Multi-Publish] 🚀 Broadcasting simultaneously for "${reel.title}"...`);
-    console.log(`[Reel Multi-Publish] Channels: Instagram (${isIgConfigured ? 'YES' : 'NO'}), Facebook Page (${isFbPageConfigured ? 'YES' : 'NO'}), Facebook Profile (${isFbAccountConfigured ? 'YES' : 'NO'})`);
+    console.log(`[Reel Multi-Publish] 🚀 Broadcasting for "${reel.title}"...`);
+    console.log(`[Reel Multi-Publish] Channels: Instagram (${needsInstagram ? 'PUBLISHING' : (currentReel.ig_media_id ? 'ALREADY_LIVE' : 'NO')}), Facebook Page (${needsFbPage ? 'PUBLISHING' : (currentReel.fb_video_id ? 'ALREADY_LIVE' : 'NO')}), Facebook Profile (${needsFbAccount ? 'PUBLISHING' : (currentReel.fb_account_video_id ? 'ALREADY_LIVE' : 'NO')})`);
 
     interface DestinationOutcome {
       destination: 'instagram' | 'facebook_page' | 'facebook_account';
@@ -2942,10 +2991,41 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
       error?: string;
     }
 
+    let igOutcome: DestinationOutcome | undefined;
+    let fbPageOutcome: DestinationOutcome | undefined;
+    let fbAccountOutcome: DestinationOutcome | undefined;
+
+    // Preserve existing publication outcomes if previously published
+    if (currentReel.ig_media_id) {
+      igOutcome = {
+        destination: 'instagram',
+        success: true,
+        id: currentReel.ig_media_id,
+        containerId: currentReel.ig_container_id,
+        permalink: currentReel.permalink
+      };
+    }
+    if (currentReel.fb_video_id && currentReel.fb_status === 'published') {
+      fbPageOutcome = {
+        destination: 'facebook_page',
+        success: true,
+        id: currentReel.fb_video_id,
+        permalink: currentReel.fb_permalink
+      };
+    }
+    if (currentReel.fb_account_video_id && currentReel.fb_account_status === 'published') {
+      fbAccountOutcome = {
+        destination: 'facebook_account',
+        success: true,
+        id: currentReel.fb_account_video_id,
+        permalink: currentReel.fb_account_permalink
+      };
+    }
+
     const publishTasks: Promise<DestinationOutcome>[] = [];
 
     // 1. Instagram Broadcast Task
-    if (isIgConfigured) {
+    if (needsInstagram && account) {
       publishTasks.push(
         (async (): Promise<DestinationOutcome> => {
           try {
@@ -2972,10 +3052,12 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
           }
         })()
       );
+    } else if (isIgConfigured && !needsInstagram && !currentReel.ig_media_id) {
+      console.log(`[Reel Multi-Publish] ℹ️ Skipping Instagram per request filter.`);
     }
 
     // 2. Facebook Page Broadcast Task
-    if (isFbPageConfigured && fbPageConn) {
+    if (needsFbPage && fbPageConn) {
       publishTasks.push(
         (async (): Promise<DestinationOutcome> => {
           try {
@@ -3002,12 +3084,12 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
           }
         })()
       );
-    } else {
+    } else if (!isFbPageConfigured && wantsFbPage) {
       console.log(`[Reel Multi-Publish] ℹ️ Facebook Page credentials not configured. Skipping Facebook Page.`);
     }
 
     // 3. Facebook User Account Broadcast Task
-    if (isFbAccountConfigured && fbAccountConn) {
+    if (needsFbAccount && fbAccountConn) {
       publishTasks.push(
         (async (): Promise<DestinationOutcome> => {
           try {
@@ -3034,15 +3116,11 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
           }
         })()
       );
-    } else {
+    } else if (!isFbAccountConfigured && wantsFbAccount) {
       console.log(`[Reel Multi-Publish] ℹ️ Facebook User Profile credentials not configured. Skipping Facebook Profile.`);
     }
 
     const settled = await Promise.allSettled(publishTasks);
-
-    let igOutcome: DestinationOutcome | undefined;
-    let fbPageOutcome: DestinationOutcome | undefined;
-    let fbAccountOutcome: DestinationOutcome | undefined;
 
     for (const item of settled) {
       if (item.status === 'fulfilled') {
@@ -3053,24 +3131,44 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
       }
     }
 
-    const publishedPlatforms: string[] = [];
-    if (igOutcome?.success) publishedPlatforms.push('instagram');
-    if (fbPageOutcome?.success) publishedPlatforms.push('facebook_page');
-    if (fbAccountOutcome?.success) publishedPlatforms.push('facebook_account');
+    const newlyPublished: string[] = [];
+    if (igOutcome?.success && needsInstagram) newlyPublished.push('instagram');
+    if (fbPageOutcome?.success && needsFbPage) newlyPublished.push('facebook_page');
+    if (fbAccountOutcome?.success && needsFbAccount) newlyPublished.push('facebook_account');
 
-    if (publishedPlatforms.length === 0) {
+    const totalPublishedPlatforms = Array.from(new Set([...existingPlatforms, ...newlyPublished]));
+
+    if (totalPublishedPlatforms.length === 0) {
       if (reelId) {
         db.prepare(`UPDATE reels SET status = 'failed', updated_at = ? WHERE id = ?`).run(new Date().toISOString(), reelId);
       }
       const allErrors = [
-        igOutcome?.error ? `Instagram: ${igOutcome.error}` : null,
-        fbPageOutcome?.error ? `Facebook Page: ${fbPageOutcome.error}` : null,
-        fbAccountOutcome?.error ? `Facebook Profile: ${fbAccountOutcome.error}` : null
+        (needsInstagram && igOutcome?.error) ? `Instagram: ${igOutcome.error}` : null,
+        (needsFbPage && fbPageOutcome?.error) ? `Facebook Page: ${fbPageOutcome.error}` : null,
+        (needsFbAccount && fbAccountOutcome?.error) ? `Facebook Profile: ${fbAccountOutcome.error}` : null
       ].filter(Boolean).join(' | ');
-      throw new Error(allErrors || "Simultaneous publish failed across all destinations.");
+      throw new Error(allErrors || "Publishing failed across all requested destinations.");
     }
 
-    const publishedAt = new Date().toISOString();
+    const publishedAt = currentReel.publish_timestamp || new Date().toISOString();
+    const finalIgMediaId = igOutcome?.id || currentReel.ig_media_id || null;
+    const finalIgContainerId = igOutcome?.containerId || currentReel.ig_container_id || null;
+    const finalPermalink = igOutcome?.permalink || currentReel.permalink || null;
+    const finalFbVideoId = fbPageOutcome?.id || currentReel.fb_video_id || null;
+    const finalFbPermalink = fbPageOutcome?.permalink || currentReel.fb_permalink || null;
+    const finalFbStatus = fbPageOutcome?.success
+      ? 'published'
+      : (currentReel.fb_status === 'published'
+        ? 'published'
+        : (fbPageOutcome?.error ? `failed: ${fbPageOutcome.error.slice(0, 150)}` : (isFbPageConfigured ? 'idle' : 'unconfigured')));
+    const finalFbAccountVideoId = fbAccountOutcome?.id || currentReel.fb_account_video_id || null;
+    const finalFbAccountPermalink = fbAccountOutcome?.permalink || currentReel.fb_account_permalink || null;
+    const finalFbAccountStatus = fbAccountOutcome?.success
+      ? 'published'
+      : (currentReel.fb_account_status === 'published'
+        ? 'published'
+        : (fbAccountOutcome?.error ? `failed: ${fbAccountOutcome.error.slice(0, 150)}` : (isFbAccountConfigured ? 'idle' : 'unconfigured')));
+
     db.prepare(`
       UPDATE reels
       SET status = 'published',
@@ -3088,22 +3186,22 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
           updated_at = ?
       WHERE id = ?
     `).run(
-      igOutcome?.id || null,
-      igOutcome?.containerId || null,
-      igOutcome?.permalink || null,
-      fbPageOutcome?.id || null,
-      fbPageOutcome?.permalink || null,
-      fbPageOutcome?.success ? 'published' : (fbPageOutcome?.error ? `failed: ${fbPageOutcome.error.slice(0, 150)}` : (isFbPageConfigured ? 'idle' : 'unconfigured')),
-      fbAccountOutcome?.id || null,
-      fbAccountOutcome?.permalink || null,
-      fbAccountOutcome?.success ? 'published' : (fbAccountOutcome?.error ? `failed: ${fbAccountOutcome.error.slice(0, 150)}` : (isFbAccountConfigured ? 'idle' : 'unconfigured')),
-      JSON.stringify(publishedPlatforms),
+      finalIgMediaId,
+      finalIgContainerId,
+      finalPermalink,
+      finalFbVideoId,
+      finalFbPermalink,
+      finalFbStatus,
+      finalFbAccountVideoId,
+      finalFbAccountPermalink,
+      finalFbAccountStatus,
+      JSON.stringify(totalPublishedPlatforms),
       publishedAt,
-      publishedAt,
+      new Date().toISOString(),
       reel.id
     );
 
-    if (igOutcome?.success && igOutcome.id) {
+    if (igOutcome?.success && needsInstagram && igOutcome.id) {
       enqueueJob('SYNC_INSTAGRAM_INSIGHTS', { reelId: reel.id, mediaId: igOutcome.id });
       enqueueJob('SYNC_MEDIA_COMMENTS', { mediaId: igOutcome.id });
       let pollContext: { question?: string; optionA?: string; optionB?: string } | undefined;
@@ -3122,26 +3220,29 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
     }
     enqueueJob('ANALYTICS_STRATEGY_FEEDBACK', { reelId: reel.id });
 
-    console.log(`[Reel Multi-Publish] ✅ Published simultaneously to [${publishedPlatforms.join(', ')}]!`);
+    console.log(`[Reel Multi-Publish] ✅ Published successfully. Live platforms: [${totalPublishedPlatforms.join(', ')}]`);
 
     const warnings: string[] = [];
-    if (isFbPageConfigured && !fbPageOutcome?.success && fbPageOutcome?.error) {
+    if (wantsFbPage && !isFbPageConfigured && !currentReel.fb_video_id) {
+      warnings.push("Facebook Page is not connected. Skipped Facebook Page publishing.");
+    }
+    if (needsFbPage && !fbPageOutcome?.success && fbPageOutcome?.error) {
       warnings.push(`Facebook Page: ${fbPageOutcome.error}`);
     }
-    if (isFbAccountConfigured && !fbAccountOutcome?.success && fbAccountOutcome?.error) {
+    if (needsFbAccount && !fbAccountOutcome?.success && fbAccountOutcome?.error) {
       warnings.push(`Facebook Profile: ${fbAccountOutcome.error}`);
     }
 
     notifyReelPublished({
       title: reel.title,
       niche: reel.niche,
-      permalink: igOutcome?.permalink,
-      mediaId: igOutcome?.id,
-      fbPermalink: fbPageOutcome?.permalink,
-      fbVideoId: fbPageOutcome?.id,
-      fbAccountPermalink: fbAccountOutcome?.permalink,
-      fbAccountVideoId: fbAccountOutcome?.id,
-      platforms: publishedPlatforms,
+      permalink: finalPermalink || undefined,
+      mediaId: finalIgMediaId || undefined,
+      fbPermalink: finalFbPermalink || undefined,
+      fbVideoId: finalFbVideoId || undefined,
+      fbAccountPermalink: finalFbAccountPermalink || undefined,
+      fbAccountVideoId: finalFbAccountVideoId || undefined,
+      platforms: totalPublishedPlatforms,
       errors: warnings,
       videoUrl: videoUrl || undefined,
       videoPath: localDiskPath || undefined
@@ -3149,12 +3250,20 @@ async function publishReelInternal(rawReel: any, accountParam?: any) {
 
     return {
       success: true,
-      mediaId: igOutcome?.id,
-      permalink: igOutcome?.permalink || fbPageOutcome?.permalink || fbAccountOutcome?.permalink,
-      containerId: igOutcome?.containerId,
-      platformsPublished: publishedPlatforms,
+      mediaId: finalIgMediaId,
+      permalink: finalPermalink || finalFbPermalink || finalFbAccountPermalink,
+      containerId: finalIgContainerId,
+      fbVideoId: finalFbVideoId,
+      fbPermalink: finalFbPermalink,
+      fbAccountVideoId: finalFbAccountVideoId,
+      fbAccountPermalink: finalFbAccountPermalink,
+      platformsPublished: totalPublishedPlatforms,
       facebookPage: fbPageOutcome,
-      facebookAccount: fbAccountOutcome
+      facebookAccount: fbAccountOutcome,
+      warnings: warnings.length > 0 ? warnings : undefined,
+      facebookWarning: (wantsFbPage && !isFbPageConfigured && !currentReel.fb_video_id)
+        ? "Facebook Page is not connected. Please connect your Facebook Page in Settings to broadcast to Facebook."
+        : undefined
     };
   } finally {
     if (reelId) {
@@ -3380,40 +3489,82 @@ app.post("/api/carousel/convert-to-reel", async (req, res) => {
   }
 });
 
-// POST /api/reels/publish-now - Render and publish Instagram Reel immediately
+// POST /api/reels/publish-now - Render and publish Reel immediately (Instagram, Facebook Page, or multi-platform)
 app.post("/api/reels/publish-now", async (req, res) => {
+  const { reelId, destination } = req.body;
+  if (!reelId) return res.status(400).json({ success: false, error: "reelId is required." });
+
+  const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(reelId) as any;
+  if (!reel) return res.status(404).json({ success: false, error: "Reel not found." });
+
+  const targetDestinations = (destination === 'facebook_page' || destination === 'instagram' || destination === 'facebook_account')
+    ? [destination]
+    : undefined;
+
+  try {
+    const result = await publishReelInternal(reel, undefined, targetDestinations);
+    const platforms = result.platformsPublished || [];
+    const platformListStr = platforms.join(', ') || 'selected destinations';
+
+    res.json({
+      success: true,
+      mediaId: result.mediaId,
+      permalink: result.permalink,
+      fbVideoId: result.fbVideoId,
+      fbPermalink: result.fbPermalink,
+      fbAccountVideoId: result.fbAccountVideoId,
+      fbAccountPermalink: result.fbAccountPermalink,
+      platformsPublished: platforms,
+      alreadyPublished: Boolean(result.alreadyPublished),
+      warnings: result.warnings,
+      facebookWarning: (result as any).facebookWarning,
+      message: (result as any).facebookWarning
+        ? `${result.alreadyPublished ? 'Reel already live on ' + platformListStr : 'Reel published to [' + platformListStr + ']'}! (Notice: ${(result as any).facebookWarning})`
+        : (result.alreadyPublished
+            ? `Reel is already published on ${platformListStr}!`
+            : `Reel successfully published to [${platformListStr}]!`)
+    });
+  } catch (err: any) {
+    console.error("[Reel Publish] Error:", err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || "Failed to publish Reel."
+    });
+  }
+});
+
+// POST /api/reels/publish-facebook - Publish or sync an existing reel specifically to connected Facebook Page
+app.post("/api/reels/publish-facebook", async (req, res) => {
   const { reelId } = req.body;
   if (!reelId) return res.status(400).json({ success: false, error: "reelId is required." });
 
   const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(reelId) as any;
   if (!reel) return res.status(404).json({ success: false, error: "Reel not found." });
 
-  if (reel.status === 'published' || Boolean(reel.ig_media_id)) {
-    return res.json({
-      success: true,
-      mediaId: reel.ig_media_id,
-      permalink: reel.permalink,
-      alreadyPublished: true,
-      message: `Reel is already live on Instagram! Media ID: ${reel.ig_media_id}`
+  const fbPageConn = getFacebookPageConnection();
+  if (!fbPageConn || !fbPageConn.isConnected || !fbPageConn.pageId || !fbPageConn.accessToken) {
+    return res.status(400).json({
+      success: false,
+      error: "Facebook Page credentials are not configured. Please open Settings -> Facebook Page and enter your Page ID and Page Access Token."
     });
   }
 
   try {
-    const result = await publishReelInternal(reel);
+    const result = await publishReelInternal(reel, undefined, ['facebook_page']);
     res.json({
       success: true,
-      mediaId: result.mediaId,
-      permalink: result.permalink,
+      videoId: result.fbVideoId,
+      permalink: result.fbPermalink,
       alreadyPublished: Boolean(result.alreadyPublished),
       message: result.alreadyPublished
-        ? `Reel is already live on Instagram! Media ID: ${result.mediaId}`
-        : `Reel published directly to Instagram! Media ID: ${result.mediaId}`
+        ? `Reel is already live on Facebook Page! Video ID: ${result.fbVideoId}`
+        : `Reel successfully posted to Facebook Page! Video ID: ${result.fbVideoId}`
     });
   } catch (err: any) {
-    console.error("[Reel Publish] Error:", err);
+    console.error("[Reel Publish Facebook] Error:", err);
     res.status(500).json({
       success: false,
-      error: err?.message || "Failed to publish Reel to Instagram."
+      error: err?.message || "Failed to publish Reel to Facebook Page."
     });
   }
 });
@@ -5133,14 +5284,18 @@ async function generateAutonomousReelWithStrategy(
   };
 
   const curatedPkg = await constructDocumentaryReelPackage(dossier, strategy, activeVertical);
+  const calibratedDuration = Math.max(30, Math.round(curatedPkg.scenes.reduce((sum, s) => sum + (s.durationSeconds || 8), 0)));
 
   return {
     id: `reel-auto-${Date.now()}`,
     title: curatedPkg.title,
     verticalBadge: curatedPkg.verticalBadge,
     niche: curatedPkg.niche,
-    duration,
-    audio,
+    duration: calibratedDuration,
+    audio: {
+      ...audio,
+      duration: calibratedDuration
+    },
     scenes: curatedPkg.scenes,
     caption: curatedPkg.caption,
     hashtags: curatedPkg.hashtags,
@@ -5645,8 +5800,9 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       INSERT INTO reels (
         id, title, niche, duration, audio_json, scenes_json, caption, hashtags_json,
         hook_score, retention_estimate, status, video_template_id, video_url, ig_media_id, permalink,
-        publish_timestamp, views, likes, comments_count, shares, reach, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?)
+        publish_timestamp, views, likes, comments_count, shares, reach,
+        research_dossier_json, audit_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?, ?)
     `).run(
       reel.id,
       reel.title,
@@ -5664,6 +5820,8 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       null,
       null,
       null,
+      reel.researchDossier ? JSON.stringify(reel.researchDossier) : null,
+      reel.audit ? JSON.stringify(reel.audit) : null,
       new Date().toISOString(),
       new Date().toISOString()
     );

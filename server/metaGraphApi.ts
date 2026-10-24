@@ -298,11 +298,62 @@ export async function getInstagramAccountProfile(
   }
 }
 
+function isForbiddenSsrfTarget(parsed: URL): boolean {
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
+  if (parsed.username || parsed.password) return true;
+
+  const hostname = parsed.hostname.toLowerCase().trim();
+  if (!hostname) return true;
+
+  // Localhost & loopback
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]' || hostname === '0.0.0.0') {
+    return true;
+  }
+
+  // Cloud metadata (OCI/AWS/GCP) & link-local
+  if (hostname === '169.254.169.254' || hostname.startsWith('169.254.')) {
+    return true;
+  }
+
+  // IPv4 Private subnets (RFC 1918)
+  if (/^10\./.test(hostname)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)) return true;
+  if (/^192\.168\./.test(hostname)) return true;
+  if (/^127\./.test(hostname)) return true;
+  if (/^0\./.test(hostname)) return true;
+
+  // IPv6 local / private
+  if (hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:')) {
+    return true;
+  }
+
+  // Local host names (.local, .internal, .lan, etc.)
+  if (hostname.endsWith('.local') || hostname.endsWith('.internal') || hostname.endsWith('.lan') || hostname.endsWith('.localhost')) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Pre-flight probe to verify public accessibility of media URL before sending to Meta Graph API.
  * Prevents account strikes and rate limit exhaustion caused by dead Cloudflare tunnels or 502/530 error pages.
  */
 export async function verifyPublicMediaUrl(mediaUrl: string, expectedType: 'image' | 'video' = 'image'): Promise<{ reachable: boolean; status?: number; contentType?: string; error?: string }> {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(mediaUrl);
+  } catch {
+    return { reachable: false, error: 'Malformed media URL.' };
+  }
+
+  if (isForbiddenSsrfTarget(parsedUrl)) {
+    return {
+      reachable: false,
+      error: 'Access to internal/private network addresses or cloud metadata endpoints is prohibited (SSRF guard).'
+    };
+  }
+
   // Check if this mediaUrl references a local reel or post file on this server
   const reelMatch = mediaUrl.match(/\/media\/reels\/([^?]+)/);
   const postMatch = mediaUrl.match(/\/media\/posts\/([^?]+)/);
@@ -803,6 +854,148 @@ export async function publishReelToFacebookAccount(
   }
 }
 
+export interface FacebookDiscoveredPage {
+  id: string;
+  name: string;
+  accessToken: string;
+  category?: string;
+  pictureUrl?: string;
+  link?: string;
+  tasks?: string[];
+  isPageToken: boolean;
+}
+
+export interface FacebookAutoDetectResult {
+  success: boolean;
+  isInstagramToken?: boolean;
+  isPageToken?: boolean;
+  isUserToken?: boolean;
+  pages?: FacebookDiscoveredPage[];
+  autoSelectedPage?: FacebookDiscoveredPage;
+  error?: string;
+}
+
+/**
+ * Auto-detects Facebook Pages from ANY valid Facebook Token (User Token or Page Token).
+ * If given a Page Token, discovers page metadata directly from /me.
+ * If given a User Token, queries /me/accounts to find all managed Facebook Pages and their Page Access Tokens.
+ */
+export async function autoDetectFacebookPages(
+  token: string,
+  pageIdentifier?: string
+): Promise<FacebookAutoDetectResult> {
+  const cleanToken = (token || '').trim();
+  if (!cleanToken) {
+    return { success: false, error: 'Access token is required for Facebook Page detection.' };
+  }
+
+  if (cleanToken.startsWith('IGAA') || cleanToken.startsWith('IGQ') || cleanToken.startsWith('IG')) {
+    return {
+      success: false,
+      isInstagramToken: true,
+      error: 'The provided token is an Instagram User Access Token (starts with "IG..."). Facebook Pages require a Facebook Access Token (starts with "EAAB..." or "EAA..."). Please generate a Facebook Page or User Access Token in Meta Graph API Explorer or Meta Business Suite.'
+    };
+  }
+
+  // 1. Check if the token is already a Facebook Page Access Token
+  // When calling /me with a Page Access Token, Meta returns the Page entity itself
+  try {
+    const meUrl = `${FB_GRAPH_BASE_URL}/me?fields=id,name,link,picture,category&access_token=${encodeURIComponent(cleanToken)}`;
+    const meRes = await fetch(meUrl);
+    const meData = await meRes.json();
+
+    if (meRes.ok && meData.id && meData.name) {
+      if (meData.category || meData.link?.includes('/pages/') || meData.link?.includes('facebook.com/')) {
+        const pageItem: FacebookDiscoveredPage = {
+          id: String(meData.id),
+          name: meData.name,
+          accessToken: cleanToken,
+          category: meData.category,
+          pictureUrl: meData.picture?.data?.url || '',
+          link: meData.link || `https://www.facebook.com/${meData.id}`,
+          isPageToken: true
+        };
+        return {
+          success: true,
+          isPageToken: true,
+          pages: [pageItem],
+          autoSelectedPage: pageItem
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Facebook Auto-Detect] Direct /me check warning:', err?.message || err);
+  }
+
+  // 2. Query /me/accounts to find all Facebook Pages managed by this Facebook User Token
+  try {
+    const accountsUrl = `${FB_GRAPH_BASE_URL}/me/accounts?fields=id,name,access_token,category,picture,link,tasks&access_token=${encodeURIComponent(cleanToken)}`;
+    const accRes = await fetch(accountsUrl);
+    const accData = await accRes.json();
+
+    if (accRes.ok && Array.isArray(accData.data)) {
+      if (accData.data.length === 0) {
+        return {
+          success: false,
+          isUserToken: true,
+          error: 'Your Facebook User Token is valid, but no Facebook Pages were found for this account. Ensure your Facebook account is an Admin of your Page and has granted the "pages_show_list" and "pages_manage_posts" permissions.'
+        };
+      }
+
+      const discoveredPages: FacebookDiscoveredPage[] = accData.data.map((p: any) => ({
+        id: String(p.id),
+        name: p.name || 'Facebook Page',
+        accessToken: p.access_token || cleanToken,
+        category: p.category,
+        pictureUrl: p.picture?.data?.url || '',
+        link: p.link || `https://www.facebook.com/${p.id}`,
+        tasks: Array.isArray(p.tasks) ? p.tasks : [],
+        isPageToken: Boolean(p.access_token)
+      }));
+
+      // Determine autoSelectedPage
+      let selected: FacebookDiscoveredPage | undefined;
+      const cleanIdentifier = (pageIdentifier || '').trim().toLowerCase();
+      if (cleanIdentifier) {
+        selected = discoveredPages.find(p =>
+          p.id === cleanIdentifier ||
+          p.name.toLowerCase() === cleanIdentifier ||
+          p.name.toLowerCase().includes(cleanIdentifier)
+        );
+      }
+
+      // If only 1 page was returned, automatically select it
+      if (!selected && discoveredPages.length === 1) {
+        selected = discoveredPages[0];
+      }
+
+      return {
+        success: true,
+        isUserToken: true,
+        pages: discoveredPages,
+        autoSelectedPage: selected
+      };
+    }
+
+    if (accData.error) {
+      return {
+        success: false,
+        error: accData.error.message || 'Failed to query Facebook accounts with this token.'
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Network error querying Facebook accounts.'
+    };
+  }
+
+  return {
+    success: false,
+    error: 'Could not auto-detect Facebook Page with the provided token. Ensure the token is a Facebook User or Page Access Token.'
+  };
+}
+
 /**
  * Fetches real Facebook Page profile and metadata from Meta Graph API
  */
@@ -810,16 +1003,46 @@ export async function getFacebookPageProfile(
   pageId: string,
   accessToken: string
 ): Promise<{ success: boolean; data?: FacebookAccountDetails; error?: string }> {
+  if (accessToken.startsWith('IGAA') || accessToken.startsWith('IGQ') || accessToken.startsWith('IG')) {
+    return {
+      success: false,
+      error: 'The provided token is an Instagram User Access Token (starts with "IG..."). Facebook Pages require a Facebook Page Access Token (starts with "EAAB..." or "EAA..."). Please generate a Facebook Page Access Token with pages_manage_posts and publish_video permissions.'
+    };
+  }
+
+  // Clean pageId: strip URL, @, spaces, trailing slashes
+  let targetId = (pageId || '').trim();
+  if (targetId.startsWith('http://') || targetId.startsWith('https://')) {
+    try {
+      const u = new URL(targetId);
+      const segments = u.pathname.split('/').filter(Boolean);
+      targetId = segments[segments.length - 1] || '';
+    } catch {}
+  }
+  targetId = targetId.replace(/^@/, '').replace(/\/$/, '').trim();
+  if (!targetId) targetId = 'me';
+
   try {
-    let url = `${FB_GRAPH_BASE_URL}/${pageId}?fields=id,name,link,picture,followers_count,fan_count&access_token=${encodeURIComponent(accessToken)}`;
+    let url = `${FB_GRAPH_BASE_URL}/${encodeURIComponent(targetId)}?fields=id,name,link,picture,followers_count,fan_count,category&access_token=${encodeURIComponent(accessToken)}`;
     let res = await fetch(url);
     let data = await res.json();
 
     // Fallback to basic fields if extended analytics fields are permission-restricted
     if (!res.ok || data.error) {
-      url = `${FB_GRAPH_BASE_URL}/${pageId}?fields=id,name,picture&access_token=${encodeURIComponent(accessToken)}`;
+      url = `${FB_GRAPH_BASE_URL}/${encodeURIComponent(targetId)}?fields=id,name,picture&access_token=${encodeURIComponent(accessToken)}`;
       res = await fetch(url);
       data = await res.json();
+    }
+
+    // If targetId was not 'me' but returned an error, try querying /me with token
+    if ((!res.ok || data.error) && targetId !== 'me') {
+      const meUrl = `${FB_GRAPH_BASE_URL}/me?fields=id,name,picture,link&access_token=${encodeURIComponent(accessToken)}`;
+      const meRes = await fetch(meUrl);
+      const meData = await meRes.json();
+      if (meRes.ok && meData.id) {
+        res = meRes;
+        data = meData;
+      }
     }
 
     if (!res.ok || data.error) {

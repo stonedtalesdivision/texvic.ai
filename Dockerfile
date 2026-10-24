@@ -55,6 +55,14 @@ RUN mkdir -p /ms-playwright && \
     npx playwright install --with-deps chromium && \
     chmod -R 777 /ms-playwright
 
+# Pre-cache HyperFrames headless browser for studio video compositing
+ENV HYPERFRAMES_NO_GPU=1
+RUN npx hyperframes browser ensure && \
+    mkdir -p /home/node/.cache && \
+    cp -r /root/.cache/* /home/node/.cache/ 2>/dev/null || true && \
+    chown -R node:node /home/node/.cache && \
+    chmod -R 777 /home/node/.cache
+
 # Copy application source
 COPY . .
 

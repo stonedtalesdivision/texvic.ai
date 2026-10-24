@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { 
   Calendar, Clock, CheckCircle2, Send, Instagram, Share2, 
-  Trash2, AlertCircle, Plus, Sparkles, Zap, Flame, Film, Layers 
+  Trash2, AlertCircle, Plus, Sparkles, Zap, Flame, Film, Layers,
+  Facebook, Loader2
 } from 'lucide-react';
 import { ReelItem, PostItem, Platform } from '../types';
 
@@ -11,6 +12,8 @@ interface SchedulePublisherProps {
   onPublishNow: (item: ReelItem | PostItem, type: 'reel' | 'post') => Promise<void>;
   onDeleteScheduled: (id: string, type: 'reel' | 'post') => void;
   onNavigateToCreate: () => void;
+  onOpenAccountConnector?: (channel?: 'instagram' | 'facebook_page' | 'facebook_account') => void;
+  onShowToast?: (msg: string) => void;
 }
 
 export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
@@ -18,9 +21,12 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
   scheduledPosts,
   onPublishNow,
   onDeleteScheduled,
-  onNavigateToCreate
+  onNavigateToCreate,
+  onOpenAccountConnector,
+  onShowToast
 }) => {
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishingFbId, setPublishingFbId] = useState<string | null>(null);
   const [publishedSuccessId, setPublishedSuccessId] = useState<string | null>(null);
   const [activePlatformFilter, setActivePlatformFilter] = useState<string>('all');
 
@@ -44,6 +50,36 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
       console.error('Publish failed:', error);
     } finally {
       setPublishingId(null);
+    }
+  };
+
+  const handlePublishFacebook = async (item: any) => {
+    setPublishingFbId(item.id);
+    try {
+      const res = await fetch('/api/reels/publish-facebook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reelId: item.id })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to publish Reel to Facebook Page.');
+      }
+      setPublishedSuccessId(item.id);
+      setTimeout(() => setPublishedSuccessId(null), 3000);
+      onShowToast?.(`Posted Reel "${item.title}" to Facebook Page!`);
+    } catch (error: any) {
+      const msg = error?.message || 'Publishing to Facebook failed.';
+      if (onShowToast) {
+        onShowToast(msg);
+      }
+      if (/configured|credentials|connect/i.test(msg) && onOpenAccountConnector) {
+        onOpenAccountConnector('facebook_page');
+      } else if (!onShowToast) {
+        alert(msg);
+      }
+    } finally {
+      setPublishingFbId(null);
     }
   };
 
@@ -183,18 +219,19 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
                 </div>
 
                 {/* Action Controls */}
-                <div className="flex items-center gap-2.5 self-end md:self-auto shrink-0">
+                <div className="flex items-center gap-2 self-end md:self-auto shrink-0 flex-wrap">
                   <button
                     type="button"
                     onClick={() => handleInstantPublish(item)}
-                    disabled={isPublishing || isSuccess}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all ${
+                    disabled={isPublishing || isSuccess || publishingFbId === item.id}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all ${
                       isSuccess
                         ? 'bg-emerald-500 text-slate-950 font-black'
                         : isPublishing
                         ? 'bg-slate-800 text-purple-300 cursor-wait'
                         : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/25'
                     }`}
+                    title="Publish immediately across connected channels (Instagram + Facebook Page)"
                   >
                     {isSuccess ? (
                       <>
@@ -209,10 +246,27 @@ export const SchedulePublisher: React.FC<SchedulePublisherProps> = ({
                     ) : (
                       <>
                         <Send className="w-3.5 h-3.5" />
-                        Publish to Instagram
+                        Publish Now
                       </>
                     )}
                   </button>
+
+                  {item.itemType === 'reel' && !item.fb_permalink && (
+                    <button
+                      type="button"
+                      onClick={() => handlePublishFacebook(item)}
+                      disabled={isPublishing || isSuccess || publishingFbId === item.id}
+                      className="px-3 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
+                      title="Post this scheduled reel directly to Facebook Page"
+                    >
+                      {publishingFbId === item.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      ) : (
+                        <Facebook className="w-3.5 h-3.5 text-white fill-white" />
+                      )}
+                      Post FB
+                    </button>
+                  )}
 
                   <button
                     type="button"

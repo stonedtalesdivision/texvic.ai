@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -181,12 +182,36 @@ export async function registerAsset(input: {
   metadata?: Record<string, unknown>;
   id?: string;
 }): Promise<MediaAsset> {
+  const resolvedSource = path.resolve(input.sourcePath);
+  if (!fsSync.existsSync(resolvedSource)) {
+    throw new Error('sourcePath does not exist on disk.');
+  }
+
+  const cwd = process.cwd();
+  const tmp = os.tmpdir();
+  const allowedRoots = [
+    path.join(cwd, 'data'),
+    path.join(cwd, 'temp'),
+    path.join(cwd, 'public'),
+    tmp
+  ];
+
+  const isAllowed = allowedRoots.some(root => resolvedSource.startsWith(root + path.sep) || resolvedSource === root);
+  if (!isAllowed) {
+    throw new Error('Access denied: sourcePath must reside within designated media, temp, or workspace asset directories.');
+  }
+
+  const baseName = path.basename(resolvedSource).toLowerCase();
+  if (baseName.startsWith('.env') || baseName.includes('token') || baseName.includes('secret') || baseName.endsWith('.key')) {
+    throw new Error('Access denied: Attempted to register a sensitive configuration file as a media asset.');
+  }
+
   await ensureAssetDirectories();
   const id = input.id || `asset-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const ext = path.extname(input.sourcePath) || (input.type === 'audio' ? '.mp3' : input.type === 'image' ? '.jpg' : '.mp4');
   const filename = `${id}${ext.toLowerCase()}`;
   const target = path.join(ASSET_DIR, input.type, filename);
-  await fs.copyFile(input.sourcePath, target);
+  await fs.copyFile(resolvedSource, target);
   const createdAt = now();
   db.prepare(`
     INSERT INTO media_assets

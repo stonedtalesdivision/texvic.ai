@@ -218,6 +218,8 @@ try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_video_id TEXT`); } catch 
 try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_permalink TEXT`); } catch {}
 try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_status TEXT DEFAULT 'idle'`); } catch {}
 try { db.exec(`ALTER TABLE reels ADD COLUMN platforms_published_json TEXT DEFAULT '[]'`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN research_dossier_json TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN audit_json TEXT`); } catch {}
 
 // Seed Default Lead Magnet Keyword Triggers
 try {
@@ -638,7 +640,10 @@ export function getFacebookPageConnection(): {
 
   // Fallback to environment variables
   const envPageId = process.env.FACEBOOK_PAGE_ID || '';
-  const envToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || '';
+  const envMetaFallback = (process.env.META_ACCESS_TOKEN && !process.env.META_ACCESS_TOKEN.startsWith('IG'))
+    ? process.env.META_ACCESS_TOKEN
+    : '';
+  const envToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || envMetaFallback;
   if (envPageId && envToken) {
     return {
       pageId: envPageId,
@@ -685,7 +690,10 @@ export function getFacebookAccountConnection(): {
 
   // Fallback to environment variables
   const envUserId = process.env.FACEBOOK_USER_ID || process.env.FACEBOOK_ACCOUNT_ID || '';
-  const envToken = process.env.FACEBOOK_USER_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || '';
+  const envMetaUserFallback = (process.env.META_ACCESS_TOKEN && !process.env.META_ACCESS_TOKEN.startsWith('IG'))
+    ? process.env.META_ACCESS_TOKEN
+    : '';
+  const envToken = process.env.FACEBOOK_USER_ACCESS_TOKEN || process.env.FACEBOOK_ACCESS_TOKEN || envMetaUserFallback;
   if (envUserId && envToken) {
     return {
       userId: envUserId,

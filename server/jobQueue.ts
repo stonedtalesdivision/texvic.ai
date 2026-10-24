@@ -246,7 +246,7 @@ export function startJobWorker() {
                         ig_media_id = ?, ig_container_id = ?, permalink = ?,
                         fb_video_id = ?, fb_permalink = ?, fb_status = ?,
                         fb_account_video_id = ?, fb_account_permalink = ?, fb_account_status = ?,
-                        platforms_published = ?,
+                        platforms_published_json = ?,
                         publish_timestamp = ?, updated_at = ?
                     WHERE id = ?
                   `).run(

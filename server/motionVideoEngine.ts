@@ -37,6 +37,29 @@ export interface MotionVideoOptions {
  * Distills scene narration, topic context, and custom keywords into crisp 1-2 word search keywords
  * that stock video APIs (Pixabay/Pexels) have high-volume tags for.
  */
+// Strictly banned abstract or textbook words that break stock video search
+const BANNED_ABSTRACT_TERMS = new Set([
+  'isotopic', 'spectral', 'anomaly', 'discrepancy', 'endures', 'aerospace',
+  'physics', 'hypothesis', 'boundaries', 'experimentation', 'signature',
+  'ratio', 'ratios', 'enduring', 'reconsider', 'telemetry', 'verdict',
+  'implications', 'theoretical', 'paradigm', 'academic', 'perspective'
+]);
+
+// Curated dark documentary atmospheric fallback queries for The Untold Archive
+export const DARK_ARCHIVE_FALLBACK_QUERIES = [
+  'ancient book candlelight',
+  'dark museum archive',
+  'microscope lab dark',
+  'old map compass',
+  'dusty library candlelight',
+  'ancient manuscripts dark'
+];
+
+/**
+ * Distills scene narration, topic context, and custom keywords into crisp 1-2 word search keywords
+ * that stock video APIs (Pixabay/Pexels) have high-volume tags for.
+ * Strictly eliminates abstract academic terms and maps directly to physical objects/actions.
+ */
 export function extractSearchTerms(
   rawQuery: string,
   customTerms?: string[],
@@ -55,98 +78,103 @@ export function extractSearchTerms(
   if (Array.isArray(customTerms)) {
     for (const ct of customTerms) {
       if (ct && ct.trim().length >= 3) {
-        const cleanCt = ct.trim().toLowerCase().replace(/[^\w\s-]/g, '');
-        if (!/telemetry|forensic|dossier|record|anomaly|investigation|impact|verdict/i.test(cleanCt)) {
-          terms.push(cleanCt);
+        const cleanCt = ct.trim().toLowerCase().replace(/[^\w\s-]/g, ' ');
+        const words = cleanCt.split(/\s+/).filter(w => !BANNED_ABSTRACT_TERMS.has(w));
+        const filteredTerm = words.join(' ').trim();
+        if (filteredTerm.length >= 3) {
+          terms.push(filteredTerm);
         }
       }
     }
   }
 
   // 2. Concrete Physical Visual Domain Mappings (derived directly from spoken narration)
-  // Aviation, Hijacking & Sky
-  if (/airplane|aircraft|flight|aviation|airborne|pilot|cockpit|hijack|hijackers|boeing|airbus|jet|lufthansa/i.test(combined)) {
-    if (sceneIndex === 0) terms.push('airplane flying', 'airplane', 'aircraft flight');
-    else if (sceneIndex === 1) terms.push('airplane cockpit', 'runway airplane', 'airport');
+  // Manuscripts, Ciphers, Ancient Inscriptions & Rare Books (e.g. Voynich)
+  if (/voynich|manuscript|cipher|parchment|folio|vellum|undeciphered|cryptanalyst|ancient text|script/i.test(combined)) {
+    if (sceneIndex === 0) terms.push('ancient book candlelight', 'old parchment book', 'ancient manuscript');
+    else if (sceneIndex === 1) terms.push('magnifying glass paper', 'quill pen ink', 'old library archive');
+    else if (sceneIndex === 2) terms.push('microscope lab dark', 'laser light dark', 'laboratory analysis');
+    else terms.push('dusty books dark', 'old book pages', 'candlelight manuscript');
+  }
+
+  // Forensic Science, Laboratory Tests & Chemical Investigation
+  if (/forensic|chemical|laboratory|test|microscope|analysis|carbon|dating|fiber|ultraviolet|x-ray|lens/i.test(combined)) {
+    terms.push('microscope lab dark', 'laser microscope lens', 'ultraviolet light', 'chemical flask dark', 'laboratory glass');
+  }
+
+  // Declassified Files, Archives, Microfilm & Government Folders
+  if (/classified|declassified|dossier|record|archive|intelligence|cia|fbi|kgb|paperwork|files/i.test(combined)) {
+    terms.push('typewriter dark', 'file cabinet dark', 'vintage paper document', 'dark archive room', 'microfilm archive');
+  }
+
+  // Aviation, Aircraft & Sky
+  if (/airplane|aircraft|flight|aviation|airborne|pilot|cockpit|hijack|boeing|airbus|jet|lufthansa/i.test(combined)) {
+    if (sceneIndex === 0) terms.push('airplane night', 'airplane flight', 'aircraft');
+    else if (sceneIndex === 1) terms.push('airplane cockpit', 'runway night', 'airport lights');
     else terms.push('radar screen', 'airplane night', 'radar');
   }
 
   // Desert, Dunes & Wasteland
-  if (/desert|dunes|sand|sahara|yemen|arabian|arid|wasteland|rub al khali/i.test(combined)) {
-    terms.push('desert dunes', 'desert', 'sand storm', 'desert aerial');
+  if (/desert|dunes|sand|sahara|yemen|arabian|arid|wasteland/i.test(combined)) {
+    terms.push('desert dunes', 'sand storm', 'desert night', 'desert aerial');
   }
 
-  // Money, Ransom, Cash, Heists & Vaults
-  if (/cash|money|ransom|million|duffel|bank|vault|gold|currency|dollar|safe deposit|looting/i.test(combined)) {
-    terms.push('money cash', 'counting money', 'bank vault', 'gold bars', 'cash');
+  // Money, Vaults, Gold & Cash
+  if (/cash|money|ransom|million|bank|vault|gold|currency|dollar|safe deposit/i.test(combined)) {
+    terms.push('gold bars dark', 'bank vault door', 'counting money dark', 'safe vault');
   }
 
-  // Ocean, Deep Sea & Marine
-  if (/ocean|sea|underwater|deep sea|shipwreck|atlantic|pacific|water|waves|diver|abyss|hydrophone|bloop/i.test(combined)) {
-    terms.push('deep ocean', 'underwater', 'ocean waves', 'scuba diver');
+  // Ocean, Deep Sea & Marine Abyss
+  if (/ocean|sea|underwater|deep sea|shipwreck|atlantic|pacific|water|diver|abyss|hydrophone|bloop/i.test(combined)) {
+    terms.push('deep ocean dark', 'underwater dark', 'ocean waves storm', 'scuba diver deep');
   }
 
-  // Submarines & Naval Operations
+  // Submarines & Naval Sonar
   if (/submarine|torpedo|submersible|azorian|glomar|k-129|periscope|sonar/i.test(combined)) {
-    terms.push('submarine', 'sonar radar', 'deep ocean', 'ship ocean');
+    terms.push('submarine underwater', 'sonar radar dark', 'deep ocean dark');
   }
 
-  // Underground Cities, Caves & Tunnels
-  if (/derinkuyu|tunnel|underground|cavern|cave|subterranean|basement|catacomb|shaft/i.test(combined)) {
-    terms.push('underground tunnel', 'dark cave', 'ancient cave', 'cave rock');
+  // Underground Caves, Catacombs & Tunnels
+  if (/derinkuyu|tunnel|underground|cavern|cave|subterranean|catacomb/i.test(combined)) {
+    terms.push('underground tunnel dark', 'dark cave torch', 'ancient cave rock', 'catacomb dark');
   }
 
   // Nuclear Bunkers & Blast Doors
-  if (/bunker|blast door|greenbrier|greek island|cheyenne|norad|fallout|shelter|silo/i.test(combined)) {
-    terms.push('underground bunker', 'vault door', 'military tunnel', 'bunker');
+  if (/bunker|blast door|greenbrier|cheyenne|norad|fallout|shelter|silo/i.test(combined)) {
+    terms.push('underground bunker', 'vault door heavy', 'military tunnel dark');
   }
 
-  // Radar, Technology, Tracking & Signals
-  if (/radar|satellite|antenna|telemetry|signal|tracking|surveillance|cyber|terminal|routing|swift/i.test(combined)) {
-    terms.push('radar screen', 'satellite space', 'antenna', 'radar');
+  // Radar, Antennas & Satellites
+  if (/radar|satellite|antenna|telemetry|signal|tracking|surveillance|terminal/i.test(combined)) {
+    terms.push('radar screen dark', 'satellite space dark', 'antenna night', 'server room dark');
   }
 
-  // Ancient Ruins, Pyramids, Archaeology & Architecture
-  if (/ancient|pyramid|temple|ruins|archaeology|roman|concrete|monument|tomb|pharaoh|hittite/i.test(combined)) {
-    terms.push('ancient ruins', 'pyramid', 'ancient temple', 'roman ruins');
+  // Ancient Ruins, Roman Concrete, Pyramids & Architecture
+  if (/ancient|pyramid|temple|ruins|archaeology|roman|concrete|monument|tomb|pharaoh/i.test(combined)) {
+    terms.push('ancient ruins dark', 'ancient temple night', 'roman ruins stone', 'pyramid dark');
   }
 
-  // Arctic, Ice, Permafrost & Seed Vault
-  if (/arctic|snow|permafrost|ice|svalbard|mountain|glacier|longyearbyen|polar|doomsday/i.test(combined)) {
-    terms.push('arctic mountain', 'snow mountain', 'glacier ice', 'snow');
+  // Arctic, Ice & Permafrost
+  if (/arctic|snow|permafrost|ice|svalbard|glacier|polar|doomsday vault/i.test(combined)) {
+    terms.push('arctic mountain blizzard', 'glacier ice dark', 'snow night mountain');
   }
 
   // Drilling, Boreholes & Earth Crust
-  if (/borehole|kola|drilling|mantle|drill rig|subterranean depth|deep hole/i.test(combined)) {
-    terms.push('drilling rig', 'drilling', 'mine tunnel', 'industrial machine');
+  if (/borehole|kola|drilling|mantle|drill rig|deep hole/i.test(combined)) {
+    terms.push('drilling rig night', 'drill machine industrial', 'mine tunnel dark');
   }
 
-  // Volcanoes, Lava & Eruptions
-  if (/volcano|eruption|lava|magma|smoke mountain|crater/i.test(combined)) {
-    terms.push('volcano', 'lava flow', 'smoke mountain');
+  // Volcanoes & Lava
+  if (/volcano|eruption|lava|magma|crater/i.test(combined)) {
+    terms.push('lava flow night', 'volcano dark', 'smoke mountain');
   }
 
-  // Ships, Ports & Maritime Chokepoints
-  if (/canal|ship|cargo|vessel|panama|harbor|port|container|strait|malacca|suez/i.test(combined)) {
-    terms.push('cargo ship', 'ocean port', 'ship container', 'shipping vessel');
+  // Ships, Ports & Containers
+  if (/canal|ship|cargo|vessel|panama|harbor|port|container|suez/i.test(combined)) {
+    terms.push('cargo ship night', 'ocean port night', 'shipping vessel dark');
   }
 
-  // Undersea Cables & Internet Infrastructure
-  if (/cable|fiber optic|internet cable|undersea cable|tat-14|chokepoint/i.test(combined)) {
-    terms.push('deep ocean', 'network fiber', 'cable underwater', 'server room');
-  }
-
-  // Cold War, Spies, Declassified & Mystery
-  if (/cold war|cia|kgb|classified|covert|espionage|agents|surveillance|investigation/i.test(combined)) {
-    terms.push('dark moody', 'military bunker', 'fog atmospheric', 'radar screen');
-  }
-
-  // Ekranoplan & Ground Effect
-  if (/ekranoplan|caspian/i.test(combined)) {
-    terms.push('seaplane', 'military aircraft', 'ocean water');
-  }
-
-  // 3. Concrete Physical Noun Extraction from Voice Script
+  // 3. Concrete Physical Noun Extraction from Voice Script (Strictly no abstract words)
   const stopWords = new Set([
     'the', 'this', 'that', 'with', 'from', 'have', 'will', 'your', 'about', 'what', 'when',
     'where', 'into', 'over', 'under', 'between', 'during', 'official', 'record', 'records',
@@ -157,7 +185,8 @@ export function extractSearchTerms(
     'according', 'confirmed', 'situation', 'rapidly', 'escalating', 'choice', 'altered',
     'course', 'profound', 'would', 'done', 'position', 'standard', 'textbooks', 'examined',
     'physical', 'copying', 'exact', 'breakthrough', 'know', 'imagine', 'blow', 'mind',
-    'nobody', 'talking', 'comment', 'share', 'follow', 'below'
+    'nobody', 'talking', 'comment', 'share', 'follow', 'below',
+    ...Array.from(BANNED_ABSTRACT_TERMS)
   ]);
 
   const cleanSpeechWords = speechText.replace(/[^a-z0-9\s]/g, ' ')
@@ -171,8 +200,10 @@ export function extractSearchTerms(
     terms.push(cleanSpeechWords[0]);
   }
 
-  // 4. Cinematic High-Engagement Atmospheric Fallbacks
-  terms.push('aerial landscape', 'cinematic dark', 'drone cinematography', 'storm clouds');
+  // 4. Dark Documentary Atmospheric Fallbacks (NEVER sunny beaches or abstract paint marbles!)
+  for (const fallback of DARK_ARCHIVE_FALLBACK_QUERIES) {
+    terms.push(fallback);
+  }
 
   return Array.from(new Set(terms.filter(Boolean)));
 }
@@ -316,36 +347,11 @@ async function fetchPexelsVideo(
 }
 
 /**
- * Scans the local stock video vault for existing video clips matching the category/topic.
+/**
+ * Local stock video vault reuse is disabled to prevent cross-topic clip contamination.
  */
 async function findLocalVaultVideo(keywords: string[]): Promise<string | null> {
-  try {
-    if (!fsSync.existsSync(STOCK_VIDEOS_DIR)) return null;
-    const files = await fs.readdir(STOCK_VIDEOS_DIR);
-    const mp4s = files.filter(f => f.toLowerCase().endsWith('.mp4'));
-    if (!mp4s.length) return null;
-
-    // Rank local files by keyword overlap
-    const lowerKw = keywords.map(k => k.toLowerCase());
-    const scored = mp4s.map(file => {
-      const lowerFile = file.toLowerCase();
-      let score = 0;
-      for (const kw of lowerKw) {
-        if (lowerFile.includes(kw)) score += 2;
-      }
-      return { file, score };
-    });
-
-    const hasMatch = scored.some(s => s.score > 0);
-    if (hasMatch) {
-      scored.sort((a, b) => b.score - a.score);
-      const chosen = scored[0].file;
-      return path.join(STOCK_VIDEOS_DIR, chosen);
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 /**

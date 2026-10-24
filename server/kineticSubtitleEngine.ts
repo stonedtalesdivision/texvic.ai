@@ -160,7 +160,8 @@ export async function generateKineticAssSubtitles(
       }
     } else {
       // Pathway 2: Resilient fallback proportional pacing bounded strictly by speechDuration
-      const speechDur = Math.max(0.8, scene.speechDuration || (words.length / 2.5));
+      const rawSpeechDur = scene.speechDuration || (words.length / 2.5);
+      const speechDur = Math.max(0.8, Math.min(rawSpeechDur, Math.max(0.8, sceneDur - 0.2)));
       const chunks: string[][] = [];
       const maxPerChunk = options.wordsPerGroup || 3;
       for (let i = 0; i < words.length; i += maxPerChunk) {
@@ -176,10 +177,12 @@ export async function generateKineticAssSubtitles(
         const isLastChunk = cIdx === chunks.length - 1;
 
         const chunkDur = isLastChunk
-          ? Math.max(0.4, (currentTime + speechDur) - chunkStartTime)
+          ? Math.max(0.3, (currentTime + speechDur) - chunkStartTime)
           : (speechDur * (chunkChars / totalChars));
 
-        const chunkEndTime = chunkStartTime + Math.max(0.35, chunkDur);
+        const chunkEndTime = isLastChunk
+          ? Math.min(currentTime + speechDur, currentTime + sceneDur - 0.05)
+          : Math.min(chunkStartTime + Math.max(0.3, chunkDur), currentTime + sceneDur - 0.1);
 
         // Highlight active or emphasis word in this chunk
         let highlightedIdx = chunkWords.findIndex(w => isEmphasisWord(w));

@@ -3,7 +3,7 @@ import {
   Film, Layers, Play, Calendar, Eye, 
   Bookmark, Download, Check, Trash2, Send, 
   Loader2, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, X,
-  Zap, Search
+  Zap, Search, Facebook
 } from 'lucide-react';
 import { ReelItem, PostItem } from '../types';
 import { ReelPlayer } from './ReelPlayer';
@@ -22,6 +22,7 @@ interface ContentGalleryProps {
   onShowToast?: (msg: string) => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
+  onOpenAccountConnector?: (channel?: 'instagram' | 'facebook_page' | 'facebook_account') => void;
 }
 
 export const ContentGallery: React.FC<ContentGalleryProps> = ({
@@ -36,7 +37,8 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
   onConvertedToReel,
   onShowToast,
   theme,
-  onToggleTheme
+  onToggleTheme,
+  onOpenAccountConnector
 }) => {
   const [filterType, setFilterType] = useState<'all' | 'reels' | 'posts'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -48,6 +50,7 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [convertingPostId, setConvertingPostId] = useState<string | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{ id: string; title: string; type: 'reel' | 'post' } | null>(null);
+  const [, setForceUpdate] = useState<number>(0);
 
   const handleConvertToReel = async (post: PostItem) => {
     setConvertingPostId(post.id);
@@ -161,6 +164,41 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
       }
     } finally {
       setPublishingId(null);
+    }
+  };
+
+  const [publishingFbId, setPublishingFbId] = useState<string | null>(null);
+
+  const handlePublishFacebookClick = async (reel: ReelItem) => {
+    setPublishingFbId(reel.id);
+    try {
+      const res = await fetch('/api/reels/publish-facebook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reelId: reel.id })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to publish Reel to Facebook Page.');
+      }
+      reel.fb_video_id = data.videoId;
+      reel.fb_permalink = data.permalink;
+      reel.fb_status = 'published';
+      setForceUpdate(n => n + 1);
+      if (onShowToast) {
+        onShowToast(`Posted Reel "${reel.title}" to Facebook Page!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to post reel to Facebook Page:', err);
+      const msg = err?.message || 'Failed to post reel to Facebook Page.';
+      if (onShowToast) {
+        onShowToast(msg);
+      }
+      if (/configured|credentials|connect/i.test(msg) && onOpenAccountConnector) {
+        onOpenAccountConnector('facebook_page');
+      }
+    } finally {
+      setPublishingFbId(null);
     }
   };
 
@@ -359,117 +397,130 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                     </span>
                   </div>
 
-                  {/* Action Buttons Row */}
-                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
-                    {/* Preview Button */}
-                    <button
-                      type="button"
-                      onClick={() => setActiveModalReel(reel)}
-                      className="py-1.5 px-2.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center gap-1 transition-all"
-                      title="Preview Reel"
-                    >
-                      <Play className="w-3 h-3" />
-                      Preview
-                    </button>
-
-                    {/* Publish Now Button (or Published badge) */}
-                    {isPublished ? (
-                      <span className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center justify-center gap-1.5 flex-wrap">
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                        Published
-                        {reel.permalink && (
-                          <a
-                            href={reel.permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-1 text-pink-400 hover:text-white inline-flex items-center text-[10px] font-bold"
-                            title="View on Instagram"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            IG ↗
-                          </a>
-                        )}
-                        {reel.fb_permalink && (
-                          <a
-                            href={reel.fb_permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-1 text-blue-400 hover:text-white inline-flex items-center text-[10px] font-bold"
-                            title="View on Facebook Page"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            FB ↗
-                          </a>
-                        )}
-                        {reel.fb_account_permalink && (
-                          <a
-                            href={reel.fb_account_permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ml-1 text-indigo-400 hover:text-white inline-flex items-center text-[10px] font-bold"
-                            title="View on Facebook Profile"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Profile ↗
-                          </a>
-                        )}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={isPublishing}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handlePublishReelClick(reel);
-                        }}
-                        className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-md shadow-pink-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
-                        title="Publish immediately to Instagram"
-                      >
-                        {isPublishing ? (
-                          <>
+                  {/* Action Controls: Tier 1 - Dedicated Channel Publishing Row */}
+                  <div className="pt-2 border-t border-slate-800 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Instagram Channel Control */}
+                      {isPublished ? (
+                        <div className="py-1.5 px-2 rounded-lg text-xs font-bold bg-pink-500/15 text-pink-300 border border-pink-500/30 flex items-center justify-center gap-1.5">
+                          <CheckCircle className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                          <span className="truncate">IG Live</span>
+                          {reel.permalink && (
+                            <a
+                              href={reel.permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-pink-300 hover:text-white inline-flex items-center text-xs font-bold ml-0.5"
+                              title="View Reel on Instagram"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              ↗
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isPublishing}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePublishReelClick(reel);
+                          }}
+                          className="w-full py-1.5 px-2.5 rounded-lg text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                          title="Publish immediately to Instagram"
+                        >
+                          {isPublishing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            Publishing...
-                          </>
-                        ) : (
-                          <>
+                          ) : (
                             <Send className="w-3.5 h-3.5" />
-                            Publish Now
-                          </>
-                        )}
-                      </button>
-                    )}
+                          )}
+                          Post IG
+                        </button>
+                      )}
 
-                    {/* Schedule Button */}
-                    <button
-                      type="button"
-                      onClick={() => onScheduleReel(reel)}
-                      className="py-1.5 px-2.5 rounded-lg text-xs font-bold bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 flex items-center justify-center gap-1 transition-all"
-                      title="Schedule Reel"
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                      Schedule
-                    </button>
+                      {/* Facebook Page Channel Control (Always Visible) */}
+                      {reel.fb_permalink || reel.fb_status === 'published' ? (
+                        <div className="py-1.5 px-2 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center justify-center gap-1.5">
+                          <Facebook className="w-3.5 h-3.5 text-blue-400 fill-blue-400 shrink-0" />
+                          <span className="truncate">FB Live</span>
+                          {reel.fb_permalink && (
+                            <a
+                              href={reel.fb_permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-300 hover:text-white inline-flex items-center text-xs font-bold ml-0.5"
+                              title="View Reel on Facebook Page"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              ↗
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={publishingFbId === reel.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePublishFacebookClick(reel);
+                          }}
+                          className="w-full py-1.5 px-2.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/50 shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                          title="Post this Reel directly to your Facebook Page"
+                        >
+                          {publishingFbId === reel.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                          ) : (
+                            <Facebook className="w-3.5 h-3.5 text-white fill-white shrink-0" />
+                          )}
+                          Post FB
+                        </button>
+                      )}
+                    </div>
 
-                    {/* Download Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadReel(reel)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                      title="Download 9:16 Video"
-                    >
-                      {isDownloaded ? <Check className="w-4 h-4 text-emerald-400" /> : <Download className="w-4 h-4" />}
-                    </button>
+                    {/* Tier 2 - Secondary Utilities: Preview, Schedule, Download, Delete */}
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => setActiveModalReel(reel)}
+                          className="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 flex items-center justify-center gap-1 transition-all"
+                          title="Preview Reel in Video Player"
+                        >
+                          <Play className="w-3 h-3" />
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onScheduleReel(reel)}
+                          className="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium bg-purple-950/40 hover:bg-purple-900/50 text-purple-300 border border-purple-800/50 flex items-center justify-center gap-1 transition-all"
+                          title="Schedule Reel Broadcast"
+                        >
+                          <Calendar className="w-3 h-3" />
+                          Schedule
+                        </button>
+                      </div>
 
-                    {/* Delete Button */}
-                    <button
-                      type="button"
-                      disabled={isDeleting}
-                      onClick={() => handleDeleteReelClick(reel)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                      title="Delete Reel from Gallery"
-                    >
-                      {isDeleting ? <Loader2 className="w-4 h-4 animate-spin text-rose-400" /> : <Trash2 className="w-4 h-4" />}
-                    </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadReel(reel)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                          title="Download 9:16 Video"
+                        >
+                          {isDownloaded ? <Check className="w-4 h-4 text-emerald-400" /> : <Download className="w-4 h-4" />}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isDeleting}
+                          onClick={() => handleDeleteReelClick(reel)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Delete Reel from Gallery"
+                        >
+                          {isDeleting ? <Loader2 className="w-4 h-4 animate-spin text-rose-400" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -684,6 +735,8 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                     setActiveModalReel(null);
                   }}
                   onClose={() => setActiveModalReel(null)}
+                  onOpenAccountConnector={onOpenAccountConnector}
+                  onShowToast={onShowToast}
                 />
               </div>
             </div>
