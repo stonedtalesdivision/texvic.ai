@@ -49,18 +49,25 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Install Playwright Chromium browser accessible by all users
+# Install Playwright Chromium browser accessible by all users and symlink for system tools (HyperFrames)
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN mkdir -p /ms-playwright && \
     npx playwright install --with-deps chromium && \
-    chmod -R 777 /ms-playwright
+    chmod -R 777 /ms-playwright && \
+    PW_CHROME=$(find /ms-playwright -name chrome -type f -perm /111 2>/dev/null | head -n 1) && \
+    if [ -n "$PW_CHROME" ]; then \
+      ln -sf "$PW_CHROME" /usr/bin/chromium && \
+      ln -sf "$PW_CHROME" /usr/bin/chromium-browser && \
+      ln -sf "$PW_CHROME" /usr/bin/google-chrome; \
+    fi
 
 # Pre-cache HyperFrames headless browser for studio video compositing
 ENV HYPERFRAMES_NO_GPU=1
-RUN npx hyperframes browser ensure && \
-    mkdir -p /home/node/.cache && \
-    cp -r /root/.cache/* /home/node/.cache/ 2>/dev/null || true && \
-    chown -R node:node /home/node/.cache && \
+ENV HYPERFRAMES_BROWSER_PATH=/usr/bin/chromium
+RUN mkdir -p /home/node/.cache /root/.cache && \
+    (npx hyperframes browser ensure || true) && \
+    (cp -r /root/.cache/* /home/node/.cache/ 2>/dev/null || true) && \
+    chown -R node:node /home/node && \
     chmod -R 777 /home/node/.cache
 
 # Copy application source

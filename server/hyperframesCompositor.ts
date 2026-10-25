@@ -467,11 +467,19 @@ export async function composeWithHyperframes(
       cliArgs.push('--no-browser-gpu');
     }
 
+    const browserPath = process.env.HYPERFRAMES_BROWSER_PATH || 
+      (fsSync.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
+
     await execFileAsync(cliCmd, cliArgs, {
       cwd: compDir,
       shell: process.platform === 'win32',
       maxBuffer: 1024 * 1024 * 32,
-      timeout: 180000 // 3 minutes timeout for long-form Reel
+      timeout: 180000, // 3 minutes timeout for long-form Reel
+      env: {
+        ...process.env,
+        HYPERFRAMES_NO_GPU: '1',
+        ...(browserPath ? { HYPERFRAMES_BROWSER_PATH: browserPath } : {})
+      }
     });
 
     if (fsSync.existsSync(input.outputPath) && (await fs.stat(input.outputPath)).size > 50000) {
