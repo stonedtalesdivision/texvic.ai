@@ -213,6 +213,11 @@ export function startJobWorker() {
                       caption: fullCaption,
                       title: reel.title
                     });
+                    if (!fbPageResult.success && fbPageResult.error?.includes('Error validating access token')) {
+                      try {
+                        db.prepare("UPDATE account_connections SET is_connected = 0 WHERE id = 'facebook_page'").run();
+                      } catch {}
+                    }
                   } catch (fbPageErr: any) {
                     console.warn('[Job Queue] Facebook Page broadcast notice:', fbPageErr?.message || fbPageErr);
                   }
@@ -228,6 +233,11 @@ export function startJobWorker() {
                       caption: fullCaption,
                       title: reel.title
                     });
+                    if (!fbAccountResult.success && fbAccountResult.error?.includes('Error validating access token')) {
+                      try {
+                        db.prepare("UPDATE account_connections SET is_connected = 0 WHERE id = 'facebook_account'").run();
+                      } catch {}
+                    }
                   } catch (fbAccErr: any) {
                     console.warn('[Job Queue] Facebook Profile broadcast notice:', fbAccErr?.message || fbAccErr);
                   }

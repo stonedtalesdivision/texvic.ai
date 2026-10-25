@@ -69,6 +69,7 @@ export default function App() {
   const [previewReel, setPreviewReel] = useState<ReelItem | null>(null);
   const [instagramConnected, setInstagramConnected] = useState(false);
   const [facebookConnected, setFacebookConnected] = useState(false);
+  const [facebookExpired, setFacebookExpired] = useState(false);
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [activeAccountId, setActiveAccountId] = useState<string>('instagram_primary');
 
@@ -158,6 +159,7 @@ export default function App() {
         if (fbStatusRes.ok) {
           const fbStatus = await fbStatusRes.json().catch(() => ({}));
           setFacebookConnected(Boolean(fbStatus?.success && fbStatus.page?.isConnected));
+          setFacebookExpired(Boolean(fbStatus?.success && (fbStatus.page?.isExpired || fbStatus.account?.isExpired)));
         }
 
         const res = await fetch('/api/state');
@@ -703,6 +705,7 @@ export default function App() {
         analytics={analytics}
         instagramConnected={instagramConnected}
         facebookConnected={facebookConnected}
+        facebookExpired={facebookExpired}
         autonomousMode={autonomousMode}
         setAutonomousMode={setAutonomousMode}
         pendingCommentsCount={pendingCommentsCount}

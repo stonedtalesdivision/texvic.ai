@@ -36,16 +36,20 @@ interface AccountConnectorModalProps {
 
 interface FacebookStatus {
   isConnected: boolean;
+  isExpired?: boolean;
   pageId?: string;
   name?: string;
   username?: string;
+  error?: string;
 }
 
 interface FacebookUserStatus {
   isConnected: boolean;
+  isExpired?: boolean;
   userId?: string;
   name?: string;
   username?: string;
+  error?: string;
 }
 
 export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
@@ -580,11 +584,23 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
           >
             <div className="flex items-center justify-between mb-1">
               <Facebook className="w-3.5 h-3.5 text-blue-400" />
-              <div className={`w-2 h-2 rounded-full ${fbPageStatus.isConnected ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-slate-600'}`} />
+              <div className={`w-2 h-2 rounded-full ${
+                fbPageStatus.isConnected 
+                  ? 'bg-emerald-400 shadow-sm shadow-emerald-400' 
+                  : fbPageStatus.isExpired 
+                    ? 'bg-amber-400 shadow-sm shadow-amber-400 animate-pulse' 
+                    : 'bg-slate-600'
+              }`} />
             </div>
             <p className="text-[11px] font-bold text-white truncate">FB Page</p>
-            <p className={`text-[10px] truncate ${fbPageStatus.isConnected ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
-              {fbPageStatus.isConnected ? (fbPageStatus.name || 'Connected') : 'Disconnected'}
+            <p className={`text-[10px] truncate ${
+              fbPageStatus.isConnected 
+                ? 'text-emerald-400 font-semibold' 
+                : fbPageStatus.isExpired 
+                  ? 'text-amber-400 font-semibold' 
+                  : 'text-slate-500'
+            }`}>
+              {fbPageStatus.isConnected ? (fbPageStatus.name || 'Connected') : fbPageStatus.isExpired ? 'Session Expired' : 'Disconnected'}
             </p>
           </button>
 
@@ -600,11 +616,23 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
           >
             <div className="flex items-center justify-between mb-1">
               <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-              <div className={`w-2 h-2 rounded-full ${fbAccountStatus.isConnected ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-slate-600'}`} />
+              <div className={`w-2 h-2 rounded-full ${
+                fbAccountStatus.isConnected 
+                  ? 'bg-emerald-400 shadow-sm shadow-emerald-400' 
+                  : fbAccountStatus.isExpired 
+                    ? 'bg-amber-400 shadow-sm shadow-amber-400 animate-pulse' 
+                    : 'bg-slate-600'
+              }`} />
             </div>
             <p className="text-[11px] font-bold text-white truncate">FB Profile</p>
-            <p className={`text-[10px] truncate ${fbAccountStatus.isConnected ? 'text-emerald-400 font-semibold' : 'text-slate-500'}`}>
-              {fbAccountStatus.isConnected ? (fbAccountStatus.name || 'Connected') : 'Disconnected'}
+            <p className={`text-[10px] truncate ${
+              fbAccountStatus.isConnected 
+                ? 'text-emerald-400 font-semibold' 
+                : fbAccountStatus.isExpired 
+                  ? 'text-amber-400 font-semibold' 
+                  : 'text-slate-500'
+            }`}>
+              {fbAccountStatus.isConnected ? (fbAccountStatus.name || 'Connected') : fbAccountStatus.isExpired ? 'Session Expired' : 'Disconnected'}
             </p>
           </button>
         </div>
@@ -773,22 +801,46 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         {/* TAB 2: FACEBOOK PAGE CONNECTION */}
         {activeChannel === 'facebook_page' && (
           <div className="space-y-4">
-            <div className={`p-4 rounded-2xl border ${fbPageStatus.isConnected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
+            <div className={`p-4 rounded-2xl border ${
+              fbPageStatus.isConnected 
+                ? 'bg-emerald-500/10 border-emerald-500/30' 
+                : fbPageStatus.isExpired 
+                  ? 'bg-amber-500/10 border-amber-500/30' 
+                  : 'bg-blue-500/10 border-blue-500/30'
+            }`}>
               <div className="flex items-start gap-3">
-                <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${fbPageStatus.isConnected ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' : 'bg-blue-400'}`} />
+                <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
+                  fbPageStatus.isConnected 
+                    ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
+                    : fbPageStatus.isExpired 
+                      ? 'bg-amber-400 shadow-lg shadow-amber-400/40 animate-pulse' 
+                      : 'bg-blue-400'
+                }`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className={`text-sm font-bold ${fbPageStatus.isConnected ? 'text-emerald-300' : 'text-blue-300'}`}>
-                        {fbPageStatus.isConnected ? 'Facebook Page Connected' : 'Facebook Page Not Connected'}
+                      <p className={`text-sm font-bold ${
+                        fbPageStatus.isConnected 
+                          ? 'text-emerald-300' 
+                          : fbPageStatus.isExpired 
+                            ? 'text-amber-300' 
+                            : 'text-blue-300'
+                      }`}>
+                        {fbPageStatus.isConnected 
+                          ? 'Facebook Page Connected' 
+                          : fbPageStatus.isExpired 
+                            ? 'Facebook Page Session Expired' 
+                            : 'Facebook Page Not Connected'}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {fbPageStatus.isConnected 
                           ? `Ready for simultaneous Reels: "${fbPageStatus.name}"` 
-                          : 'Provide your Page ID & Page Access Token to broadcast Reels to Facebook Page.'}
+                          : fbPageStatus.isExpired 
+                            ? 'Meta Session Expired: Your token expired on Meta. Follow the guide below to generate a Never-Expiring Page Token.' 
+                            : 'Provide your Page ID & Page Access Token to broadcast Reels to Facebook Page.'}
                       </p>
                     </div>
-                    {fbPageStatus.isConnected && (
+                    {(fbPageStatus.isConnected || fbPageStatus.isExpired) && (
                       <button
                         type="button"
                         onClick={handleDisconnectFacebookPage}
@@ -801,10 +853,15 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                     )}
                   </div>
 
-                  {fbPageStatus.isConnected && (
+                  {(fbPageStatus.isConnected || fbPageStatus.isExpired) && fbPageStatus.pageId && (
                     <div className="mt-3 text-[11px] text-slate-300 space-y-1 bg-slate-950/50 p-2.5 rounded-xl border border-blue-500/20">
                       <div><span className="text-slate-500">Page Name:</span> <span className="font-semibold text-white">{fbPageStatus.name}</span></div>
                       <div><span className="text-slate-500">Page ID:</span> <span className="font-mono text-blue-400">{fbPageStatus.pageId}</span></div>
+                      {fbPageStatus.isExpired && (
+                        <div className="text-amber-400 font-semibold pt-1">
+                          ⚠️ Notice: Meta returned token expired error. Auto-cross-posting to Facebook Page is paused until a fresh token is saved.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -892,22 +949,34 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="font-bold text-slate-200 text-xs flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-blue-400" />
-                  60-Second Guide: How to Get Your Facebook Page Token
+                  Guide: Get a Never-Expiring Facebook Page Token
                 </div>
-                <a
-                  href="https://developers.facebook.com/tools/explorer/?method=GET&path=me%2Faccounts%3Ffields%3Did%2Cname%2Caccess_token"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-[11px] font-bold text-blue-300 flex items-center gap-1 transition-colors"
-                >
-                  Open Graph Explorer
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                <div className="flex gap-2">
+                  <a
+                    href="https://developers.facebook.com/tools/explorer/?method=GET&path=me%2Faccounts%3Ffields%3Did%2Cname%2Caccess_token"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-[11px] font-bold text-blue-300 flex items-center gap-1 transition-colors"
+                  >
+                    Graph Explorer
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <a
+                    href="https://developers.facebook.com/tools/debug/accesstoken/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-[11px] font-bold text-indigo-300 flex items-center gap-1 transition-colors"
+                  >
+                    Token Debugger
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
               </div>
               <div className="text-[11px] text-slate-300 space-y-1.5 leading-relaxed">
-                <p>1. Click <strong>Open Graph Explorer</strong> above to go to Meta's tool.</p>
-                <p>2. In the top-right <strong>"User or Page"</strong> dropdown, select your <strong>Facebook Page</strong> (e.g. <em>The Untold Arch</em>), or select <strong>User Token</strong> and check permissions: <code className="text-blue-300 font-mono">pages_manage_posts</code>, <code className="text-blue-300 font-mono">publish_video</code>.</p>
-                <p>3. Click <strong>Generate Access Token</strong>, copy the <code className="text-blue-300 font-mono">EAAB...</code> token, paste it above, and click <strong>Auto-Detect</strong>.</p>
+                <p>1. Open <strong>Graph Explorer</strong> and select your Meta App.</p>
+                <p>2. In the <strong>User or Page</strong> dropdown, choose your <strong>Facebook Page</strong> (or select User Token with <code className="text-blue-300 font-mono">pages_manage_posts</code>, <code className="text-blue-300 font-mono">pages_read_engagement</code>, and <code className="text-blue-300 font-mono">publish_video</code>).</p>
+                <p>3. 💡 <strong>How to make it NEVER expire:</strong> Open <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noreferrer" className="text-blue-400 underline">Access Token Debugger</a>, paste your user token, click <strong>Extend Access Token</strong> to get a 60-day token. Then in Graph Explorer run <code className="text-blue-300 font-mono">GET /me/accounts?fields=id,name,access_token</code> — the Page token returned has <strong>Expires: Never</strong>!</p>
+                <p>4. Paste that <code className="text-blue-300 font-mono">EAAB...</code> token above and click <strong>Auto-Detect</strong>.</p>
               </div>
             </div>
 
@@ -959,22 +1028,46 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         {/* TAB 3: FACEBOOK USER ACCOUNT (PROFILE) CONNECTION */}
         {activeChannel === 'facebook_account' && (
           <div className="space-y-4">
-            <div className={`p-4 rounded-2xl border ${fbAccountStatus.isConnected ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-indigo-500/10 border-indigo-500/30'}`}>
+            <div className={`p-4 rounded-2xl border ${
+              fbAccountStatus.isConnected 
+                ? 'bg-emerald-500/10 border-emerald-500/30' 
+                : fbAccountStatus.isExpired 
+                  ? 'bg-amber-500/10 border-amber-500/30' 
+                  : 'bg-indigo-500/10 border-indigo-500/30'
+            }`}>
               <div className="flex items-start gap-3">
-                <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${fbAccountStatus.isConnected ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' : 'bg-indigo-400'}`} />
+                <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
+                  fbAccountStatus.isConnected 
+                    ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
+                    : fbAccountStatus.isExpired 
+                      ? 'bg-amber-400 shadow-lg shadow-amber-400/40 animate-pulse' 
+                      : 'bg-indigo-400'
+                }`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <p className={`text-sm font-bold ${fbAccountStatus.isConnected ? 'text-emerald-300' : 'text-indigo-300'}`}>
-                        {fbAccountStatus.isConnected ? 'Facebook User Profile Connected' : 'Facebook User Profile Not Connected'}
+                      <p className={`text-sm font-bold ${
+                        fbAccountStatus.isConnected 
+                          ? 'text-emerald-300' 
+                          : fbAccountStatus.isExpired 
+                            ? 'text-amber-300' 
+                            : 'text-indigo-300'
+                      }`}>
+                        {fbAccountStatus.isConnected 
+                          ? 'Facebook User Profile Connected' 
+                          : fbAccountStatus.isExpired 
+                            ? 'Facebook User Profile Session Expired' 
+                            : 'Facebook User Profile Not Connected'}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {fbAccountStatus.isConnected 
                           ? `Ready for simultaneous Reels: "${fbAccountStatus.name}"` 
-                          : 'Provide your User ID & User Access Token with video publish permission.'}
+                          : fbAccountStatus.isExpired 
+                            ? 'Meta Session Expired: Personal profile tokens expire after 60 days. Reconnect with a new User Token below.' 
+                            : 'Provide your User ID & User Access Token with video publish permission.'}
                       </p>
                     </div>
-                    {fbAccountStatus.isConnected && (
+                    {(fbAccountStatus.isConnected || fbAccountStatus.isExpired) && (
                       <button
                         type="button"
                         onClick={handleDisconnectFacebookAccount}
@@ -987,10 +1080,15 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                     )}
                   </div>
 
-                  {fbAccountStatus.isConnected && (
+                  {(fbAccountStatus.isConnected || fbAccountStatus.isExpired) && fbAccountStatus.userId && (
                     <div className="mt-3 text-[11px] text-slate-300 space-y-1 bg-slate-950/50 p-2.5 rounded-xl border border-indigo-500/20">
                       <div><span className="text-slate-500">Profile Name:</span> <span className="font-semibold text-white">{fbAccountStatus.name}</span></div>
                       <div><span className="text-slate-500">User ID:</span> <span className="font-mono text-indigo-400">{fbAccountStatus.userId}</span></div>
+                      {fbAccountStatus.isExpired && (
+                        <div className="text-amber-400 font-semibold pt-1">
+                          ⚠️ Notice: Meta returned token expired error. Auto-cross-posting to Facebook Profile is paused.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

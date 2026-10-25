@@ -1684,36 +1684,81 @@ app.get("/api/auth/facebook/status", async (req, res) => {
   const pageConn = getFacebookPageConnection();
   const accountConn = getFacebookAccountConnection();
 
-  let pageDetails: any = null;
+  let pageDetails: any = { isConnected: false, isExpired: false, pageId: '', name: 'Facebook Page' };
   if (pageConn?.isConnected && pageConn.pageId && pageConn.accessToken) {
-    pageDetails = {
-      isConnected: true,
-      pageId: pageConn.pageId,
-      name: pageConn.name || 'Facebook Page',
-      username: pageConn.username || pageConn.pageId
-    };
+    const pageCheck = await getFacebookPageProfile(pageConn.pageId, pageConn.accessToken);
+    if (pageCheck.success && pageCheck.data) {
+      pageDetails = {
+        isConnected: true,
+        isExpired: false,
+        pageId: pageConn.pageId,
+        name: pageCheck.data.name || pageConn.name || 'Facebook Page',
+        username: pageCheck.data.username || pageConn.username || pageConn.pageId
+      };
+    } else {
+      // Token is invalid/expired - update DB to reflect reality
+      try {
+        db.prepare("UPDATE account_connections SET is_connected = 0 WHERE id = 'facebook_page'").run();
+      } catch {}
+      pageDetails = {
+        isConnected: false,
+        isExpired: true,
+        pageId: pageConn.pageId,
+        name: pageConn.name || 'Facebook Page',
+        error: pageCheck.error || 'Facebook Page session expired'
+      };
+    }
   } else {
-    pageDetails = {
-      isConnected: false,
-      pageId: '',
-      name: 'Facebook Page'
-    };
+    try {
+      const pageRow = db.prepare("SELECT * FROM account_connections WHERE (id = 'facebook_page' OR platform = 'facebook_page') AND access_token != '' LIMIT 1").get() as any;
+      if (pageRow && pageRow.account_id) {
+        pageDetails = {
+          isConnected: false,
+          isExpired: true,
+          pageId: pageRow.account_id,
+          name: pageRow.name || 'Facebook Page',
+          error: 'Facebook Page session has expired. Re-authentication required.'
+        };
+      }
+    } catch {}
   }
 
-  let accountDetails: any = null;
+  let accountDetails: any = { isConnected: false, isExpired: false, userId: '', name: 'Facebook Profile' };
   if (accountConn?.isConnected && accountConn.userId && accountConn.accessToken) {
-    accountDetails = {
-      isConnected: true,
-      userId: accountConn.userId,
-      name: accountConn.name || 'Facebook Profile',
-      username: accountConn.username || accountConn.userId
-    };
+    const accCheck = await getFacebookUserProfile(accountConn.userId, accountConn.accessToken);
+    if (accCheck.success && accCheck.data) {
+      accountDetails = {
+        isConnected: true,
+        isExpired: false,
+        userId: accountConn.userId,
+        name: accCheck.data.name || accountConn.name || 'Facebook Profile',
+        username: accCheck.data.username || accountConn.username || accountConn.userId
+      };
+    } else {
+      try {
+        db.prepare("UPDATE account_connections SET is_connected = 0 WHERE id = 'facebook_account'").run();
+      } catch {}
+      accountDetails = {
+        isConnected: false,
+        isExpired: true,
+        userId: accountConn.userId,
+        name: accountConn.name || 'Facebook Profile',
+        error: accCheck.error || 'Facebook Profile session expired'
+      };
+    }
   } else {
-    accountDetails = {
-      isConnected: false,
-      userId: '',
-      name: 'Facebook User Profile'
-    };
+    try {
+      const accRow = db.prepare("SELECT * FROM account_connections WHERE (id = 'facebook_account' OR platform = 'facebook_account') AND access_token != '' LIMIT 1").get() as any;
+      if (accRow && accRow.account_id) {
+        accountDetails = {
+          isConnected: false,
+          isExpired: true,
+          userId: accRow.account_id,
+          name: accRow.name || 'Facebook Profile',
+          error: 'Facebook Profile session has expired. Re-authentication required.'
+        };
+      }
+    } catch {}
   }
 
   res.json({

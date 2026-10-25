@@ -9,6 +9,7 @@ interface NavbarProps {
   analytics: AccountAnalytics;
   instagramConnected: boolean;
   facebookConnected?: boolean;
+  facebookExpired?: boolean;
   autonomousMode: boolean;
   setAutonomousMode: (val: boolean | ((prev: boolean) => boolean)) => void;
   pendingCommentsCount: number;
@@ -29,6 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   analytics,
   instagramConnected,
   facebookConnected = false,
+  facebookExpired = false,
   autonomousMode,
   setAutonomousMode,
   pendingCommentsCount,
@@ -210,13 +212,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors cursor-pointer ${
                   facebookConnected
                     ? 'bg-blue-950/40 hover:bg-blue-900/50 text-blue-300 border-blue-500/40 shadow-sm shadow-blue-500/10'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+                    : facebookExpired
+                      ? 'bg-amber-950/40 hover:bg-amber-900/50 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/10 animate-pulse'
+                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
                 }`}
-                title={facebookConnected ? 'Facebook Page Connected & Ready for Cross-Posting' : 'Connect Facebook Page for Cross-Posting'}
+                title={
+                  facebookConnected 
+                    ? 'Facebook Page Connected & Ready for Cross-Posting' 
+                    : facebookExpired
+                      ? 'Facebook Session Expired - Click to Reconnect'
+                      : 'Connect Facebook Page for Cross-Posting'
+                }
               >
-                <Facebook className="w-3.5 h-3.5 text-blue-400" />
-                <span className="hidden xs:inline">{facebookConnected ? 'FB Page Connected' : 'Connect FB Page'}</span>
-                <span className="xs:hidden">{facebookConnected ? 'FB Live' : 'Connect FB'}</span>
+                <Facebook className={`w-3.5 h-3.5 ${facebookExpired ? 'text-amber-400' : 'text-blue-400'}`} />
+                <span className="hidden xs:inline">
+                  {facebookConnected ? 'FB Page Connected' : facebookExpired ? 'FB Expired' : 'Connect FB Page'}
+                </span>
+                <span className="xs:hidden">
+                  {facebookConnected ? 'FB Live' : facebookExpired ? 'FB Expired' : 'Connect FB'}
+                </span>
               </button>
             </div>
           )}
