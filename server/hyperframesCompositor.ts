@@ -26,6 +26,7 @@ export interface HyperframesComposeInput {
   reelId: string;
   scenes: HyperframesComposeScene[];
   totalDuration: number;
+  backgroundVideoPath?: string;
   masterAudioPath?: string;
   outputPath: string;
   reelTitle?: string;
@@ -44,9 +45,12 @@ function escapeHtml(str: string): string {
 }
 
 /**
- * Builds a dynamic, ultra-crisp 1080x1920 HyperFrames HTML composition
- * with animated video cuts, CSS vignette, glowing kinetic typography,
- * telemetry HUD, dynamic progress bar, and synced broadcast master audio.
+ * Builds a dynamic, ultra-crisp 1080x1920 HyperFrames transparent overlay composition
+ * with glowing kinetic typography, telemetry HUD, dynamic progress bar, and chapter dossiers,
+ * then composites over the background video via native FFmpeg.
+ *
+ * This Layered Alpha architecture completely eliminates headless browser video codec failures
+ * by decoupling Chromium from HTML5 video playback and relying on native FFmpeg for video decoding.
  */
 export async function composeWithHyperframes(
   input: HyperframesComposeInput
@@ -68,31 +72,46 @@ export async function composeWithHyperframes(
   const badgeText = input.verticalBadge ? input.verticalBadge.replace(/[\[\]]/g, '').trim() : 'CLASSIFIED RECORD';
 
   try {
-    // 1. Copy or Symlink media files into compDir for zero-latency local HTTP serving by HyperFrames
-    const localVideos: Array<{ filename: string; start: number; duration: number; scene: HyperframesComposeScene }> = [];
+    // 1. Resolve Background Video (Ensures 100% video footage presence)
+    let bgVideoPath = input.backgroundVideoPath;
+    if (!bgVideoPath || !fsSync.existsSync(bgVideoPath)) {
+      const validScenes = input.scenes.filter(s => s.filePath && fsSync.existsSync(s.filePath));
+      if (validScenes.length > 0) {
+        const concatTxt = path.join(compDir, 'scenes_concat.txt');
+        const concatLines = validScenes.map(s => `file '${s.filePath.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n');
+        await fs.writeFile(concatTxt, concatLines, 'utf8');
+        const fallbackBg = path.join(compDir, 'fallback_bg.mp4');
+        try {
+          await execFileAsync('ffmpeg', [
+            '-y', '-f', 'concat', '-safe', '0', '-i', concatTxt,
+            '-c', 'copy', '-movflags', '+faststart', fallbackBg
+          ]);
+        } catch {
+          await execFileAsync('ffmpeg', [
+            '-y', '-f', 'concat', '-safe', '0', '-i', concatTxt,
+            '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p',
+            '-movflags', '+faststart', fallbackBg
+          ]);
+        }
+        if (fsSync.existsSync(fallbackBg)) {
+          bgVideoPath = fallbackBg;
+        }
+      }
+    }
+
+    if (!bgVideoPath || !fsSync.existsSync(bgVideoPath)) {
+      return { success: false, error: 'Background scene footage was not found on disk.' };
+    }
+
+    // 2. Construct Scene Time Offsets for Overlay Timings
+    const localScenes: Array<{ start: number; duration: number; scene: HyperframesComposeScene }> = [];
     let currentTime = 0;
 
     for (let i = 0; i < input.scenes.length; i++) {
       const sc = input.scenes[i];
-      const filename = `scene-${i}.mp4`;
-      const destPath = path.join(compDir, filename);
-
-      try {
-        await fs.copyFile(sc.filePath, destPath);
-      } catch (copyErr) {
-        // Fallback: Hardlink
-        try {
-          await fs.link(sc.filePath, destPath);
-        } catch {
-          // If hardlink fails across volumes, read and write buffer
-          const buf = await fs.readFile(sc.filePath);
-          await fs.writeFile(destPath, buf);
-        }
-      }
-
       const dur = Number(sc.duration.toFixed(2));
-      localVideos.push({
-        filename,
+      localScenes.push({
         start: Number(currentTime.toFixed(2)),
         duration: dur,
         scene: sc
@@ -100,29 +119,17 @@ export async function composeWithHyperframes(
       currentTime += dur;
     }
 
-    let localAudioName: string | null = null;
-    if (input.masterAudioPath && fsSync.existsSync(input.masterAudioPath)) {
-      localAudioName = 'master-audio.wav';
-      const destAudio = path.join(compDir, localAudioName);
-      try {
-        await fs.copyFile(input.masterAudioPath, destAudio);
-      } catch {
-        const buf = await fs.readFile(input.masterAudioPath);
-        await fs.writeFile(destAudio, buf);
-      }
-    }
-
-    // 2. Write hyperframes.json
+    // 3. Write hyperframes.json
     const hfConfig = {
       $schema: 'https://hyperframes.heygen.com/schema/hyperframes.json',
       paths: { assets: '.' }
     };
     await fs.writeFile(path.join(compDir, 'hyperframes.json'), JSON.stringify(hfConfig, null, 2));
 
-    // 3. Construct Kinetic Subtitles (Word groups)
+    // 4. Construct Kinetic Subtitles (Word groups)
     const subtitleClips: Array<{ start: number; duration: number; html: string }> = [];
 
-    for (const item of localVideos) {
+    for (const item of localScenes) {
       const sc = item.scene;
       const sceneWords = Array.isArray(sc.words) && sc.words.length > 0 ? sc.words : null;
 
@@ -166,16 +173,8 @@ export async function composeWithHyperframes(
       }
     }
 
-    // 4. Construct Full HTML5 Composition Template
-    const videoElementsHtml = localVideos
-      .map(v => `<video class="clip scene-video" data-start="${v.start}" data-duration="${v.duration}" src="./${v.filename}" muted playsinline></video>`)
-      .join('\n      ');
-
-    const audioElementHtml = localAudioName
-      ? `<audio id="master-audio" class="clip" data-start="0" data-duration="${totalDur}" src="./${localAudioName}"></audio>`
-      : '';
-
-    const chapterHudHtml = localVideos
+    // 5. Construct HTML5 Transparent Motion Graphics Plate
+    const chapterHudHtml = localScenes
       .map((v, i) => {
         const label = v.scene.chapterLabel || `INVESTIGATION PART ${i + 1}`;
         return `
@@ -209,7 +208,7 @@ export async function composeWithHyperframes(
     <style>
       :root {
         --accent: ${accent};
-        --ground: #07080a;
+        --ground: transparent;
         --hud-bg: rgba(9, 10, 14, 0.72);
         --border-gold: rgba(212, 175, 55, 0.35);
       }
@@ -217,7 +216,7 @@ export async function composeWithHyperframes(
       html, body {
         width: 1080px; height: 1920px;
         overflow: hidden;
-        background: var(--ground);
+        background: transparent !important;
         font-family: 'Inter', -apple-system, sans-serif;
         color: #ffffff;
       }
@@ -225,34 +224,27 @@ export async function composeWithHyperframes(
         position: relative;
         width: 1080px; height: 1920px;
         overflow: hidden;
+        background: transparent !important;
       }
 
-      /* 1. Video Tracks */
-      .scene-video {
-        position: absolute;
-        inset: 0;
-        width: 1080px; height: 1920px;
-        object-fit: cover;
-      }
-
-      /* 2. Archival Dark Grading, Radial Vignette & Scanlines */
+      /* 1. Archival Dark Grading, Radial Vignette & Scanlines */
       .vignette-overlay {
         position: absolute;
         inset: 0;
         pointer-events: none;
-        box-shadow: inset 0 0 170px rgba(0, 0, 0, 0.88);
-        background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(4, 5, 8, 0.80) 100%);
+        box-shadow: inset 0 0 170px rgba(0, 0, 0, 0.82);
+        background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(4, 5, 8, 0.78) 100%);
       }
       .scanlines {
         position: absolute;
         inset: 0;
         pointer-events: none;
-        background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+        background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.18) 50%);
         background-size: 100% 4px;
-        opacity: 0.6;
+        opacity: 0.5;
       }
 
-      /* 3. Top Telemetry & Capsule Header */
+      /* 2. Top Telemetry & Capsule Header */
       .top-hud-bar {
         position: absolute;
         top: 60px; left: 44px; right: 44px;
@@ -305,7 +297,7 @@ export async function composeWithHyperframes(
         border-radius: 9999px;
       }
 
-      /* 4. Top Animated Progress Bar */
+      /* 3. Top Animated Progress Bar */
       .progress-track {
         position: absolute;
         top: 154px; left: 44px; right: 44px;
@@ -322,7 +314,7 @@ export async function composeWithHyperframes(
         box-shadow: 0 0 12px rgba(212, 175, 55, 0.8);
       }
 
-      /* 5. Bottom Chapter Dossier Bar */
+      /* 4. Bottom Chapter Dossier Bar */
       .chapter-hud {
         position: absolute;
         bottom: 120px; left: 44px; right: 44px;
@@ -354,7 +346,7 @@ export async function composeWithHyperframes(
         letter-spacing: 0.04em;
       }
 
-      /* 6. Kinetic Word-by-Word Subtitles */
+      /* 5. Kinetic Word-by-Word Subtitles */
       .subtitle-box {
         position: absolute;
         bottom: 740px;
@@ -399,12 +391,6 @@ export async function composeWithHyperframes(
       data-width="1080"
       data-height="1920"
     >
-      <!-- Video Clips -->
-      ${videoElementsHtml}
-
-      <!-- Master Audio -->
-      ${audioElementHtml}
-
       <!-- Atmospheric Overlays -->
       <div class="clip vignette-overlay" data-start="0" data-duration="${totalDur}"></div>
       <div class="clip scanlines" data-start="0" data-duration="${totalDur}"></div>
@@ -457,11 +443,12 @@ export async function composeWithHyperframes(
 
     await fs.writeFile(path.join(compDir, 'index.html'), fullHtml, 'utf8');
 
-    // 5. Render via HyperFrames CLI
-    console.info(`[HyperFrames Compositor] 🎬 Starting studio render for Reel ${input.reelId} (${totalDur}s, 1080x1920 @ ${fps}fps)...`);
+    // 6. Render Transparent Overlay Plate via HyperFrames CLI (ProRes 4444 Alpha)
+    console.info(`[HyperFrames Compositor] 🎬 Rendering transparent studio overlay for Reel ${input.reelId} (${totalDur}s, 1080x1920 @ ${fps}fps)...`);
 
+    const overlayMov = path.join(compDir, 'overlay.mov');
     const cliCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-    const cliArgs = ['hyperframes', 'render', '--output', input.outputPath, '--fps', String(fps), '--format', 'mp4'];
+    const cliArgs = ['hyperframes', 'render', '--output', overlayMov, '--fps', String(fps), '--format', 'mov'];
 
     if (process.platform === 'linux' || process.env.HYPERFRAMES_NO_GPU === '1') {
       cliArgs.push('--no-browser-gpu');
@@ -474,7 +461,7 @@ export async function composeWithHyperframes(
       cwd: compDir,
       shell: process.platform === 'win32',
       maxBuffer: 1024 * 1024 * 32,
-      timeout: 180000, // 3 minutes timeout for long-form Reel
+      timeout: 240000,
       env: {
         ...process.env,
         HYPERFRAMES_NO_GPU: '1',
@@ -482,12 +469,47 @@ export async function composeWithHyperframes(
       }
     });
 
+    if (!fsSync.existsSync(overlayMov) || (await fs.stat(overlayMov)).size < 1000) {
+      return { success: false, error: 'HyperFrames failed to render transparent overlay MOV plate.' };
+    }
+
+    // 7. FFmpeg Native Composite: Background scenes + transparent overlay + audio
+    console.info(`[HyperFrames Compositor] 🎛️ Blending transparent overlay with background video via FFmpeg...`);
+    const ffmpegArgs: string[] = [
+      '-y',
+      '-i', bgVideoPath,
+      '-i', overlayMov
+    ];
+
+    const hasAudio = Boolean(input.masterAudioPath && fsSync.existsSync(input.masterAudioPath));
+    if (hasAudio) {
+      ffmpegArgs.push('-i', input.masterAudioPath!);
+    }
+
+    ffmpegArgs.push('-filter_complex', '[0:v][1:v]overlay=0:0[v]', '-map', '[v]');
+
+    if (hasAudio) {
+      ffmpegArgs.push('-map', '2:a:0', '-c:a', 'aac', '-b:a', '192k');
+    }
+
+    ffmpegArgs.push(
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '20',
+      '-pix_fmt', 'yuv420p',
+      '-t', String(totalDur),
+      '-movflags', '+faststart',
+      input.outputPath
+    );
+
+    await execFileAsync('ffmpeg', ffmpegArgs, { maxBuffer: 1024 * 1024 * 32 });
+
     if (fsSync.existsSync(input.outputPath) && (await fs.stat(input.outputPath)).size > 50000) {
-      console.info(`[HyperFrames Compositor] ✅ High-retention Reel rendered: ${input.outputPath} (${(await fs.stat(input.outputPath)).size} bytes)`);
+      console.info(`[HyperFrames Compositor] ✅ Studio Reel successfully rendered & composited: ${input.outputPath} (${(await fs.stat(input.outputPath)).size} bytes)`);
       return { success: true, outputPath: input.outputPath };
     }
 
-    return { success: false, error: 'HyperFrames completed but output file was missing or empty.' };
+    return { success: false, error: 'FFmpeg compositing completed but output file was missing or empty.' };
   } catch (err: any) {
     console.warn('[HyperFrames Compositor] Render error notice:', err?.message || err);
     return { success: false, error: err?.message || String(err) };

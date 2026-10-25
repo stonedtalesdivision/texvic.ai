@@ -234,6 +234,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
         reelId: input.reelId,
         scenes: hfScenes,
         totalDuration,
+        backgroundVideoPath: silentVideoPath,
         masterAudioPath: (masterAudioPath && fsSync.existsSync(masterAudioPath)) ? masterAudioPath : input.voicePath,
         outputPath,
         reelTitle: reelRecord?.title || 'Historical Event',
