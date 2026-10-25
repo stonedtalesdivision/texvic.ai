@@ -538,12 +538,41 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({
     setTimeout(() => setCopiedShare(false), 2400);
   };
 
+  const [activeVideoUrl, setActiveVideoUrl] = useState<string | undefined>(reel.videoUrl);
+  const [isReRendering, setIsReRendering] = useState(false);
+
+  useEffect(() => {
+    setActiveVideoUrl(reel.videoUrl);
+  }, [reel.videoUrl]);
+
+  const handleReRenderStudio = async () => {
+    if (isReRendering) return;
+    setIsReRendering(true);
+    if (onShowToast) onShowToast('🎨 Launching HyperFrames Studio Compositor (telemetry HUD + kinetic typography)...');
+    try {
+      const res = await fetch(`/api/reels/${reel.id}/re-render`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.videoUrl) {
+        const freshUrl = `${data.videoUrl}${data.videoUrl.includes('?') ? '&' : '?'}cb=${Date.now()}`;
+        setActiveVideoUrl(freshUrl);
+        if (onShowToast) onShowToast('✨ Studio Master rendered via HyperFrames with telemetry HUD!');
+      } else {
+        throw new Error(data.error || 'Re-render failed');
+      }
+    } catch (err: any) {
+      if (onShowToast) onShowToast(`⚠️ Re-render notice: ${err?.message || err}`);
+    } finally {
+      setIsReRendering(false);
+    }
+  };
+
   const handleExport = async () => {
     setExported(true);
-    if (reel.videoUrl) {
+    const targetVideo = activeVideoUrl || reel.videoUrl;
+    if (targetVideo) {
       try {
         const filename = `${(reel.title || 'reel').replace(/[^a-zA-Z0-9_-]/g, '_')}.mp4`;
-        const res = await fetch(reel.videoUrl);
+        const res = await fetch(targetVideo);
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -555,7 +584,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({
         window.URL.revokeObjectURL(url);
       } catch {
         const a = document.createElement('a');
-        a.href = reel.videoUrl;
+        a.href = targetVideo;
         a.download = `${reel.title || 'reel'}.mp4`;
         a.target = '_blank';
         document.body.appendChild(a);
@@ -680,7 +709,7 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({
           {hasGeneratedVideo && (
             <video
               ref={videoRef}
-              src={reel.videoUrl}
+              src={activeVideoUrl || reel.videoUrl}
               className="absolute inset-0 w-full h-full object-cover"
               playsInline
               loop
@@ -1546,6 +1575,27 @@ export const ReelPlayer: React.FC<ReelPlayerProps> = ({
               </button>
             )}
           </div>
+
+          {/* Studio Re-render Button (HyperFrames Engine) */}
+          <button
+            type="button"
+            disabled={isReRendering}
+            onClick={handleReRenderStudio}
+            className="w-full py-2.5 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500/20 via-yellow-500/25 to-amber-500/20 hover:from-amber-500/30 hover:to-yellow-500/35 text-amber-300 hover:text-amber-200 border border-amber-500/40 shadow-lg shadow-amber-500/10 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+            title="Re-render this video using HyperFrames Studio Compositor (telemetry HUD, glowing kinetic typography, and broadcast audio ducking)"
+          >
+            {isReRendering ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                <span>Composing Studio Master via HyperFrames...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Re-render Studio Master (HyperFrames Engine)</span>
+              </>
+            )}
+          </button>
 
           <div className="flex gap-2">
             {onSave && (

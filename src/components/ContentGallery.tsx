@@ -3,7 +3,7 @@ import {
   Film, Layers, Play, Calendar, Eye, 
   Bookmark, Download, Check, Trash2, Send, 
   Loader2, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, X,
-  Zap, Search, Facebook
+  Zap, Search, Facebook, Sparkles
 } from 'lucide-react';
 import { ReelItem, PostItem } from '../types';
 import { ReelPlayer } from './ReelPlayer';
@@ -49,8 +49,30 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [convertingPostId, setConvertingPostId] = useState<string | null>(null);
+  const [reRenderingId, setReRenderingId] = useState<string | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{ id: string; title: string; type: 'reel' | 'post' } | null>(null);
   const [, setForceUpdate] = useState<number>(0);
+
+  const handleReRenderReel = async (reel: ReelItem) => {
+    if (reRenderingId) return;
+    setReRenderingId(reel.id);
+    if (onShowToast) onShowToast(`🎨 Rendering Studio Master for "${reel.title}" via HyperFrames...`);
+    try {
+      const res = await fetch(`/api/reels/${reel.id}/re-render`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.videoUrl) {
+        reel.videoUrl = `${data.videoUrl}${data.videoUrl.includes('?') ? '&' : '?'}cb=${Date.now()}`;
+        setForceUpdate(Date.now());
+        if (onShowToast) onShowToast(`✨ Studio Master rendered via HyperFrames for "${reel.title}"!`);
+      } else {
+        throw new Error(data.error || 'Re-render failed');
+      }
+    } catch (err: any) {
+      if (onShowToast) onShowToast(`⚠️ Re-render error: ${err?.message || err}`);
+    } finally {
+      setReRenderingId(null);
+    }
+  };
 
   const handleConvertToReel = async (post: PostItem) => {
     setConvertingPostId(post.id);
@@ -501,6 +523,20 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          disabled={reRenderingId === reel.id}
+                          onClick={() => handleReRenderReel(reel)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+                          title="Re-render Studio Master via HyperFrames (telemetry HUD + kinetic typography)"
+                        >
+                          {reRenderingId === reel.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                          ) : (
+                            <Sparkles className="w-4 h-4 text-amber-400/80 hover:text-amber-300" />
+                          )}
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleDownloadReel(reel)}
