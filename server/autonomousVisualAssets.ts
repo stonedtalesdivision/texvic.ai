@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import { registerAsset, selectAssets, resolveAssetDiskPath, markAssetUsed, type MediaAsset } from './assetLibrary.js';
 import { renderSoftwareTutorialVideo } from './softwareScreenEngine.js';
 import { getActivePersona } from './themePage.js';
+import { fetchBestMotionVideo } from './motionVideoEngine.js';
+import { fetchWikimediaArchivalImage, fetchAndAnimateArchivalClip } from './archivalMediaEngine.js';
+import { fetchBestFreeVisual } from './freeStockAssets.js';
 import {
   extractContextualSceneKeywords,
   ensureChapterCuts,
@@ -104,181 +107,6 @@ function cleanBadgeText(badgeText?: string, index = 0): string {
   return index === 0 ? '[ BREAKTHROUGH ]' : index === 1 ? '[ DEEP DIVE ]' : '[ FUTURE INTEL ]';
 }
 
-// Sequential throttling & concurrency limiter for Pollinations AI (strictly 1 concurrent, 1500ms spacing)
-let activeFluxRequests = 0;
-const MAX_CONCURRENT_FLUX = 1;
-let lastFluxRequestTimestamp = 0;
-const MIN_FLUX_INTERVAL_MS = 1500;
-
-async function acquireFluxSlot(): Promise<void> {
-  while (activeFluxRequests >= MAX_CONCURRENT_FLUX) {
-    await new Promise(r => setTimeout(r, 200));
-  }
-  activeFluxRequests++;
-  const now = Date.now();
-  const timeSinceLast = now - lastFluxRequestTimestamp;
-  if (timeSinceLast < MIN_FLUX_INTERVAL_MS) {
-    await new Promise(r => setTimeout(r, MIN_FLUX_INTERVAL_MS - timeSinceLast));
-  }
-  lastFluxRequestTimestamp = Date.now();
-}
-
-function releaseFluxSlot(): void {
-  activeFluxRequests = Math.max(0, activeFluxRequests - 1);
-}
-
-export interface FluxClipOptions {
-  topic?: string;
-  historicalEra?: string;
-  spokenClause?: string;
-  prompt?: string;
-  voiceScript?: string;
-  usedImageHashes?: Set<string>;
-}
-
-/**
- * Generates an authentic AI visual via Pollinations FLUX endpoint:
- * https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1920&nologo=true&model={model}&seed={seed}
- * Uses a 2-attempt retry loop (turbo -> flux) with rate-limit backoff and strict validation,
- * then renders into a 1080x1920 vertical video clip with FFmpeg Ken Burns zoompan motion.
- */
-export async function fetchAndAnimatePollinationsFluxClip(
-  query: string,
-  cutDuration: number,
-  animIndex: number,
-  outputPath: string,
-  options?: FluxClipOptions
-): Promise<{ source: 'pollinations-flux' | null; videoPath: string | null }> {
-  const rawImageDir = path.join(process.cwd(), 'data', 'media', 'temp');
-  await fs.mkdir(rawImageDir, { recursive: true });
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-
-  const safeTopic = (options?.topic || query).split(/[:\-\—\(]/)[0].trim() || 'Historical Event';
-  const safeEra = options?.historicalEra || detectHistoricalEra(safeTopic, `${query} ${options?.voiceScript || ''}`);
-  const safeClause = options?.spokenClause || query;
-
-  // Enforce strict era-locked, clause-synced prompt builder
-  const finalPrompt = options?.prompt || buildContextualCutPrompt(safeTopic, '', safeEra, safeClause, animIndex);
-
-  const retryModels = [
-    { model: 'turbo', timeoutMs: 25000, delayAfterFail: 1000 },
-    { model: 'flux', timeoutMs: 35000, delayAfterFail: 1000 }
-  ];
-
-  await acquireFluxSlot();
-  try {
-    for (let attempt = 0; attempt < retryModels.length; attempt++) {
-      const { model, timeoutMs, delayAfterFail } = retryModels[attempt];
-      const seed = Math.floor(Math.random() * 900000) + 100000;
-      const fluxUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?width=1080&height=1920&nologo=true&model=${model}&seed=${seed}`;
-      const rawImagePath = path.join(rawImageDir, `flux-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.jpg`);
-
-      try {
-        console.info(`[Pollinations AI] Cut ${animIndex + 1} (attempt ${attempt + 1}/${retryModels.length}, model: ${model}) requesting: "${finalPrompt}"`);
-        const resp = await fetch(fluxUrl, {
-          signal: AbortSignal.timeout(timeoutMs),
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-          }
-        });
-
-        const contentType = (resp.headers.get('content-type') || '').toLowerCase();
-
-        if (resp.status === 402) {
-          const errBody = await resp.text();
-          const retryMatch = errBody.match(/Retry after (\d+)s/i);
-          const waitSec = retryMatch ? parseInt(retryMatch[1], 10) + 1 : 0;
-          if (waitSec > 0 && waitSec <= 35) {
-            console.info(`[Pollinations AI] Free rate limit detected (HTTP 402), waiting ${waitSec}s before retrying cut ${animIndex + 1}...`);
-            await new Promise(r => setTimeout(r, waitSec * 1000));
-            continue;
-          }
-          console.warn(`[Pollinations AI] Attempt ${attempt + 1} (${model}) returned HTTP 402: ${errBody.slice(0, 100)}`);
-          break;
-        }
-
-        if (!resp.ok || !contentType.startsWith('image/')) {
-          console.warn(`[Pollinations AI] Cut ${animIndex + 1} attempt ${attempt + 1} (${model}) returned HTTP ${resp.status} (${contentType})`);
-          if (delayAfterFail > 0) await new Promise(r => setTimeout(r, delayAfterFail));
-          continue;
-        }
-
-        const buf = await resp.arrayBuffer();
-        if (buf.byteLength < 15000) {
-          console.warn(`[Pollinations AI] Cut ${animIndex + 1} attempt ${attempt + 1} (${model}) returned undersized image (${buf.byteLength} bytes)`);
-          if (delayAfterFail > 0) await new Promise(r => setTimeout(r, delayAfterFail));
-          continue;
-        }
-
-        // Deduplication: Verify image hash is unique across this entire Reel
-        const imgHash = crypto.createHash('md5').update(Buffer.from(buf)).digest('hex');
-        if (options?.usedImageHashes?.has(imgHash)) {
-          console.warn(`[Pollinations AI] Duplicate image hash (${imgHash.slice(0, 8)}) detected for cut ${animIndex + 1}, retrying with alternate seed...`);
-          if (delayAfterFail > 0) await new Promise(r => setTimeout(r, delayAfterFail));
-          continue;
-        }
-        if (options?.usedImageHashes) {
-          options.usedImageHashes.add(imgHash);
-        }
-
-        console.info(`[Pollinations AI] Cut ${animIndex + 1} HTTP ${resp.status} (${buf.byteLength} bytes, hash: ${imgHash.slice(0, 8)}) locked for: "${finalPrompt}"`);
-        await fs.writeFile(rawImagePath, Buffer.from(buf));
-        try {
-          const cacheDir = path.join(process.cwd(), 'data', 'media', 'imageCache');
-          await fs.mkdir(cacheDir, { recursive: true });
-          await fs.writeFile(path.join(cacheDir, `${imgHash}.jpg`), Buffer.from(buf));
-        } catch {}
-
-        const duration = Math.max(1.5, Math.min(cutDuration || 3.0, 6.0));
-        const cameraType = Math.abs(animIndex) % 3;
-
-        let zoomFilter = '';
-        if (cameraType === 0) {
-          zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(zoom+0.0015,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1`;
-        } else if (cameraType === 1) {
-          zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.25-0.0015*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1`;
-        } else {
-          zoomFilter = `scale=1280:2276:force_original_aspect_ratio=increase,crop=1280:2276,zoompan=z=1.12:x='if(lte(on,1),(iw-iw/zoom)/2,x+0.8)':y='(ih-ih/zoom)/2':d=1:s=1080x1920:fps=30,setsar=1`;
-        }
-
-        console.info(`[Pollinations AI] 🎨 Animating AI visual cut (${model}) "${finalPrompt.slice(0, 50)}..." (${duration.toFixed(1)}s, Camera ${cameraType + 1})...`);
-        await execFileAsync('ffmpeg', [
-          '-y',
-          '-loop', '1',
-          '-i', rawImagePath,
-          '-t', String(duration),
-          '-vf', zoomFilter,
-          '-c:v', 'libx264',
-          '-preset', 'veryfast',
-          '-crf', '20',
-          '-pix_fmt', 'yuv420p',
-          '-an',
-          outputPath
-        ], { maxBuffer: 1024 * 1024 * 8 });
-
-        try { await fs.unlink(rawImagePath); } catch {}
-
-        if (fsSync.existsSync(outputPath) && (await fs.stat(outputPath)).size > 15000) {
-          return {
-            source: 'pollinations-flux',
-            videoPath: outputPath
-          };
-        }
-      } catch (attemptErr: any) {
-        console.warn(`[Pollinations AI] Attempt ${attempt + 1} (${model}) error:`, attemptErr?.message || attemptErr);
-        try { await fs.unlink(rawImagePath); } catch {}
-        if (delayAfterFail > 0) await new Promise(r => setTimeout(r, delayAfterFail));
-      }
-    }
-  } catch (fluxErr: any) {
-    console.warn(`[Pollinations AI] Cut generation failed for "${query}":`, fluxErr?.message || fluxErr);
-  } finally {
-    releaseFluxSlot();
-  }
-
-  return { source: null, videoPath: null };
-}
-
 /**
  * Procedural Visible Documentary Slate (Visible telemetry grid - NEVER PITCH BLACK!)
  */
@@ -300,6 +128,13 @@ async function generateVisibleDocumentarySlate(
   ]);
 }
 
+/**
+ * Renders an authentic documentary scene visual using the resilient multi-tier pipeline:
+ * Tier 1: Real script-connected vertical motion video footage (Pexels / Pixabay)
+ * Tier 2: Authentic verified historical records & photography from Wikimedia Commons (Ken Burns zoompan)
+ * Tier 3: High-resolution stock photography (Pixabay / Pexels Photo API via fetchBestFreeVisual)
+ * Tier 4: Procedural visible telemetry documentary slate
+ */
 async function renderGeneratedScene(
   scene: any,
   index: number,
@@ -307,7 +142,6 @@ async function renderGeneratedScene(
   extraOpts?: {
     usedVideoUrls?: Set<string>;
     usedArchivalTitles?: Set<string>;
-    usedImageHashes?: Set<string>;
     totalScenes?: number;
     forcedDuration?: number;
   }
@@ -319,6 +153,8 @@ async function renderGeneratedScene(
   const safeId = String(reel?.id || 'autonomous').replace(/[^a-zA-Z0-9_-]/g, '-');
   const nonce = `${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
   const output = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.mp4`);
+  const imagePath = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.png`);
+  const motionVideoPath = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}-motion.mp4`);
 
   const rawHeadline = String(scene?.onScreenText || scene?.headline || scene?.hookText || sceneTitle(scene)).trim().slice(0, 72);
   const palette = themePalette(scene, index);
@@ -332,9 +168,21 @@ async function renderGeneratedScene(
   const isPhysicalHardware = /humanoid|boston dynamics|physical robot|quadruped|drone flight|hardware chip fabrication|battery breakthrough/i.test(topicContext);
   const isExplicitTool = /suno|udio|canva|photoshop|figma|luma|kling|runway|sora|pika|cursor|windsurf|deepseek|claude|chatgpt|v0|bolt|flux|midjourney|recraft|elevenlabs/i.test(topicContext);
 
-  // 0. Escape Hatch: Software Screen Tutorial if explicitly requested
+  let hasMotionVideo = false;
+  let hasCustomImage = false;
+
+  // 0. Direct Source Visual (e.g. from Carousel Slide to Reel Conversion)
+  if (scene?.sourceImagePath && fsSync.existsSync(scene.sourceImagePath)) {
+    try {
+      await fs.copyFile(scene.sourceImagePath, imagePath);
+      hasCustomImage = true;
+      console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Locked source slide graphic "${path.basename(scene.sourceImagePath)}".`);
+    } catch {}
+  }
+
+  // 0b. Escape Hatch: Software Screen Tutorial if explicitly requested
   const preferSoftwareScreen = isSoftwareNiche && !isPhysicalHardware && isExplicitTool && index === 1;
-  if (preferSoftwareScreen) {
+  if (preferSoftwareScreen && !hasCustomImage) {
     try {
       console.info(`[Autonomous Visual Producer] Producing real software studio video (scene ${index + 1}): "${rawHeadline.slice(0, 50)}"...`);
       await renderSoftwareTutorialVideo(scene, index, reel, output, duration);
@@ -346,81 +194,190 @@ async function renderGeneratedScene(
     }
   }
 
-  // 1. Dynamic Audio-Synced Visual Slicing (3-Second Cut Rule)
-  const historicalEra = scene?.historicalEra || detectHistoricalEra(cleanSubject, topicContext);
-  const numCuts = Math.max(2, Math.ceil(duration / 3.0));
-  const cutDuration = Number((duration / numCuts).toFixed(2));
-  const cuts = ensureChapterCuts(scene, index, numCuts, cleanSubject, topicContext);
+  // 1. PRIMARY: Authentic Motion Video Footage from Pixabay / Pexels / Vault (Connected directly to voiceScript!)
+  const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
+  const voiceScript = String(scene?.voiceScript || scene?.narrationText || scene?.text || '').trim();
 
-  console.info(`[Autonomous Visual Producer] 🎬 Chapter ${index + 1} (${duration.toFixed(1)}s, ${historicalEra}): Slicing into ${numCuts} dynamic cuts (~${cutDuration.toFixed(1)}s each) for "${scene?.chapterLabel || 'INVESTIGATION'}"`);
+  let customKeywords = Array.isArray(scene?.bRollKeywords) && scene.bRollKeywords.length > 0
+    ? scene.bRollKeywords
+    : (Array.isArray(scene?.visualBeats) && scene.visualBeats.length > 0 ? scene.visualBeats : undefined);
 
-  const cutFiles: string[] = [];
-  const tempFilesToClean: string[] = [];
-
-  for (let c = 0; c < cuts.length; c++) {
-    const cut = cuts[c];
-    const cutNonce = `${nonce}-c${c}`;
-    const cutOutPath = path.join(GENERATED_DIR, `${safeId}-sc${index}-cut${c}-${cutNonce}.mp4`);
-    const cutImgPath = path.join(GENERATED_DIR, `${safeId}-sc${index}-cut${c}-${cutNonce}.jpg`);
-    tempFilesToClean.push(cutOutPath, cutImgPath);
-    let cutSuccess = false;
-
-    // Tier 1: 100% Authentic Context-Locked AI Visuals via Pollinations FLUX + Ken Burns Zoompan
-    if (!cutSuccess) {
-      try {
-        const rawFluxPath = path.join(GENERATED_DIR, `${safeId}-raw-flux-${cutNonce}.mp4`);
-        tempFilesToClean.push(rawFluxPath);
-        const spokenClause = cut.spokenClause || cut.query;
-        const prompt = cut.prompt || buildContextualCutPrompt(cleanSubject, topicContext, historicalEra, spokenClause, c);
-
-        const fluxRes = await fetchAndAnimatePollinationsFluxClip(cut.query, cutDuration, c, rawFluxPath, {
-          topic: cleanSubject,
-          historicalEra,
-          spokenClause,
-          prompt,
-          voiceScript: scene?.voiceScript,
-          usedImageHashes: extraOpts?.usedImageHashes
-        });
-
-        if (fluxRes.videoPath && fsSync.existsSync(fluxRes.videoPath) && (await fs.stat(fluxRes.videoPath)).size > 15000) {
-          cutFiles.push(fluxRes.videoPath);
-          cutSuccess = true;
-          console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ AI visual clip locked.`);
-        }
-      } catch (fluxErr: any) {
-        console.warn(`[Autonomous Visual Producer] Flux cut notice:`, fluxErr?.message?.slice(0, 80));
-      }
-    }
-
-    // Tier 2 Fallback: Procedural Visible Documentary Slate (Visible telemetry grid - NEVER PITCH BLACK, NEVER RANDOM STOCK!)
-    if (!cutSuccess) {
-      console.warn(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: Generating visible telemetry slate grid.`);
-      await generateVisibleDocumentarySlate(cutDuration, accentHex, cutOutPath);
-      cutFiles.push(cutOutPath);
+  if (!customKeywords && (scene?.highlight || rawHeadline || reel?.title)) {
+    const candidateWords = [scene?.highlight, rawHeadline, reel?.title].filter(Boolean)
+      .join(' ')
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !/^(this|that|with|from|have|will|your|about|what|when|where|scene|video|ultra|stop)$/i.test(w));
+    if (candidateWords.length > 0) {
+      customKeywords = candidateWords.slice(0, 4);
     }
   }
 
-  // 2. Concatenate cuts into seamless chapter background video directly to output
-  const concatListPath = path.join(GENERATED_DIR, `${safeId}-concat-${index}-${nonce}.txt`);
-  tempFilesToClean.push(concatListPath);
+  const motionQuery = [
+    voiceScript.slice(0, 80),
+    rawHeadline,
+    cleanSubject || topic
+  ].filter(Boolean).join(' ');
 
-  const concatContent = cutFiles.map(f => `file '${path.resolve(f).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n');
-  await fs.writeFile(concatListPath, concatContent);
+  console.info(`[Autonomous Visual Producer] 🎬 Resolving script-connected motion video (scene ${index + 1}): "${rawHeadline.slice(0, 45)}"...`);
+  try {
+    const motionResult = await fetchBestMotionVideo(motionQuery, motionVideoPath, {
+      targetDuration: duration,
+      customKeywords,
+      voiceScript,
+      topic: cleanSubject || topic,
+      sceneIndex: index,
+      usedUrls: extraOpts?.usedVideoUrls
+    });
+    if (motionResult?.source !== 'fallback' && fsSync.existsSync(motionVideoPath)) {
+      const vStats = await fs.stat(motionVideoPath);
+      if (vStats.size > 50000) {
+        hasMotionVideo = true;
+        console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Real motion B-roll video ready via ${motionResult.source} (${vStats.size} bytes).`);
+      }
+    }
+  } catch (err: any) {
+    console.info(`[Autonomous Visual Producer] Motion video fetch skipped: ${err?.message?.slice(0, 100) || String(err)}`);
+  }
 
-  await execFileAsync('ffmpeg', [
-    '-y',
-    '-f', 'concat',
-    '-safe', '0',
-    '-i', concatListPath,
-    '-c', 'copy',
-    '-movflags', '+faststart',
-    output
-  ]);
+  // 2. SECONDARY: Authentic Verified Archival Media (Wikimedia Commons)
+  if (!hasMotionVideo && !hasCustomImage) {
+    const archivalQuery = String(scene?.archivalQuery || '').trim();
+    const shouldTryArchival = Boolean(archivalQuery) || (
+      /history|heist|mystery|incident|disaster|ancient|classified|expedition|bunker|island|vault|war|treaty|monument|manuscript|borehole|ocean|event|conspiracy|discovery|archive/i.test(topicContext)
+    );
 
-  // Cleanup temporary cut files
-  await Promise.allSettled(tempFilesToClean.map(f => fs.rm(f, { force: true, maxRetries: 3, retryDelay: 100 })));
+    if (shouldTryArchival) {
+      try {
+        const targetQuery = archivalQuery || cleanSubject || rawHeadline;
+        const fallbackList = [cleanSubject, ...(Array.isArray(scene?.bRollKeywords) ? scene.bRollKeywords : (Array.isArray(scene?.visualBeats) ? scene.visualBeats : []))].filter(Boolean);
+        console.info(`[Autonomous Visual Producer] 🏛️ Resolving verified archival record (scene ${index + 1}): "${targetQuery.slice(0, 50)}"...`);
+        const archivalResult = await fetchWikimediaArchivalImage(targetQuery, {
+          fallbackTerms: fallbackList,
+          usedUrls: extraOpts?.usedVideoUrls,
+          usedTitles: extraOpts?.usedArchivalTitles,
+          index
+        });
+        if (archivalResult?.filePath && fsSync.existsSync(archivalResult.filePath)) {
+          const aStats = await fs.stat(archivalResult.filePath);
+          if (aStats.size > 25000) {
+            await fs.copyFile(archivalResult.filePath, imagePath);
+            hasCustomImage = true;
+            console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Authentic archival document locked from Wikimedia Commons (${aStats.size} bytes): "${archivalResult.title}".`);
+          }
+        }
+      } catch (archErr: any) {
+        console.info(`[Autonomous Visual Producer] Archival lookup skipped: ${archErr?.message?.slice(0, 80) || String(archErr)}`);
+      }
+    }
+  }
 
-  return output;
+  // 3. User-Uploaded VPS Background Video Priority Check
+  if (!hasMotionVideo && !hasCustomImage) {
+    try {
+      const customBackgrounds = selectAssets({ type: 'video', category: 'custom-background', limit: 10 });
+      const userVideos = customBackgrounds.length > 0
+        ? customBackgrounds
+        : selectAssets({ type: 'video', category: 'b-roll', limit: 10 });
+
+      if (userVideos.length > 0) {
+        const chosen = userVideos[index % userVideos.length];
+        const diskPath = resolveAssetDiskPath(chosen);
+        if (diskPath && fsSync.existsSync(diskPath)) {
+          await fs.copyFile(diskPath, motionVideoPath);
+          const vStats = await fs.stat(motionVideoPath);
+          if (vStats.size > 20000) {
+            hasMotionVideo = true;
+            markAssetUsed(chosen.id, reel?.id || 'reel', index + 1);
+            console.info(`[Autonomous Visual Producer] 🎬 Scene ${index + 1}: Prioritizing user-uploaded background video "${chosen.filename}".`);
+          }
+        }
+      }
+    } catch (userVidErr: any) {
+      console.warn(`[Autonomous Visual Producer] User video selection notice:`, userVidErr?.message || userVidErr);
+    }
+  }
+
+  // 4. TERTIARY: High-Resolution Topic-Specific Photographic Visual (Pixabay Photo API / Pexels via fetchBestFreeVisual)
+  if (!hasMotionVideo && !hasCustomImage) {
+    try {
+      const topic = String(reel?.title || reel?.niche || 'cinematic documentary').trim();
+      const query = [
+        rawHeadline,
+        cleanSubject || topic,
+        scene?.imagePrompt || scene?.visualTheme || 'cinematic 35mm documentary photography'
+      ].filter(Boolean).join(', ');
+
+      console.info(`[Autonomous Visual Producer] Fetching best free visual (scene ${index + 1}): "${rawHeadline.slice(0, 50)}"...`);
+      const freeVisual = await fetchBestFreeVisual(query, imagePath, {
+        orientation: 'portrait',
+        preferStock: true,
+        customKeywords: scene?.bRollKeywords || scene?.visualBeats,
+        fallbackTopic: cleanSubject || topic
+      });
+
+      if (freeVisual?.path && fsSync.existsSync(imagePath)) {
+        const stats = await fs.stat(imagePath);
+        if (stats.size > 10000) {
+          hasCustomImage = true;
+          console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Visual ready via ${freeVisual.source} (${stats.size} bytes).`);
+        }
+      }
+    } catch (err: any) {
+      console.info(`[Autonomous Visual Producer] Free visual engine fallback triggered: ${err?.message?.slice(0, 100) || String(err)}`);
+    }
+  }
+
+  // 5. Render Scene Video with unified Dark Archive grade (1080x1920 @ 30fps)
+  const DARK_GRADE = 'eq=saturation=0.55:contrast=1.20:brightness=-0.08,vignette=PI/4';
+
+  try {
+    if (hasMotionVideo) {
+      // Real moving video footage scaled, cropped, graded, and trimmed to exact duration
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-stream_loop', '-1', '-i', motionVideoPath,
+        '-t', String(duration),
+        '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,${DARK_GRADE},setsar=1,fps=30`,
+        '-an', '-r', '30',
+        '-threads', '2',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
+      ], { maxBuffer: 1024 * 1024 * 8 });
+    } else if (hasCustomImage) {
+      // Dynamic authentic Ken Burns camera animations for archival document or photo
+      const cameraType = index % 3;
+      let zoomFilter = '';
+      if (cameraType === 0) {
+        zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(zoom+0.0015,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
+      } else if (cameraType === 1) {
+        zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.25-0.0015*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
+      } else {
+        zoomFilter = `scale=1280:2276:force_original_aspect_ratio=increase,crop=1280:2276,zoompan=z=1.12:x='if(lte(on,1),(iw-iw/zoom)/2,x+0.8)':y='(ih-ih/zoom)/2':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
+      }
+
+      await execFileAsync('ffmpeg', [
+        '-y',
+        '-loop', '1', '-i', imagePath,
+        '-t', String(duration),
+        '-vf', zoomFilter,
+        '-an', '-r', '30',
+        '-threads', '2',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
+      ], { maxBuffer: 1024 * 1024 * 8 });
+    } else {
+      // Procedural visible telemetry documentary slate (never pitch black)
+      await generateVisibleDocumentarySlate(duration, accentHex, output);
+    }
+
+    return output;
+  } finally {
+    await Promise.allSettled([
+      fs.rm(motionVideoPath, { force: true, maxRetries: 3, retryDelay: 100 }),
+      fs.rm(imagePath, { force: true, maxRetries: 3, retryDelay: 100 })
+    ]);
+  }
 }
 
 export async function ensureAutonomousVisualAssets(
@@ -535,7 +492,6 @@ export async function ensureAutonomousVisualAssets(
   const used = new Set<string>();
   const usedVideoUrls = new Set<string>();
   const usedArchivalTitles = new Set<string>();
-  const usedImageHashes = new Set<string>();
 
   for (let index = 0; index < scenes.length; index++) {
     const scene = scenes[index];
@@ -543,11 +499,10 @@ export async function ensureAutonomousVisualAssets(
     const theme = String(scene?.visualTheme || '').toLowerCase();
     const tags = ['documentary', 'archival', 'untold-archive', ...theme.split(/[^a-z0-9]+/i).filter(Boolean).slice(0, 5)];
 
-    // Render each chapter with dynamic 3-second cuts, dark archive grade, and sharp vector overlay
+    // Render each chapter visual with authentic motion video footage or archival Ken Burns animation
     const sourcePath = await renderGeneratedScene(scene, index, reel, {
       usedVideoUrls,
       usedArchivalTitles,
-      usedImageHashes,
       totalScenes: scenes.length,
       forcedDuration
     });

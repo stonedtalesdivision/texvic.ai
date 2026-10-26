@@ -97,7 +97,7 @@ export interface CuratedScene {
 export interface VisualCutBeat {
   cutOrder?: number;
   query: string;
-  type: 'archival_image' | 'pollinations_flux' | 'stock_broll';
+  type: 'archival_image' | 'motion_video' | 'stock_broll';
   description?: string;
   historicalEra?: string;
   spokenClause?: string;
@@ -2297,10 +2297,10 @@ export function ensureChapterCuts(
     const clause = visualBeats[c] || visualBeats[0] || cleanSubject;
     const prompt = buildContextualCutPrompt(cleanSubject, topicContext || '', historicalEra, clause, c);
 
-    // 100% of cuts rendered via Pollinations AI (disabling unverified archival image fallbacks)
+    // Authentic documentary cut beats: Archival record hook on opening, motion B-roll / archival footage
     cuts.push({
       cutOrder: c + 1,
-      type: 'pollinations_flux',
+      type: (sceneIndex === 0 && c === 0) ? 'archival_image' : 'motion_video',
       query: clause,
       description: `Cinematic scene illustrating: ${clause}`,
       historicalEra,

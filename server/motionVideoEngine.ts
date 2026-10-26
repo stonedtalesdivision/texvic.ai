@@ -244,18 +244,18 @@ async function fetchPixabayVideo(
         const tags = String(h?.tags || '').toLowerCase();
         if (/green screen|chroma key|3d model|animation render/i.test(tags)) return false;
         // Avoid reusing the exact same video across scenes in the same reel
-        const vidUrl = h?.videos?.large?.url || h?.videos?.medium?.url || h?.videos?.small?.url;
+        const vidUrl = h?.videos?.medium?.url || h?.videos?.large?.url || h?.videos?.small?.url;
         if (vidUrl && options?.usedUrls?.has(vidUrl)) return false;
         return true;
       });
 
       const pool = validHits.length > 0 ? validHits : hits;
       const chosen = pool[Math.floor(Math.random() * Math.min(pool.length, 4))];
-      const videoUrl = chosen?.videos?.large?.url || chosen?.videos?.medium?.url || chosen?.videos?.small?.url;
+      const videoUrl = chosen?.videos?.medium?.url || chosen?.videos?.large?.url || chosen?.videos?.small?.url;
       if (!videoUrl) continue;
 
       console.info(`[Motion Video Engine] Downloading Pixabay video clip (${chosen.duration || 0}s, tags: "${chosen.tags}"): ${videoUrl.slice(0, 60)}...`);
-      const vidResp = await fetch(videoUrl, { signal: AbortSignal.timeout(25000) });
+      const vidResp = await fetch(videoUrl, { signal: AbortSignal.timeout(30000) });
       if (!vidResp.ok) continue;
 
       const arrayBuf = await vidResp.arrayBuffer();
