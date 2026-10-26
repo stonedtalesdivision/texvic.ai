@@ -363,6 +363,7 @@ async function renderGeneratedScene(
     const cutOutPath = path.join(GENERATED_DIR, `${safeId}-sc${index}-cut${c}-${cutNonce}.mp4`);
     const cutImgPath = path.join(GENERATED_DIR, `${safeId}-sc${index}-cut${c}-${cutNonce}.jpg`);
     tempFilesToClean.push(cutOutPath, cutImgPath);
+    let cutSuccess = false;
 
     // Tier 1: 100% Authentic Context-Locked AI Visuals via Pollinations FLUX + Ken Burns Zoompan
     if (!cutSuccess) {

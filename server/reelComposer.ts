@@ -87,7 +87,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
   } catch {}
 
   const persona = getActivePersona();
-  const verticalBadge = (input.verticalBadge || reelRecord?.niche || persona.vertical_badge || 'UNTOLD EVENTS')
+  const verticalBadge = (input.verticalBadge || reelRecord?.niche || (persona as any)?.vertical_badge || 'UNTOLD EVENTS')
     .replace(/[\[\]]/g, '')
     .trim()
     .toUpperCase();
