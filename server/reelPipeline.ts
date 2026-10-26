@@ -322,6 +322,10 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
       speechDuration: dynamicSpeechDuration,
       words: dynamicWords,
       // Maintain 100% full safe zone: keep centered with no zoom or cropping
+      chapterLabel: scene.chapterLabel || `PART 0${index + 1}`,
+      headline: scene.headline || scene.onScreenText || `CHAPTER 0${index + 1}`,
+      highlight: scene.highlight || '',
+      subline: scene.subline || '',
       crop: 'center' as const,
       zoom: isPortrait ? 1 : Number(scene.pacingEffect === 'zoom-in' ? 1.05 : 1),
       speed: 1,
@@ -428,6 +432,8 @@ export async function renderReelVideo(rawReel: any, options: { forceReRender?: b
     scenes: prepared.scenes,
     voicePath: prepared.voicePath,
     musicPath: prepared.musicPath,
+    verticalBadge: reel.vertical_badge || reel.verticalBadge || reel.niche || 'UNTOLD EVENTS',
+    accentColor: reel.accentColor || '#d4af37',
     width: 1080,
     height: 1920,
     fps: 30

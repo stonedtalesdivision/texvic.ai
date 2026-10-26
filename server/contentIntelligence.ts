@@ -2244,11 +2244,34 @@ export function buildContextualCutPrompt(
   spokenClause: string,
   cutIndex: number = 0
 ): string {
-  const cleanTitle = (reelTitle || '').split(/[:\-\—\(]/)[0].trim() || 'Historical Event';
-  const cleanEra = (historicalEra || 'Documented Historical Era').trim();
-  const cleanClause = (spokenClause || cleanTitle).trim().replace(/"/g, '');
+  const sanitize = (str: string) =>
+    String(str || '')
+      .replace(/[\[\]'":;?!#@$%^&*()+={}\\|<>\/~`]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-  return `[Historical Era & Year: ${cleanEra}] [Subject: ${cleanTitle}] Literal cinematic scene illustrating: '${cleanClause}'. Period-accurate clothing, architecture, and props from ${cleanEra}. Dark 35mm archival documentary photography, moody chiaroscuro lighting, deep shadows, hyper-realistic, vertical 9:16, no modern technology, no text overlays, no watermarks, period-accurate ${cleanEra}`;
+  const cleanTitle = sanitize((reelTitle || '').split(/[:\-\—\(]/)[0]).slice(0, 40) || 'Historical Event';
+  const cleanEra = sanitize(historicalEra || 'Documented Historical Era').slice(0, 30);
+  const cleanClause = sanitize(spokenClause || cleanTitle).slice(0, 45);
+  const cleanContext = sanitize(globalContext).slice(0, 35);
+
+  const baseDescriptors = `period-accurate ${cleanEra}, dark 35mm archival documentary photography, moody chiaroscuro lighting, deep shadows, hyper-realistic, vertical 9x16, no text, no watermark`;
+
+  const parts = [cleanEra, cleanTitle, cleanClause];
+  if (cleanContext && cleanContext !== cleanTitle) {
+    parts.push(cleanContext);
+  }
+  parts.push(baseDescriptors);
+
+  let fullPrompt = parts.filter(Boolean).join(', ');
+  if (fullPrompt.length > 220) {
+    const fixedSuffix = `, dark 35mm archival documentary photography, moody chiaroscuro lighting, vertical 9x16, no text`;
+    const availLen = Math.max(40, 220 - fixedSuffix.length);
+    const prefix = [cleanEra, cleanTitle, cleanClause].join(', ').slice(0, availLen).replace(/,\s*$/, '');
+    fullPrompt = `${prefix}${fixedSuffix}`;
+  }
+
+  return fullPrompt.slice(0, 220);
 }
 
 /**
@@ -2273,11 +2296,11 @@ export function ensureChapterCuts(
   for (let c = 0; c < requiredCuts; c++) {
     const clause = visualBeats[c] || visualBeats[0] || cleanSubject;
     const prompt = buildContextualCutPrompt(cleanSubject, topicContext || '', historicalEra, clause, c);
-    const isArchivalHook = (sceneIndex === 0 && c === 0);
 
+    // 100% of cuts rendered via Pollinations AI (disabling unverified archival image fallbacks)
     cuts.push({
       cutOrder: c + 1,
-      type: isArchivalHook ? 'archival_image' : 'pollinations_flux',
+      type: 'pollinations_flux',
       query: clause,
       description: `Cinematic scene illustrating: ${clause}`,
       historicalEra,

@@ -176,13 +176,12 @@ export async function composeWithHyperframes(
     // 5. Construct HTML5 Transparent Motion Graphics Plate
     const chapterHudHtml = localScenes
       .map((v, i) => {
-        const label = v.scene.chapterLabel || `INVESTIGATION PART ${i + 1}`;
+        const label = v.scene.chapterLabel || `PART 0${i + 1}`;
         return `
       <div class="clip chapter-hud" data-start="${v.start}" data-duration="${v.duration}">
         <div class="chapter-line">
-          <span class="chapter-badge">[ SECTION 0${i + 1} // ${escapeHtml(label)} ]</span>
+          <span class="chapter-badge">${escapeHtml(cleanSubject)} // ${escapeHtml(label)}</span>
         </div>
-        <div class="chapter-subject">${escapeHtml(cleanSubject)} // DOSSIER FILE 0${i + 1}</div>
       </div>`;
       })
       .join('\n');
@@ -401,7 +400,7 @@ export async function composeWithHyperframes(
           <div class="rec-dot"></div>
           <span>REC 30FPS</span>
         </div>
-        <div class="brand-capsule">THE UNTOLD ARCHIVE // ${escapeHtml(badgeText)}</div>
+        <div class="brand-capsule"><span style="color:var(--accent); font-weight:800;">[ ${escapeHtml(badgeText)} ]</span> | The Untold Archive</div>
         <div class="telemetry-meta">L-35MM // ISO 800</div>
       </div>
 

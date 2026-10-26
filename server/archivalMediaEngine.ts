@@ -218,12 +218,10 @@ export async function fetchAndAnimateArchivalClip(
   outputPath: string,
   options?: ArchivalFetchOptions & { topic?: string }
 ): Promise<{ source: 'wikimedia-commons' | null; videoPath: string | null; title?: string }> {
-  // Enforce entity subject query, strictly avoiding loose scene keywords
-  const targetEntity = (options?.topic || query || '').split(/[:\-\—\(]/)[0].trim();
-  const result = await fetchWikimediaArchivalImage(targetEntity || query, options);
-  if (!result?.filePath || !fsSync.existsSync(result.filePath)) {
-    return { source: null, videoPath: null };
-  }
+  // Disabled: 100% of video cuts are rendered through fetchAndAnimatePollinationsFluxClip to prevent unverified random images
+  console.info(`[Archival Engine] Notice: fetchAndAnimateArchivalClip is disabled. Video cuts render exclusively via Pollinations AI.`);
+  return { source: null, videoPath: null };
+}
 
   const duration = Math.max(1.5, Math.min(cutDuration || 3.0, 6.0));
   const cameraType = Math.abs(animIndex) % 3;

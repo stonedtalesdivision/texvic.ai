@@ -23,6 +23,7 @@ export interface OverlayOptions {
   dwellText?: string;
   accentColor?: string;
   progressPercent?: number;
+  hideProgressBar?: boolean;
   branding?: string;
   template?: 'full-bleed-cinematic' | 'classified-dossier' | 'satellite-telemetry' | 'lower-third' | 'split-screen' | 'pause-challenge';
   interactiveWidget?: InteractiveWidgetOptions;
@@ -156,9 +157,11 @@ export function buildSceneSvg(opts: OverlayOptions): string {
     <rect x="0" y="0" width="1080" height="260" fill="url(#topVignette)" opacity="0.65" />
     <rect x="0" y="1420" width="1080" height="500" fill="url(#bottomVignette)" opacity="0.85" />
 
+    ${opts.hideProgressBar ? '' : `
     <!-- Progress Indicator Bar (Safe Zone y=90) -->
     <rect x="120" y="85" width="840" height="6" rx="3" fill="#1e293b" opacity="0.75" />
     <rect x="120" y="85" width="${progressWidth}" height="6" rx="3" fill="url(#accentGrad)" filter="url(#glow)" />
+    `}
   `;
 
   // Minimalist Archival Framing: Leaves 100% of the video center clear for 4K B-roll and kinetic subtitles

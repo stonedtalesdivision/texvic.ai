@@ -8,6 +8,8 @@ import { getAsset, markAssetUsed, selectAssets } from './assetLibrary.js';
 import { generateKineticAssSubtitles, type TimedSceneNarration } from './kineticSubtitleEngine.js';
 import { composeCinematicAudio } from './cinematicAudioEngine.js';
 import { composeWithHyperframes } from './hyperframesCompositor.js';
+import { renderOverlayToPng } from './vectorOverlayEngine.js';
+import { getActivePersona } from './themePage.js';
 
 export interface ReelScene {
   assetId: string;
@@ -23,6 +25,10 @@ export interface ReelScene {
   narrationText?: string;
   voiceScript?: string;
   voiceText?: string;
+  chapterLabel?: string;
+  headline?: string;
+  highlight?: string;
+  subline?: string;
 }
 
 export interface ReelComposition {
@@ -36,6 +42,7 @@ export interface ReelComposition {
   height?: number;
   fps?: number;
   accentColor?: string;
+  verticalBadge?: string;
 }
 
 const COMPOSER_DIR = path.join(process.cwd(), 'data', 'media', 'composed');
@@ -74,8 +81,28 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
   const workDir = path.join(COMPOSER_DIR, `work-${input.reelId}-${crypto.randomBytes(3).toString('hex')}`);
   await fs.mkdir(workDir, { recursive: true });
 
+  let reelRecord: any = null;
+  try {
+    reelRecord = db.prepare('SELECT title, niche FROM reels WHERE id = ?').get(input.reelId) as any;
+  } catch {}
+
+  const persona = getActivePersona();
+  const verticalBadge = (input.verticalBadge || reelRecord?.niche || persona.vertical_badge || 'UNTOLD EVENTS')
+    .replace(/[\[\]]/g, '')
+    .trim()
+    .toUpperCase();
+  const branding = persona.brand || 'The Untold Archive';
+  const cleanSubject = String(reelRecord?.title || 'HISTORICAL EVENT')
+    .replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '')
+    .split(/[:\-\—\(]/)[0]
+    .trim()
+    .toUpperCase();
+  const accentHex = input.accentColor || '#d4af37';
+
   const normalized: string[] = [];
   const sceneCutTimestamps: number[] = [];
+  const sceneIntervals: Array<{ start: number; end: number; chapterLabel: string }> = [];
+  const hudPngs: string[] = [];
   let runningTime = 0;
 
   try {
@@ -83,9 +110,33 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     for (let i = 0; i < resolved.length; i++) {
       const { scene, asset } = resolved[i];
       const output = path.join(workDir, `scene-${i}.mp4`);
-      sceneCutTimestamps.push(runningTime);
+      const sceneStart = runningTime;
       const sceneDur = Math.max(0.5, scene.duration);
+      const sceneEnd = sceneStart + sceneDur;
+      sceneCutTimestamps.push(sceneStart);
       runningTime += sceneDur;
+
+      const chapterLabel = (scene as any).chapterLabel || `PART 0${i + 1}`;
+      sceneIntervals.push({ start: sceneStart, end: sceneEnd, chapterLabel });
+
+      // Pre-render transparent HUD overlay plate for scene
+      const dwellText = `${cleanSubject} // ${chapterLabel}`;
+      const hudPng = path.join(workDir, `hud-${i}.png`);
+      try {
+        await renderOverlayToPng({
+          badge: verticalBadge,
+          branding,
+          dwellText,
+          accentColor: accentHex,
+          hideProgressBar: true,
+          headline: '',
+          highlight: '',
+          subline: ''
+        }, hudPng);
+        hudPngs.push(hudPng);
+      } catch (hudErr) {
+        console.warn(`[Reel Composer] Notice generating scene ${i} HUD plate:`, hudErr);
+      }
       
       const isFullVertical = (asset.width === 1080 && asset.height === 1920) || asset.source === 'ffmpeg-autonomous-visual-producer';
       const vf: string[] = [];
@@ -157,7 +208,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       if (timedNarrations.some(t => t.text.trim().length > 0)) {
         try {
           assPath = await generateKineticAssSubtitles(timedNarrations, {
-            accentHex: input.accentColor || '#d4af37',
+            accentHex: accentHex,
             wordsPerGroup: 3,
             marginV: 840
           });
@@ -208,86 +259,115 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       }
     }
 
-    // 5. Studio-Grade HyperFrames Composition Engine
+    // 5. Studio-Grade HyperFrames Composition Engine (optimized for short clips <= 25s)
     const outputPath = input.outputPath || path.join(COMPOSER_DIR, `${input.reelId}-${Date.now()}.mp4`);
-    let reelRecord: any = null;
-    try {
-      reelRecord = db.prepare('SELECT title, vertical_badge FROM reels WHERE id = ?').get(input.reelId) as any;
-    } catch {}
+    const skipHyperframes = totalDuration > 25 || process.env.SKIP_HYPERFRAMES === '1';
 
-    try {
-      console.info(`[Reel Composer] 🎨 Attempting studio render via HyperFrames Compositor Engine...`);
-      const hfScenes = resolved.map((r, i) => ({
-        assetId: r.scene.assetId,
-        filePath: normalized[i] && fsSync.existsSync(normalized[i]) ? normalized[i] : r.asset.file_path,
-        duration: Math.max(0.5, r.scene.duration),
-        speechDuration: r.scene.speechDuration,
-        chapterLabel: (r.scene as any).chapterLabel,
-        headline: (r.scene as any).headline,
-        highlight: (r.scene as any).highlight,
-        subline: (r.scene as any).subline,
-        narrationText: r.scene.narrationText || r.scene.voiceScript || r.scene.voiceText || r.scene.text,
-        words: r.scene.words
-      }));
+    if (!skipHyperframes) {
+      try {
+        console.info(`[Reel Composer] 🎨 Attempting studio render via HyperFrames Compositor Engine...`);
+        const hfScenes = resolved.map((r, i) => ({
+          assetId: r.scene.assetId,
+          filePath: normalized[i] && fsSync.existsSync(normalized[i]) ? normalized[i] : r.asset.file_path,
+          duration: Math.max(0.5, r.scene.duration),
+          speechDuration: r.scene.speechDuration,
+          chapterLabel: (r.scene as any).chapterLabel || `PART 0${i + 1}`,
+          headline: (r.scene as any).headline,
+          highlight: (r.scene as any).highlight,
+          subline: (r.scene as any).subline,
+          narrationText: r.scene.narrationText || r.scene.voiceScript || r.scene.voiceText || r.scene.text,
+          words: r.scene.words
+        }));
 
-      const hfResult = await composeWithHyperframes({
-        reelId: input.reelId,
-        scenes: hfScenes,
-        totalDuration,
-        backgroundVideoPath: silentVideoPath,
-        masterAudioPath: (masterAudioPath && fsSync.existsSync(masterAudioPath)) ? masterAudioPath : input.voicePath,
-        outputPath,
-        reelTitle: reelRecord?.title || 'Historical Event',
-        verticalBadge: reelRecord?.vertical_badge || 'CLASSIFIED DOSSIER',
-        accentColor: input.accentColor || '#d4af37',
-        fps: input.fps || 30
-      });
+        const hfResult = await composeWithHyperframes({
+          reelId: input.reelId,
+          scenes: hfScenes,
+          totalDuration,
+          backgroundVideoPath: silentVideoPath,
+          masterAudioPath: (masterAudioPath && fsSync.existsSync(masterAudioPath)) ? masterAudioPath : input.voicePath,
+          outputPath,
+          reelTitle: reelRecord?.title || cleanSubject,
+          verticalBadge: verticalBadge,
+          accentColor: accentHex,
+          fps: input.fps || 30
+        });
 
-      if (hfResult.success && hfResult.outputPath && fsSync.existsSync(hfResult.outputPath)) {
-        console.info(`[Reel Composer] 🏆 HyperFrames Compositor completed broadcast master: ${hfResult.outputPath}`);
-        return { outputPath: hfResult.outputPath, reelId: input.reelId, scenes: input.scenes };
+        if (hfResult.success && hfResult.outputPath && fsSync.existsSync(hfResult.outputPath)) {
+          console.info(`[Reel Composer] 🏆 HyperFrames Compositor completed broadcast master: ${hfResult.outputPath}`);
+          return { outputPath: hfResult.outputPath, reelId: input.reelId, scenes: input.scenes };
+        }
+        console.warn(`[Reel Composer] HyperFrames compositor notice (${hfResult.error || 'unspecified'}), falling back to direct FFmpeg assembly...`);
+      } catch (hfErr: any) {
+        console.warn(`[Reel Composer] HyperFrames compositor exception, continuing with FFmpeg fallback:`, hfErr?.message || hfErr);
       }
-      console.warn(`[Reel Composer] HyperFrames compositor notice (${hfResult.error || 'unspecified'}), falling back to direct FFmpeg assembly...`);
-    } catch (hfErr: any) {
-      console.warn(`[Reel Composer] HyperFrames compositor exception, continuing with FFmpeg fallback:`, hfErr?.message || hfErr);
+    } else {
+      console.info(`[Reel Composer] ⚡ Multi-scene Reel (${totalDuration.toFixed(1)}s > 25s): Using high-performance studio FFmpeg compositor with full Archival HUD overlay.`);
     }
 
-    // 6. Final Assembly & Export (FFmpeg Fallback)
+    // 6. Final Assembly & Export (Guaranteed Studio Archival HUD Overlay)
     const finalArgs: string[] = ['-y', '-i', silentVideoPath];
 
+    // Collect valid scene HUD PNG overlay plates
+    const validHudInputs: Array<{ path: string; start: number; end: number }> = [];
+    for (let i = 0; i < hudPngs.length; i++) {
+      if (fsSync.existsSync(hudPngs[i])) {
+        finalArgs.push('-i', hudPngs[i]);
+        validHudInputs.push({
+          path: hudPngs[i],
+          start: sceneIntervals[i].start,
+          end: sceneIntervals[i].end
+        });
+      }
+    }
+
+    // Audio input
+    let audioInputIndex = -1;
     if (masterAudioPath && fsSync.existsSync(masterAudioPath)) {
+      audioInputIndex = 1 + validHudInputs.length;
       finalArgs.push('-i', masterAudioPath);
     } else if (input.voicePath) {
+      audioInputIndex = 1 + validHudInputs.length;
       finalArgs.push('-i', input.voicePath);
     } else if (input.musicPath && fsSync.existsSync(input.musicPath)) {
+      audioInputIndex = 1 + validHudInputs.length;
       finalArgs.push('-stream_loop', '-1', '-i', input.musicPath);
     }
 
-    const videoFilters: string[] = [];
+    // Assemble video filter graph: HUD scene overlays + Animated Glowing Progress Bar + Kinetic ASS Subtitles
+    const complexFilters: string[] = [];
+    let lastStream = '0:v';
+
+    validHudInputs.forEach((item, idx) => {
+      const inputIdx = 1 + idx;
+      const nextStream = `v_hud_${idx}`;
+      complexFilters.push(`[${lastStream}][${inputIdx}:v]overlay=0:0:enable='between(t,${item.start},${item.end})'[${nextStream}]`);
+      lastStream = nextStream;
+    });
+
+    const animProgressBar = `drawbox=x=120:y=85:w=840:h=6:color=0x1e293b@0.75:t=fill,drawbox=x=120:y=85:w='840*(t/${totalDuration})':h=6:color=${accentHex.replace('#', '0x')}@0.95:t=fill`;
+    let finalFilters = animProgressBar;
+
     if (assPath && fsSync.existsSync(assPath)) {
       const escapedAss = escapeFilterPath(assPath);
-      videoFilters.push(`ass='${escapedAss}'`);
+      finalFilters += `,ass='${escapedAss}'`;
     }
 
-    if (videoFilters.length > 0) {
-      finalArgs.push(
-        '-vf', videoFilters.join(','),
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p'
-      );
-    } else {
-      finalArgs.push('-c:v', 'copy');
-    }
+    complexFilters.push(`[${lastStream}]${finalFilters}[outv]`);
 
-    if (masterAudioPath && fsSync.existsSync(masterAudioPath)) {
-      finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-map', '0:v:0', '-map', '1:a:0', '-shortest');
-    } else if (input.voicePath) {
-      finalArgs.push('-c:a', 'aac', '-b:a', '192k', '-map', '0:v:0', '-map', '1:a:0', '-shortest');
+    finalArgs.push(
+      '-filter_complex', complexFilters.join(';'),
+      '-map', '[outv]',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p'
+    );
+
+    if (audioInputIndex !== -1) {
+      finalArgs.push('-map', `${audioInputIndex}:a:0`, '-c:a', 'aac', '-b:a', '192k', '-shortest');
     }
 
     finalArgs.push('-movflags', '+faststart', outputPath);
     await run('ffmpeg', finalArgs);
 
-    console.info(`[Reel Composer] 🚀 Viral Reel Mastered successfully: ${outputPath}`);
+    console.info(`[Reel Composer] 🚀 Studio Reel Mastered with Archival HUD & Subtitles: ${outputPath}`);
     return { outputPath, reelId: input.reelId, scenes: input.scenes };
   } finally {
     try {
