@@ -165,9 +165,8 @@ export async function fetchAndAnimatePollinationsFluxClip(
   const finalPrompt = options?.prompt || buildContextualCutPrompt(safeTopic, '', safeEra, safeClause, animIndex);
 
   const retryModels = [
-    { model: 'flux', timeoutMs: 35000, delayAfterFail: 1000 },
-    { model: 'flux-realism', timeoutMs: 35000, delayAfterFail: 1200 },
-    { model: 'turbo', timeoutMs: 15000, delayAfterFail: 0 }
+    { model: 'turbo', timeoutMs: 6000, delayAfterFail: 0 },
+    { model: 'flux', timeoutMs: 8000, delayAfterFail: 0 }
   ];
 
   await acquireFluxSlot();
@@ -179,11 +178,16 @@ export async function fetchAndAnimatePollinationsFluxClip(
       const rawImagePath = path.join(rawImageDir, `flux-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.jpg`);
 
       try {
-        console.info(`[Pollinations AI] Attempt ${attempt + 1}/3 (${model}) for: "${finalPrompt.slice(0, 75)}..."`);
+        console.info(`[Pollinations AI] Attempt ${attempt + 1}/${retryModels.length} (${model}) for: "${finalPrompt.slice(0, 75)}..."`);
         const resp = await fetch(fluxUrl, {
           signal: AbortSignal.timeout(timeoutMs),
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
         });
+
+        if (resp.status === 402) {
+          console.warn(`[Pollinations AI] Attempt ${attempt + 1} (${model}) returned HTTP 402 (Payment Required) - skipping Pollinations.`);
+          break;
+        }
 
         if (!resp.ok) {
           console.warn(`[Pollinations AI] Attempt ${attempt + 1} (${model}) returned HTTP ${resp.status}`);
@@ -250,6 +254,236 @@ export async function fetchAndAnimatePollinationsFluxClip(
   return { source: null, videoPath: null };
 }
 
+/**
+ * Extracts smart candidate search queries for a single cut
+ */
+function getCutSearchTerms(
+  cleanSubject: string,
+  spokenClause?: string,
+  cutQuery?: string,
+  keywords: string[] = []
+): string[] {
+  const terms: string[] = [];
+
+  // 1. Scene-specific B-roll keywords (highest relevance if provided)
+  for (const kw of keywords) {
+    const cleanKw = kw.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+    if (cleanKw.length >= 3) terms.push(cleanKw);
+  }
+
+  // 2. Spoken clause core words (if distinct from subject)
+  if (spokenClause && spokenClause !== cleanSubject) {
+    const words = spokenClause
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !/^(this|that|with|from|have|will|your|what|when|where|into|about|there|their|would|could|should|which|because|deliberately|completely|documented|archival|investigation|requires|below|above|before|after|while|since)$/i.test(w));
+    if (words.length >= 2) terms.push(`${words[0]} ${words[1]}`);
+    if (words.length >= 1) terms.push(words[0]);
+    if (words.length >= 3) terms.push(words[1]);
+  }
+
+  // 3. Cut query (if distinct from subject)
+  if (cutQuery && cutQuery !== cleanSubject) {
+    const qWords = cutQuery
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !/^(scene|visual|photo|ultra|high|cinematic|footage|documentary|archival)$/i.test(w));
+    if (qWords.length >= 2) terms.push(`${qWords[0]} ${qWords[1]}`);
+    if (qWords.length >= 1) terms.push(qWords[0]);
+  }
+
+  // 4. Subject entity core nouns (filtering verbs like "avoid", "stops", "why")
+  const subjectWords = cleanSubject
+    .replace(/^(why|how|the|what|who|where|when|inside|case|unsolved|secret|truth|real|documented)\s+/i, '')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 4 && !/^(avoid|avoids|avoiding|stops|fails|prohibits|secret|history|mystery|untold|archive)$/i.test(w));
+
+  if (subjectWords.length >= 2) {
+    terms.push(`${subjectWords[0]} ${subjectWords[subjectWords.length - 1]}`);
+  }
+  for (const sw of subjectWords) {
+    terms.push(sw);
+  }
+
+  // 5. Entire clean subject
+  const strippedSubject = cleanSubject.replace(/^(why|how|the|what|who|where|when|inside)\s+/i, '').trim();
+  if (strippedSubject) terms.push(strippedSubject);
+
+  // Fallback defaults
+  terms.push('aerial view', 'mountain landscape', 'documentary investigation');
+
+  // Deduplicate and filter
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const t of terms) {
+    const lower = t.toLowerCase().trim();
+    if (lower.length >= 3 && !seen.has(lower)) {
+      seen.add(lower);
+      result.push(lower);
+    }
+  }
+  return result;
+}
+
+/**
+ * Tier 1: Pixabay Stock Photo API fetcher
+ */
+async function fetchPixabayImageForCut(
+  candidates: string[],
+  outputPath: string
+): Promise<{ source: 'pixabay-photo'; title?: string } | null> {
+  const pixabayKey = process.env.PIXABAY_API_KEY;
+  if (!pixabayKey) return null;
+
+  for (const term of candidates.slice(0, 5)) {
+    for (const orientation of ['vertical', 'horizontal'] as const) {
+      try {
+        const url = `https://pixabay.com/api/?key=${encodeURIComponent(pixabayKey)}&q=${encodeURIComponent(term)}&image_type=photo&orientation=${orientation}&per_page=6&safesearch=true`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+        if (!res.ok) continue;
+
+        const data: any = await res.json();
+        const hits = data?.hits || [];
+        if (!hits.length) continue;
+
+        const hit = hits[Math.floor(Math.random() * Math.min(hits.length, 3))];
+        const imgUrl = hit?.largeImageURL || hit?.webformatURL || hit?.imageURL;
+        if (!imgUrl) continue;
+
+        const imgRes = await fetch(imgUrl, { signal: AbortSignal.timeout(10000) });
+        if (!imgRes.ok) continue;
+
+        const buf = await imgRes.arrayBuffer();
+        if (buf.byteLength > 20000) {
+          await fs.writeFile(outputPath, Buffer.from(buf));
+          console.info(`[Autonomous Visual Producer] 📸 Pixabay locked photo for "${term}" (${orientation}, ${buf.byteLength} bytes)`);
+          return { source: 'pixabay-photo', title: hit?.tags || term };
+        }
+      } catch (err: any) {
+        console.warn(`[Autonomous Visual Producer] Pixabay notice for "${term}":`, err?.message?.slice(0, 80));
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Tier 2: Wikimedia Commons Archival Photography & Records
+ */
+async function fetchWikimediaImageForCut(
+  candidates: string[],
+  outImagePath: string,
+  extraOpts?: { usedUrls?: Set<string>; usedTitles?: Set<string>; index?: number }
+): Promise<{ source: 'wikimedia-commons'; title?: string } | null> {
+  for (const term of candidates.slice(0, 4)) {
+    try {
+      const res = await fetchWikimediaArchivalImage(term, {
+        fallbackTerms: candidates.slice(1),
+        usedUrls: extraOpts?.usedUrls,
+        usedTitles: extraOpts?.usedTitles,
+        index: extraOpts?.index
+      });
+      if (res?.filePath && fsSync.existsSync(res.filePath)) {
+        await fs.copyFile(res.filePath, outImagePath);
+        console.info(`[Autonomous Visual Producer] 🏛️ Wikimedia record locked for "${term}": ${res.title}`);
+        return { source: 'wikimedia-commons', title: res.title };
+      }
+    } catch (err: any) {
+      console.warn(`[Autonomous Visual Producer] Wikimedia notice for "${term}":`, err?.message?.slice(0, 80));
+    }
+  }
+  return null;
+}
+
+/**
+ * Tier 4: Find any existing local archival / stock cache image
+ */
+async function findCachedArchivalImage(): Promise<string | null> {
+  const dirs = [
+    path.join(process.cwd(), 'data', 'media', 'archival-cache'),
+    path.join(process.cwd(), 'data', 'media', 'stock-cache')
+  ];
+  for (const dir of dirs) {
+    if (!fsSync.existsSync(dir)) continue;
+    try {
+      const files = await fs.readdir(dir);
+      const images = files.filter(f => /\.(jpe?g|png|webp)$/i.test(f));
+      if (images.length > 0) {
+        const picked = images[Math.floor(Math.random() * images.length)];
+        const fullPath = path.join(dir, picked);
+        if (fsSync.existsSync(fullPath) && (await fs.stat(fullPath)).size > 15000) {
+          return fullPath;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+/**
+ * Animates a photographic visual into a 1080x1920 vertical video clip with Ken Burns zoompan motion
+ */
+async function animateImageToCutVideo(
+  imagePath: string,
+  duration: number,
+  animIndex: number,
+  outputPath: string
+): Promise<boolean> {
+  const cameraType = Math.abs(animIndex) % 3;
+  let zoomFilter = '';
+  if (cameraType === 0) {
+    // Camera 1: Cinematic Zoom-In
+    zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(zoom+0.0015,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1`;
+  } else if (cameraType === 1) {
+    // Camera 2: Cinematic Revealing Zoom-Out
+    zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.25-0.0015*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1`;
+  } else {
+    // Camera 3: Subtle Forensic Drift / Pan
+    zoomFilter = `scale=1280:2276:force_original_aspect_ratio=increase,crop=1280:2276,zoompan=z=1.12:x='if(lte(on,1),(iw-iw/zoom)/2,x+0.8)':y='(ih-ih/zoom)/2':d=1:s=1080x1920:fps=30,setsar=1`;
+  }
+
+  // Atmospheric dark documentary color grade: preserving clarity, saturation, and contrast while adding film vignette
+  const gradeFilter = 'eq=saturation=0.70:contrast=1.12:brightness=-0.02,vignette=PI/4';
+
+  await execFileAsync('ffmpeg', [
+    '-y',
+    '-loop', '1',
+    '-i', imagePath,
+    '-t', duration.toFixed(2),
+    '-vf', `${zoomFilter},${gradeFilter}`,
+    '-an', '-threads', '2',
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-crf', '21',
+    '-pix_fmt', 'yuv420p',
+    outputPath
+  ]);
+
+  return fsSync.existsSync(outputPath) && (await fs.stat(outputPath)).size > 20000;
+}
+
+/**
+ * Tier 5: Procedural Visible Documentary Slate (Visible telemetry grid - NEVER PITCH BLACK!)
+ */
+async function generateVisibleDocumentarySlate(
+  cutDuration: number,
+  accentHex: string,
+  outputPath: string
+): Promise<void> {
+  const safeHex = /^[0-9a-fA-F]{6}$/.test(accentHex) ? accentHex : 'd4af37';
+  await execFileAsync('ffmpeg', [
+    '-y',
+    '-f', 'lavfi',
+    '-i', `color=c=0x151c28:s=1080x1920:d=${cutDuration.toFixed(2)}:r=30`,
+    '-vf', `drawgrid=w=120:h=120:t=1:c=0x${safeHex}@0.08,vignette=PI/3.5,eq=contrast=1.1:brightness=0.02,setsar=1`,
+    '-an', '-threads', '2',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
+    '-pix_fmt', 'yuv420p',
+    outputPath
+  ]);
+}
+
 async function renderGeneratedScene(
   scene: any,
   index: number,
@@ -268,16 +502,11 @@ async function renderGeneratedScene(
   const safeId = String(reel?.id || 'autonomous').replace(/[^a-zA-Z0-9_-]/g, '-');
   const nonce = `${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
   const output = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}.mp4`);
-  const overlayPng = path.join(GENERATED_DIR, `${safeId}-scene-${index}-${nonce}-overlay.png`);
 
   const rawHeadline = String(scene?.onScreenText || scene?.headline || scene?.hookText || sceneTitle(scene)).trim().slice(0, 72);
-  const rawHighlight = String(scene?.highlight || '').trim().slice(0, 64);
-  const rawSubline = String(scene?.subline || scene?.secondaryText || '').trim().slice(0, 140);
-
   const palette = themePalette(scene, index);
   const rawAccent = String(scene?.accentColor || palette.accent || '#d4af37').replace('#', '').trim();
   const accentHex = /^[0-9a-fA-F]{6}$/.test(rawAccent) ? rawAccent : palette.accent.replace('#', '');
-  const badge = cleanBadgeText(reel?.verticalBadge, index).replace(/[\[\]]/g, '').trim();
 
   const persona = getActivePersona();
   const cleanSubject = String(reel?.title || '').replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '').split(/[:\-\—\(]/)[0].trim() || 'The Untold Archive Secret';
@@ -310,57 +539,65 @@ async function renderGeneratedScene(
 
   const cutFiles: string[] = [];
   const tempFilesToClean: string[] = [];
-  const DARK_GRADE_FILTER = 'eq=saturation=0.45:contrast=1.25:brightness=-0.12,vignette=PI/4';
 
   for (let c = 0; c < cuts.length; c++) {
     const cut = cuts[c];
     const cutNonce = `${nonce}-c${c}`;
     const cutOutPath = path.join(GENERATED_DIR, `${safeId}-sc${index}-cut${c}-${cutNonce}.mp4`);
-    tempFilesToClean.push(cutOutPath);
+    const cutImgPath = path.join(GENERATED_DIR, `${safeId}-sc${index}-cut${c}-${cutNonce}.jpg`);
+    tempFilesToClean.push(cutOutPath, cutImgPath);
 
     let cutSuccess = false;
+    const candidateTerms = getCutSearchTerms(
+      cleanSubject,
+      cut.spokenClause,
+      cut.query,
+      scene?.bRollKeywords || scene?.visualBeats || []
+    );
 
-    // A. Archival Image Beat: RESTRICTED STRICTLY TO Scene 0 Cut 0 (The Opening Hook)
-    // and queried strictly with the clean subject entity name (never with scene keywords!)
-    const isArchivalHook = (index === 0 && c === 0 && cut.type === 'archival_image');
-    if (isArchivalHook) {
-      const rawArchivalPath = path.join(GENERATED_DIR, `${safeId}-raw-archival-${cutNonce}.mp4`);
-      tempFilesToClean.push(rawArchivalPath);
+    // Tier 1: Authentic Pixabay Stock Photography (Fastest, highest resolution, topic-accurate)
+    if (!cutSuccess) {
       try {
-        const archivalRes = await fetchAndAnimateArchivalClip(cleanSubject, cutDuration, c, rawArchivalPath, {
-          topic: cleanSubject,
-          usedTitles: extraOpts?.usedArchivalTitles,
-          usedUrls: extraOpts?.usedVideoUrls
-        });
-
-        if (archivalRes.videoPath && fsSync.existsSync(archivalRes.videoPath)) {
-          // Apply unified Dark Archive color grading to the archival video cut
-          await execFileAsync('ffmpeg', [
-            '-y',
-            '-i', archivalRes.videoPath,
-            '-t', String(cutDuration),
-            '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,${DARK_GRADE_FILTER},setsar=1,fps=30`,
-            '-an', '-threads', '2',
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
-            '-pix_fmt', 'yuv420p', cutOutPath
-          ]);
-
-          if (fsSync.existsSync(cutOutPath) && (await fs.stat(cutOutPath)).size > 20000) {
+        const pixRes = await fetchPixabayImageForCut(candidateTerms, cutImgPath);
+        if (pixRes && fsSync.existsSync(cutImgPath) && (await fs.stat(cutImgPath)).size > 15000) {
+          const animated = await animateImageToCutVideo(cutImgPath, cutDuration, c + index, cutOutPath);
+          if (animated) {
             cutFiles.push(cutOutPath);
             cutSuccess = true;
-            console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ Authentic archival opening hook locked ("${archivalRes.title || cleanSubject}").`);
+            console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ Pixabay photography locked ("${pixRes.title || candidateTerms[0]}").`);
           }
         }
-      } catch (archErr: any) {
-        console.warn(`[Autonomous Visual Producer] Archival hook cut notice:`, archErr?.message?.slice(0, 80));
+      } catch (pixErr: any) {
+        console.warn(`[Autonomous Visual Producer] Pixabay cut notice:`, pixErr?.message?.slice(0, 80));
       }
     }
 
-    // B. AI Pollinations FLUX + Ken Burns Zoompan Beat (Strictly Clause-Synced, Era-Locked Visuals)
+    // Tier 2: Authentic Wikimedia Commons Archival Photography & Records
     if (!cutSuccess) {
-      const rawFluxPath = path.join(GENERATED_DIR, `${safeId}-raw-flux-${cutNonce}.mp4`);
-      tempFilesToClean.push(rawFluxPath);
       try {
+        const wikiRes = await fetchWikimediaImageForCut(candidateTerms, cutImgPath, {
+          usedUrls: extraOpts?.usedVideoUrls,
+          usedTitles: extraOpts?.usedArchivalTitles,
+          index: c + index
+        });
+        if (wikiRes && fsSync.existsSync(cutImgPath) && (await fs.stat(cutImgPath)).size > 15000) {
+          const animated = await animateImageToCutVideo(cutImgPath, cutDuration, c + index, cutOutPath);
+          if (animated) {
+            cutFiles.push(cutOutPath);
+            cutSuccess = true;
+            console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ Authentic Wikimedia archival record locked ("${wikiRes.title || candidateTerms[0]}").`);
+          }
+        }
+      } catch (wikiErr: any) {
+        console.warn(`[Autonomous Visual Producer] Wikimedia cut notice:`, wikiErr?.message?.slice(0, 80));
+      }
+    }
+
+    // Tier 3: AI Pollinations FLUX + Ken Burns Zoompan (Strictly non-blocking)
+    if (!cutSuccess) {
+      try {
+        const rawFluxPath = path.join(GENERATED_DIR, `${safeId}-raw-flux-${cutNonce}.mp4`);
+        tempFilesToClean.push(rawFluxPath);
         const spokenClause = cut.spokenClause || cut.query;
         const prompt = cut.prompt || buildContextualCutPrompt(cleanSubject, topicContext, historicalEra, spokenClause, c);
 
@@ -373,55 +610,46 @@ async function renderGeneratedScene(
         });
 
         if (fluxRes.videoPath && fsSync.existsSync(fluxRes.videoPath)) {
-          // Apply unified Dark Archive color grading to the AI-generated visual cut
-          await execFileAsync('ffmpeg', [
-            '-y',
-            '-i', fluxRes.videoPath,
-            '-t', String(cutDuration),
-            '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,${DARK_GRADE_FILTER},setsar=1,fps=30`,
-            '-an', '-threads', '2',
-            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
-            '-pix_fmt', 'yuv420p', cutOutPath
-          ]);
-
-          if (fsSync.existsSync(cutOutPath) && (await fs.stat(cutOutPath)).size > 20000) {
-            cutFiles.push(cutOutPath);
-            cutSuccess = true;
-            console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ Context-locked AI visual cut locked.`);
-          }
+          cutFiles.push(fluxRes.videoPath);
+          cutSuccess = true;
+          console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ Context-locked AI visual cut locked.`);
         }
       } catch (fluxErr: any) {
-        console.warn(`[Autonomous Visual Producer] Flux cut ${c + 1} notice:`, fluxErr?.message?.slice(0, 80));
+        console.warn(`[Autonomous Visual Producer] Flux cut notice:`, fluxErr?.message?.slice(0, 80));
       }
     }
 
-    // C. Procedural Dark Gradient if Pollinations AI retries fail
-    // (Completely eliminates Pexels/Pixabay and generic stock footage fallbacks)
+    // Tier 4: Local Archival / Stock Cache Fallback
     if (!cutSuccess) {
-      console.warn(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: Generating dark archival procedural gradient fallback.`);
-      const bgHex = palette.bg.replace('#', '0x');
-      await execFileAsync('ffmpeg', [
-        '-y',
-        '-f', 'lavfi',
-        '-i', `gradients=s=1080x1920:c0=${bgHex}:c1=0x06070a:x0=0:y0=0:x1=1080:y1=1920`,
-        '-t', String(cutDuration),
-        '-vf', `${DARK_GRADE_FILTER},setsar=1,fps=30`,
-        '-an', '-threads', '2',
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
-        '-pix_fmt', 'yuv420p', cutOutPath
-      ]);
+      try {
+        const cachedImg = await findCachedArchivalImage();
+        if (cachedImg) {
+          await fs.copyFile(cachedImg, cutImgPath);
+          const animated = await animateImageToCutVideo(cutImgPath, cutDuration, c + index, cutOutPath);
+          if (animated) {
+            cutFiles.push(cutOutPath);
+            cutSuccess = true;
+            console.info(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: ✅ Local archival cache image animated.`);
+          }
+        }
+      } catch (cacheErr: any) {
+        console.warn(`[Autonomous Visual Producer] Local cache fallback notice:`, cacheErr?.message?.slice(0, 80));
+      }
+    }
+
+    // Tier 5: Procedural Visible Documentary Slate (Visible telemetry grid - NEVER PITCH BLACK!)
+    if (!cutSuccess) {
+      console.warn(`[Autonomous Visual Producer] Cut ${c + 1}/${numCuts}: Generating visible telemetry slate grid.`);
+      await generateVisibleDocumentarySlate(cutDuration, accentHex, cutOutPath);
       cutFiles.push(cutOutPath);
     }
   }
 
-  // 2. Concatenate cuts into seamless chapter background video
-  const chapterBgPath = path.join(GENERATED_DIR, `${safeId}-chapter-bg-${index}-${nonce}.mp4`);
-  tempFilesToClean.push(chapterBgPath);
-
+  // 2. Concatenate cuts into seamless chapter background video directly to output
   const concatListPath = path.join(GENERATED_DIR, `${safeId}-concat-${index}-${nonce}.txt`);
   tempFilesToClean.push(concatListPath);
 
-  const concatContent = cutFiles.map(f => `file '${f.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n');
+  const concatContent = cutFiles.map(f => `file '${path.resolve(f).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n');
   await fs.writeFile(concatListPath, concatContent);
 
   await execFileAsync('ffmpeg', [
@@ -431,55 +659,11 @@ async function renderGeneratedScene(
     '-i', concatListPath,
     '-c', 'copy',
     '-movflags', '+faststart',
-    chapterBgPath
-  ]);
-
-  // 3. Render HUD Overlay (Preserves exact UI/HUD: Top capsule/progress bar, Bottom chapter label bar)
-  const totalScenes = Math.max(1, extraOpts?.totalScenes || reel?.scenes?.length || 5);
-  const defaultChapterLabels = [
-    'ARCHIVAL RECORD',
-    'HISTORICAL ORIGIN',
-    'PRIMARY ANALYSIS',
-    'FORENSIC EVIDENCE',
-    'CLASSIFIED ANOMALY',
-    'UNSOLVED RESOLUTION'
-  ];
-  const chapterLabel = scene?.chapterLabel || defaultChapterLabels[index] || 'INVESTIGATION FILE';
-  const subjectPrefix = cleanSubject.toUpperCase().slice(0, 28);
-  const dwellText = `${subjectPrefix} // ${chapterLabel}`;
-
-  const template = index === 0 ? 'full-bleed-cinematic' : index === 1 ? 'classified-dossier' : 'satellite-telemetry';
-
-  await renderOverlayToPng({
-    badge,
-    headline: rawHeadline,
-    highlight: rawHighlight,
-    subline: rawSubline,
-    dwellText,
-    accentColor: `#${accentHex}`,
-    progressPercent: Math.round(((index + 1) / totalScenes) * 100),
-    branding: persona.brand || 'THE UNTOLD ARCHIVE',
-    template,
-    interactiveWidget: scene.interactiveWidget
-  }, overlayPng);
-
-  // 4. Composite HUD Overlay on top of the graded cuts (Overlay stays 100% full brightness!)
-  await execFileAsync('ffmpeg', [
-    '-y',
-    '-i', chapterBgPath,
-    '-loop', '1', '-i', overlayPng,
-    '-t', String(duration),
-    '-filter_complex', '[0:v]setsar=1[bg];[bg][1:v]overlay=0:0[v]',
-    '-map', '[v]',
-    '-an', '-r', '30',
-    '-threads', '2',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21',
-    '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output
+    output
   ]);
 
   // Cleanup temporary cut files
   await Promise.allSettled(tempFilesToClean.map(f => fs.rm(f, { force: true, maxRetries: 3, retryDelay: 100 })));
-  await fs.rm(overlayPng, { force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {});
 
   return output;
 }
