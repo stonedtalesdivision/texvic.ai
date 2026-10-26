@@ -174,6 +174,9 @@ export default function App() {
             if (data.analytics) {
               setAnalytics(data.analytics);
             }
+            if (data.insights && Array.isArray(data.insights) && data.insights.length > 0) {
+              setInsights(data.insights);
+            }
             if (typeof data.autonomousMode === 'boolean') setAutonomousMode(data.autonomousMode);
             if (data.autonomous24x7) setAutonomousConfig(data.autonomous24x7);
           }
@@ -200,6 +203,7 @@ export default function App() {
           if (data.store.posts) setPosts(data.store.posts);
           if (data.store.comments) setComments(data.store.comments);
           if (data.store.analytics) setAnalytics(data.store.analytics);
+          if (data.store.insights && Array.isArray(data.store.insights)) setInsights(data.store.insights);
           if (data.store.autonomous24x7) setAutonomousConfig(data.store.autonomous24x7);
           if (data.store.accounts) setAccounts(data.store.accounts);
         }
