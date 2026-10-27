@@ -272,6 +272,10 @@ export async function notifyReelPublished(reel: {
   fbVideoId?: string;
   fbAccountPermalink?: string;
   fbAccountVideoId?: string;
+  ytPermalink?: string;
+  ytVideoId?: string;
+  tiktokShareUrl?: string;
+  tiktokPublishId?: string;
   platforms?: string[];
   errors?: string[];
   videoUrl?: string;
@@ -299,6 +303,18 @@ export async function notifyReelPublished(reel: {
     platformLines.push(`👤 <b>Facebook Profile:</b> <a href="${reel.fbAccountPermalink}">${reel.fbAccountPermalink}</a>`);
   } else if (platforms.includes('facebook_account')) {
     platformLines.push(`👤 <b>Facebook Profile:</b> <i>Published</i>`);
+  }
+
+  if (reel.ytPermalink) {
+    platformLines.push(`▶️ <b>YouTube Shorts:</b> <a href="${reel.ytPermalink}">${reel.ytPermalink}</a>`);
+  } else if (platforms.includes('youtube')) {
+    platformLines.push(`▶️ <b>YouTube Shorts:</b> <i>Published</i>`);
+  }
+
+  if (reel.tiktokShareUrl) {
+    platformLines.push(`🎵 <b>TikTok:</b> <a href="${reel.tiktokShareUrl}">${reel.tiktokShareUrl}</a>`);
+  } else if (platforms.includes('tiktok')) {
+    platformLines.push(`🎵 <b>TikTok:</b> <i>Published</i>`);
   }
 
   const errorLines: string[] = [];

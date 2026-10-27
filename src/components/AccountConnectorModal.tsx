@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { 
   Instagram, 
   Facebook, 
+  Youtube,
   CheckCircle2, 
   X, 
   Shield, 
@@ -17,16 +18,23 @@ import {
   Search,
   ExternalLink,
   Sparkles,
-  Check
+  Check,
+  Video
 } from 'lucide-react';
 import { AccountAnalytics } from '../types';
+
+export const TikTokIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.298-.002.595.042.88.13V9.4a6.33 6.33 0 0 0-1-.08A6.34 6.34 0 0 0 3 15.66a6.34 6.34 0 0 0 10.82 4.49 6.31 6.31 0 0 0 1.86-4.49V8.71a8.21 8.21 0 0 0 4.91 1.63V6.89a4.84 4.84 0 0 1-1-.2z"/>
+  </svg>
+);
 
 interface AccountConnectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentProfile: AccountAnalytics['profile'];
   isConnected: boolean;
-  initialChannel?: 'instagram' | 'facebook_page' | 'facebook_account';
+  initialChannel?: 'instagram' | 'facebook_page' | 'facebook_account' | 'youtube' | 'tiktok';
   onResetToZero?: () => Promise<void>;
   onOAuthConnected?: (profile: AccountAnalytics['profile']) => Promise<void>;
   onRefreshStatus: () => Promise<any>;
@@ -52,6 +60,29 @@ interface FacebookUserStatus {
   error?: string;
 }
 
+interface YouTubeStatus {
+  isConnected: boolean;
+  isExpired?: boolean;
+  channelId?: string;
+  title?: string;
+  customUrl?: string;
+  subscriberCount?: number;
+  avatarUrl?: string;
+  defaultPrivacy?: 'public' | 'unlisted' | 'private';
+  error?: string;
+}
+
+interface TikTokStatus {
+  isConnected: boolean;
+  isExpired?: boolean;
+  openId?: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  followerCount?: number;
+  error?: string;
+}
+
 export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   isOpen,
   onClose,
@@ -64,7 +95,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   onDisconnect,
   onFacebookStatusChanged
 }) => {
-  const [activeChannel, setActiveChannel] = useState<'instagram' | 'facebook_page' | 'facebook_account'>(initialChannel);
+  const [activeChannel, setActiveChannel] = useState<'instagram' | 'facebook_page' | 'facebook_account' | 'youtube' | 'tiktok'>(initialChannel);
   const [connectTab, setConnectTab] = useState<'oauth' | 'token'>('oauth');
   
   const [oauthLoading, setOauthLoading] = useState(false);
@@ -94,6 +125,22 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   const [fbUserTokenInput, setFbUserTokenInput] = useState('');
   const [fbAccountLoading, setFbAccountLoading] = useState(false);
 
+  // YouTube Channel fields
+  const [ytStatus, setYtStatus] = useState<YouTubeStatus>({ isConnected: false });
+  const [ytLoading, setYtLoading] = useState(false);
+  const [ytOauthLoading, setYtOauthLoading] = useState(false);
+  const [ytClientId, setYtClientId] = useState('');
+  const [ytClientSecret, setYtClientSecret] = useState('');
+  const [ytRefreshToken, setYtRefreshToken] = useState('');
+  const [ytDirectToken, setYtDirectToken] = useState('');
+  const [ytPrivacy, setYtPrivacy] = useState<'public' | 'unlisted' | 'private'>('public');
+
+  // TikTok Account fields
+  const [tiktokStatus, setTiktokStatus] = useState<TikTokStatus>({ isConnected: false });
+  const [tiktokLoading, setTiktokLoading] = useState(false);
+  const [tiktokOauthLoading, setTiktokOauthLoading] = useState(false);
+  const [tiktokDirectToken, setTiktokDirectToken] = useState('');
+
   // Fetch Facebook connections status
   const fetchFacebookStatus = async () => {
     try {
@@ -119,6 +166,62 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
     }
   };
 
+  // Fetch YouTube connection status
+  const fetchYouTubeStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/youtube/status');
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        if (data.isConnected && data.channel) {
+          setYtStatus({
+            isConnected: true,
+            channelId: data.channel.channelId,
+            title: data.channel.title,
+            customUrl: data.channel.customUrl,
+            subscriberCount: data.channel.subscriberCount,
+            avatarUrl: data.channel.avatarUrl,
+            defaultPrivacy: data.channel.defaultPrivacy || 'public'
+          });
+          if (data.channel.defaultPrivacy) {
+            setYtPrivacy(data.channel.defaultPrivacy);
+          }
+        } else {
+          setYtStatus({
+            isConnected: false,
+            isExpired: Boolean(data.isExpired),
+            error: data.error
+          });
+        }
+      }
+    } catch {}
+  };
+
+  // Fetch TikTok connection status
+  const fetchTikTokStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/tiktok/status');
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        if (data.isConnected && data.account) {
+          setTiktokStatus({
+            isConnected: true,
+            openId: data.account.openId,
+            username: data.account.username,
+            displayName: data.account.displayName,
+            avatarUrl: data.account.avatarUrl,
+            followerCount: data.account.followerCount
+          });
+        } else {
+          setTiktokStatus({
+            isConnected: false,
+            isExpired: Boolean(data.isExpired),
+            error: data.error
+          });
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -132,7 +235,9 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
 
     Promise.allSettled([
       onRefreshStatus(),
-      fetchFacebookStatus()
+      fetchFacebookStatus(),
+      fetchYouTubeStatus(),
+      fetchTikTokStatus()
     ]).then(([igResult]) => {
       if (cancelled) return;
       if (igResult.status === 'fulfilled') {
@@ -157,6 +262,9 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
     window.setTimeout(() => setSuccess(null), 3500);
   };
 
+  // ----------------------------------------------------
+  // INSTAGRAM HANDLERS
+  // ----------------------------------------------------
   const handleOAuthConnect = async () => {
     setOauthLoading(true);
     setErrorMsg(null);
@@ -168,7 +276,6 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         throw new Error(data.error || 'Could not start Instagram OAuth.');
       }
 
-      // DO NOT pass noopener or noreferrer - window.opener is REQUIRED for popup postMessage communication
       const popup = window.open(
         data.url,
         'texvic-instagram-oauth',
@@ -194,11 +301,9 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
           reject(new Error('Instagram connection timed out.'));
         }, 180000);
 
-        // Periodically check if popup closed (user closed it, or redirect finished)
         const pollInterval = window.setInterval(async () => {
           if (popup.closed) {
             cleanup();
-            // Check if authorization succeeded in background
             try {
               const status = await onRefreshStatus();
               if (status?.isConnected && status?.account) {
@@ -207,7 +312,6 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                 return;
               }
             } catch {}
-            // If window closed without completing, cancel loading
             resolve();
           }
         }, 1000);
@@ -221,7 +325,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
             return;
           }
 
-          if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+          if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && (!event.data.platform || event.data.platform === 'instagram')) {
             cleanup();
             try {
               const status = await onRefreshStatus();
@@ -251,7 +355,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   const handleDirectTokenConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!directToken.trim()) {
-      setErrorMsg('Please enter a valid Meta Access Token.');
+      setErrorMsg('Meta Graph API Access Token is required.');
       return;
     }
 
@@ -263,117 +367,114 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          accountId: directAccountId.trim() || undefined,
+          accountId: directAccountId.trim(),
           accessToken: directToken.trim()
         })
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to authenticate with direct token.');
+        throw new Error(data.error || 'Direct token validation failed.');
       }
 
-      showNotification(`Connected successfully to @${data.account?.username || 'instagram'}!`);
-      const status = await onRefreshStatus();
-      if (status?.account) {
-        await onOAuthConnected?.(status.account);
+      await onRefreshStatus();
+      if (data.account) {
+        await onOAuthConnected?.(data.account);
       }
       setDirectToken('');
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to connect token.');
+      showNotification('Connected directly using Meta Graph API Token.');
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Failed to connect via direct token.');
     } finally {
       setTokenLoading(false);
     }
   };
 
-  // Auto-Detect Facebook Pages from ANY valid token
-  const handleAutoDetectFacebook = async (tokenOverride?: string) => {
-    const tokenToUse = (tokenOverride || fbAutoDetectToken || fbPageTokenInput).trim();
-    if (!tokenToUse) {
-      setErrorMsg('Please paste a Facebook Access Token first.');
-      return;
-    }
-
-    if (tokenToUse.startsWith('IG')) {
-      setErrorMsg("The token entered begins with 'IG...', which is an Instagram User Token. Facebook Pages require a Facebook Access Token (starts with 'EAAB...' or 'EAA...'). Use the Explorer link below to generate one.");
+  // ----------------------------------------------------
+  // FACEBOOK PAGE & USER HANDLERS
+  // ----------------------------------------------------
+  const handleAutoDetectPages = async () => {
+    if (!fbAutoDetectToken.trim()) {
+      setErrorMsg('Please paste any Facebook Token to auto-detect pages.');
       return;
     }
 
     setFbAutoDetectLoading(true);
     setErrorMsg(null);
+    setFbDiscoveredPages([]);
 
     try {
       const res = await fetch('/api/auth/facebook/auto-detect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: tokenToUse,
-          autoConnect: true
-        })
+        body: JSON.stringify({ token: fbAutoDetectToken.trim() })
       });
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Could not auto-detect Facebook Pages.');
+        throw new Error(data.error || 'Could not auto-detect pages from token.');
       }
 
-      if (data.autoConnected && data.connectedPage) {
-        showNotification(`Connected Facebook Page "${data.connectedPage.name}"!`);
-        await fetchFacebookStatus();
+      setFbDiscoveredPages(data.discoveredPages || []);
+      if (data.connectedPage) {
+        setFbPageStatus({
+          isConnected: true,
+          pageId: data.connectedPage.id,
+          name: data.connectedPage.name
+        });
+        setFbPageIdInput(data.connectedPage.id);
         onFacebookStatusChanged?.(true);
-        setFbAutoDetectToken('');
-        setFbDiscoveredPages([]);
-      } else if (Array.isArray(data.pages) && data.pages.length > 0) {
-        setFbDiscoveredPages(data.pages);
-        showNotification(`Discovered ${data.pages.length} pages. Choose one to connect!`);
+        showNotification(`Auto-connected Facebook Page "${data.connectedPage.name}"!`);
+      } else if (data.discoveredPages?.length > 0) {
+        showNotification(`Found ${data.discoveredPages.length} Facebook Page(s). Select one below.`);
       } else {
-        showNotification('Token verified, but no Facebook Pages found.');
+        setErrorMsg('No managed Facebook Pages found associated with this token.');
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to auto-detect Facebook Page.');
+      setErrorMsg(err?.message || 'Auto-detection failed.');
     } finally {
       setFbAutoDetectLoading(false);
     }
   };
 
-  // Connect a discovered page from the list
-  const handleSelectDiscoveredPage = async (page: any) => {
+  const handleConnectDiscoveredPage = async (page: any) => {
     setFbPageLoading(true);
     setErrorMsg(null);
+
     try {
       const res = await fetch('/api/auth/facebook/connect-page', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pageId: page.id,
-          accessToken: page.accessToken
+          accessToken: page.access_token,
+          pageName: page.name
         })
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to connect selected page.');
       }
-      showNotification(`Connected Facebook Page "${page.name}"!`);
-      await fetchFacebookStatus();
+
+      setFbPageStatus({
+        isConnected: true,
+        pageId: page.id,
+        name: page.name
+      });
       onFacebookStatusChanged?.(true);
-      setFbDiscoveredPages([]);
+      showNotification(`Connected Facebook Page "${page.name}"!`);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to connect selected page.');
+      setErrorMsg(err?.message || 'Failed to connect page.');
     } finally {
       setFbPageLoading(false);
     }
   };
 
-  // Connect Facebook Page
-  const handleConnectFacebookPage = async (e: React.FormEvent) => {
+  const handleManualConnectPage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fbPageIdInput.trim() || !fbPageTokenInput.trim()) {
-      setErrorMsg('Please enter both Facebook Page ID and Page Access Token.');
-      return;
-    }
-
-    if (fbPageTokenInput.trim().startsWith('IG')) {
-      setErrorMsg("The token entered starts with 'IG...', which is an Instagram User Token. Facebook Page publishing requires a Page Access Token (starts with 'EAAB...' or 'EAA...').");
+    if (!fbPageTokenInput.trim()) {
+      setErrorMsg('Page Access Token is required.');
       return;
     }
 
@@ -385,7 +486,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pageId: fbPageIdInput.trim(),
+          pageId: fbPageIdInput.trim() || undefined,
           accessToken: fbPageTokenInput.trim()
         })
       });
@@ -395,10 +496,14 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         throw new Error(data.error || 'Failed to connect Facebook Page.');
       }
 
-      showNotification(`Connected Facebook Page "${data.page?.name || fbPageIdInput}"!`);
-      await fetchFacebookStatus();
+      setFbPageStatus({
+        isConnected: true,
+        pageId: data.page?.id || fbPageIdInput,
+        name: data.page?.name || 'Facebook Page'
+      });
       onFacebookStatusChanged?.(true);
       setFbPageTokenInput('');
+      showNotification(`Facebook Page "${data.page?.name || 'Page'}" connected successfully!`);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to connect Facebook Page.');
     } finally {
@@ -406,34 +511,10 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
     }
   };
 
-  // Disconnect Facebook Page
-  const handleDisconnectFacebookPage = async () => {
-    setFbPageLoading(true);
-    setErrorMsg(null);
-    try {
-      const res = await fetch('/api/auth/facebook/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: 'page' })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data.success) {
-        showNotification('Disconnected Facebook Page.');
-        setFbPageStatus({ isConnected: false });
-        onFacebookStatusChanged?.(false);
-      }
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to disconnect Facebook Page.');
-    } finally {
-      setFbPageLoading(false);
-    }
-  };
-
-  // Connect Facebook User Account
   const handleConnectFacebookAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fbUserTokenInput.trim()) {
-      setErrorMsg('Please enter a Facebook User Access Token.');
+      setErrorMsg('Facebook User Access Token is required.');
       return;
     }
 
@@ -455,35 +536,320 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         throw new Error(data.error || 'Failed to connect Facebook User Account.');
       }
 
-      showNotification(`Connected Facebook Profile "${data.account?.name || 'User'}"!`);
-      await fetchFacebookStatus();
+      setFbAccountStatus({
+        isConnected: true,
+        userId: data.account?.id || fbUserIdInput,
+        name: data.account?.name || 'Facebook User'
+      });
       setFbUserTokenInput('');
+      showNotification(`Facebook Profile "${data.account?.name || 'User'}" connected!`);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to connect Facebook User Account.');
+      setErrorMsg(err?.message || 'Failed to connect Facebook Profile.');
     } finally {
       setFbAccountLoading(false);
     }
   };
 
-  // Disconnect Facebook User Account
-  const handleDisconnectFacebookAccount = async () => {
-    setFbAccountLoading(true);
+  // ----------------------------------------------------
+  // YOUTUBE SHORTS HANDLERS
+  // ----------------------------------------------------
+  const handleYouTubeOAuthConnect = async () => {
+    setYtOauthLoading(true);
     setErrorMsg(null);
+
     try {
-      const res = await fetch('/api/auth/facebook/disconnect', {
+      const res = await fetch('/api/auth/youtube/url');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.url) {
+        throw new Error(data.error || 'Could not start YouTube OAuth. Check GOOGLE_CLIENT_ID configuration.');
+      }
+
+      const popup = window.open(
+        data.url,
+        'texvic-youtube-oauth',
+        'width=620,height=760'
+      );
+
+      if (!popup) {
+        throw new Error('Popup blocked by browser. Allow popups for this site and try again.');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        let finished = false;
+
+        const cleanup = () => {
+          finished = true;
+          window.clearTimeout(timeout);
+          window.clearInterval(pollInterval);
+          window.removeEventListener('message', onMessage);
+        };
+
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error('YouTube connection timed out.'));
+        }, 180000);
+
+        const pollInterval = window.setInterval(async () => {
+          if (popup.closed) {
+            cleanup();
+            await fetchYouTubeStatus();
+            resolve();
+          }
+        }, 1000);
+
+        const onMessage = async (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return;
+
+          if (event.data?.type === 'OAUTH_AUTH_FAILED' && event.data.platform === 'youtube') {
+            cleanup();
+            reject(new Error(event.data.error || 'YouTube authorization failed.'));
+            return;
+          }
+
+          if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && event.data.platform === 'youtube') {
+            cleanup();
+            await fetchYouTubeStatus();
+            resolve();
+          }
+        };
+
+        window.addEventListener('message', onMessage);
+      });
+
+      showNotification('YouTube Channel connected successfully!');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'YouTube connection failed.');
+    } finally {
+      setYtOauthLoading(false);
+    }
+  };
+
+  const handleYouTubeDirectConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ytDirectToken.trim() && !ytRefreshToken.trim()) {
+      setErrorMsg('YouTube Access Token or Refresh Token is required.');
+      return;
+    }
+
+    setYtLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/auth/youtube/direct-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: 'account' })
+        body: JSON.stringify({
+          clientId: ytClientId.trim() || undefined,
+          clientSecret: ytClientSecret.trim() || undefined,
+          refreshToken: ytRefreshToken.trim() || undefined,
+          accessToken: ytDirectToken.trim() || undefined,
+          defaultPrivacy: ytPrivacy
+        })
       });
+
       const data = await res.json().catch(() => ({}));
-      if (data.success) {
-        showNotification('Disconnected Facebook Profile.');
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to verify YouTube credentials.');
+      }
+
+      await fetchYouTubeStatus();
+      setYtDirectToken('');
+      showNotification(`Connected YouTube Channel "${data.channel?.title || 'Channel'}"!`);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to connect YouTube channel.');
+    } finally {
+      setYtLoading(false);
+    }
+  };
+
+  const handleYouTubeDisconnect = async () => {
+    setIsDisconnecting(true);
+    try {
+      await fetch('/api/auth/youtube/disconnect', { method: 'POST' });
+      setYtStatus({ isConnected: false });
+      showNotification('YouTube disconnected successfully.');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to disconnect YouTube.');
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // TIKTOK HANDLERS
+  // ----------------------------------------------------
+  const handleTikTokOAuthConnect = async () => {
+    setTiktokOauthLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/auth/tiktok/url');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !data.url) {
+        throw new Error(data.error || 'Could not start TikTok OAuth. Check TIKTOK_CLIENT_KEY configuration.');
+      }
+
+      const popup = window.open(
+        data.url,
+        'texvic-tiktok-oauth',
+        'width=620,height=760'
+      );
+
+      if (!popup) {
+        throw new Error('Popup blocked by browser. Allow popups for this site and try again.');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        let finished = false;
+
+        const cleanup = () => {
+          finished = true;
+          window.clearTimeout(timeout);
+          window.clearInterval(pollInterval);
+          window.removeEventListener('message', onMessage);
+        };
+
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error('TikTok connection timed out.'));
+        }, 180000);
+
+        const pollInterval = window.setInterval(async () => {
+          if (popup.closed) {
+            cleanup();
+            await fetchTikTokStatus();
+            resolve();
+          }
+        }, 1000);
+
+        const onMessage = async (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return;
+
+          if (event.data?.type === 'OAUTH_AUTH_FAILED' && event.data.platform === 'tiktok') {
+            cleanup();
+            reject(new Error(event.data.error || 'TikTok authorization failed.'));
+            return;
+          }
+
+          if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && event.data.platform === 'tiktok') {
+            cleanup();
+            await fetchTikTokStatus();
+            resolve();
+          }
+        };
+
+        window.addEventListener('message', onMessage);
+      });
+
+      showNotification('TikTok account connected successfully!');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'TikTok connection failed.');
+    } finally {
+      setTiktokOauthLoading(false);
+    }
+  };
+
+  const handleTikTokDirectConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tiktokDirectToken.trim()) {
+      setErrorMsg('TikTok Access Token is required.');
+      return;
+    }
+
+    setTiktokLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/auth/tiktok/direct-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken: tiktokDirectToken.trim() })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to verify TikTok credentials.');
+      }
+
+      await fetchTikTokStatus();
+      setTiktokDirectToken('');
+      showNotification(`Connected TikTok account "${data.account?.displayName || 'Creator'}"!`);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to connect TikTok.');
+    } finally {
+      setTiktokLoading(false);
+    }
+  };
+
+  const handleTikTokDisconnect = async () => {
+    setIsDisconnecting(true);
+    try {
+      await fetch('/api/auth/tiktok/disconnect', { method: 'POST' });
+      setTiktokStatus({ isConnected: false });
+      showNotification('TikTok disconnected successfully.');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Failed to disconnect TikTok.');
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  // ----------------------------------------------------
+  // GLOBAL DISCONNECT & RESET
+  // ----------------------------------------------------
+  const handleDisconnectFacebook = async (target: 'page' | 'account') => {
+    setIsDisconnecting(true);
+    setErrorMsg(null);
+    try {
+      await fetch('/api/auth/facebook/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target })
+      });
+      if (target === 'page') {
+        setFbPageStatus({ isConnected: false });
+        onFacebookStatusChanged?.(false);
+        showNotification('Facebook Page disconnected.');
+      } else {
         setFbAccountStatus({ isConnected: false });
+        showNotification('Facebook Profile disconnected.');
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to disconnect Facebook Profile.');
+      setErrorMsg(err?.message || 'Disconnect failed.');
     } finally {
-      setFbAccountLoading(false);
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (activeChannel === 'youtube') return handleYouTubeDisconnect();
+    if (activeChannel === 'tiktok') return handleTikTokDisconnect();
+    if (activeChannel === 'facebook_page') return handleDisconnectFacebook('page');
+    if (activeChannel === 'facebook_account') return handleDisconnectFacebook('account');
+
+    setIsDisconnecting(true);
+    setErrorMsg(null);
+    try {
+      await onDisconnect();
+      showNotification('Instagram disconnected.');
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Could not disconnect account.');
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!window.confirm('Reset local engagement metrics and disconnect Instagram?')) return;
+    setIsResetting(true);
+    setErrorMsg(null);
+    try {
+      await onResetToZero?.();
+      showNotification('Account reset successfully.');
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Reset failed.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -491,67 +857,54 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
     setStatusLoading(true);
     setErrorMsg(null);
     try {
-      await Promise.allSettled([
-        onRefreshStatus(),
-        fetchFacebookStatus()
-      ]);
-    } catch (error: any) {
-      setErrorMsg(error?.message || 'Could not verify connections.');
+      if (activeChannel === 'instagram') {
+        const data = await onRefreshStatus();
+        if (data?.isConnected) showNotification('Instagram account verified.');
+      } else if (activeChannel === 'facebook_page' || activeChannel === 'facebook_account') {
+        await fetchFacebookStatus();
+        showNotification('Facebook connection verified.');
+      } else if (activeChannel === 'youtube') {
+        await fetchYouTubeStatus();
+        showNotification('YouTube Channel verified.');
+      } else if (activeChannel === 'tiktok') {
+        await fetchTikTokStatus();
+        showNotification('TikTok account verified.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Verification failed.');
     } finally {
       setStatusLoading(false);
     }
   };
 
-  const handleDisconnect = async () => {
-    setIsDisconnecting(true);
-    setErrorMsg(null);
-    try {
-      await onDisconnect();
-    } catch (error: any) {
-      setErrorMsg(error?.message || 'Could not disconnect Instagram.');
-    } finally {
-      setIsDisconnecting(false);
-    }
-  };
-
-  const handleReset = async () => {
-    if (!onResetToZero) return;
-    setIsResetting(true);
-    setErrorMsg(null);
-    try {
-      await onResetToZero();
-    } catch (error: any) {
-      setErrorMsg(error?.message || 'Could not reset the account.');
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-      <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div 
+        className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden max-h-[92vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close Button */}
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors"
-          aria-label="Close"
+          className="absolute top-5 right-5 p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-pink-500 via-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-pink-500 via-purple-600 to-red-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
             <Share2 className="w-5 h-5 text-white" />
           </div>
           <div>
             <h2 className="text-base font-bold text-white tracking-tight">Simultaneous Multi-Platform Publishing</h2>
-            <p className="text-xs text-slate-400">Post Reels concurrently to Instagram, Facebook Page & Facebook Profile</p>
+            <p className="text-xs text-slate-400">Post Reels concurrently to Instagram, Facebook, YouTube Shorts & TikTok</p>
           </div>
         </div>
 
-        {/* Simultaneous Channels Status Summary Bar */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        {/* 5-Channel Platform Status Summary Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
           {/* Instagram Pill */}
           <button
             type="button"
@@ -600,7 +953,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   ? 'text-amber-400 font-semibold' 
                   : 'text-slate-500'
             }`}>
-              {fbPageStatus.isConnected ? (fbPageStatus.name || 'Connected') : fbPageStatus.isExpired ? 'Session Expired' : 'Disconnected'}
+              {fbPageStatus.isConnected ? (fbPageStatus.name || 'Connected') : fbPageStatus.isExpired ? 'Expired' : 'Disconnected'}
             </p>
           </button>
 
@@ -632,7 +985,71 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   ? 'text-amber-400 font-semibold' 
                   : 'text-slate-500'
             }`}>
-              {fbAccountStatus.isConnected ? (fbAccountStatus.name || 'Connected') : fbAccountStatus.isExpired ? 'Session Expired' : 'Disconnected'}
+              {fbAccountStatus.isConnected ? (fbAccountStatus.name || 'Connected') : fbAccountStatus.isExpired ? 'Expired' : 'Disconnected'}
+            </p>
+          </button>
+
+          {/* YouTube Shorts Pill */}
+          <button
+            type="button"
+            onClick={() => setActiveChannel('youtube')}
+            className={`p-2.5 rounded-xl border text-left transition-all ${
+              activeChannel === 'youtube' 
+                ? 'bg-red-500/15 border-red-500/40' 
+                : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <Youtube className="w-3.5 h-3.5 text-red-500" />
+              <div className={`w-2 h-2 rounded-full ${
+                ytStatus.isConnected 
+                  ? 'bg-emerald-400 shadow-sm shadow-emerald-400' 
+                  : ytStatus.isExpired 
+                    ? 'bg-amber-400 animate-pulse' 
+                    : 'bg-slate-600'
+              }`} />
+            </div>
+            <p className="text-[11px] font-bold text-white truncate">YouTube</p>
+            <p className={`text-[10px] truncate ${
+              ytStatus.isConnected 
+                ? 'text-emerald-400 font-semibold' 
+                : ytStatus.isExpired 
+                  ? 'text-amber-400 font-semibold' 
+                  : 'text-slate-500'
+            }`}>
+              {ytStatus.isConnected ? (ytStatus.title || 'Connected') : ytStatus.isExpired ? 'Expired' : 'Disconnected'}
+            </p>
+          </button>
+
+          {/* TikTok Pill */}
+          <button
+            type="button"
+            onClick={() => setActiveChannel('tiktok')}
+            className={`p-2.5 rounded-xl border text-left transition-all ${
+              activeChannel === 'tiktok' 
+                ? 'bg-cyan-500/15 border-cyan-500/40' 
+                : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <TikTokIcon className="w-3.5 h-3.5 text-cyan-400" />
+              <div className={`w-2 h-2 rounded-full ${
+                tiktokStatus.isConnected 
+                  ? 'bg-emerald-400 shadow-sm shadow-emerald-400' 
+                  : tiktokStatus.isExpired 
+                    ? 'bg-amber-400 animate-pulse' 
+                    : 'bg-slate-600'
+              }`} />
+            </div>
+            <p className="text-[11px] font-bold text-white truncate">TikTok</p>
+            <p className={`text-[10px] truncate ${
+              tiktokStatus.isConnected 
+                ? 'text-emerald-400 font-semibold' 
+                : tiktokStatus.isExpired 
+                  ? 'text-amber-400 font-semibold' 
+                  : 'text-slate-500'
+            }`}>
+              {tiktokStatus.isConnected ? (tiktokStatus.displayName || 'Connected') : tiktokStatus.isExpired ? 'Expired' : 'Disconnected'}
             </p>
           </button>
         </div>
@@ -750,191 +1167,145 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                         showNotification('Redirect URI copied to clipboard!');
                       }
                     }}
-                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold shrink-0"
+                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] shrink-0 font-medium"
                   >
                     Copy
                   </button>
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleDirectTokenConnect} className="space-y-3 mb-3">
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Connect directly using an Instagram User Token (<code className="text-pink-400 font-mono text-[10px]">IGAAv...</code>) or Meta Graph API Token (<code className="text-indigo-400 font-mono text-[10px]">EAA...</code>). Token is verified live with Meta and encrypted in SQLite with AES-256-GCM.
-                </p>
+              <form onSubmit={handleDirectTokenConnect} className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Instagram Account ID (Optional)
+                    Instagram Account ID (Leave blank to auto-detect from token)
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. 29026007403754793 (auto-detected if omitted)"
+                    placeholder="e.g. 17841400000000000"
                     value={directAccountId}
                     onChange={(e) => setDirectAccountId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-pink-500 font-mono"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
                   />
                 </div>
+
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Instagram / Meta Access Token (Required)
+                    Meta Graph API Access Token (Short or Long-Lived)
                   </label>
                   <textarea
-                    rows={2}
-                    placeholder="Paste IGAAv... or EAAB... token here"
+                    rows={3}
+                    placeholder="Paste Meta User or Page Access Token (EAA...)"
                     value={directToken}
                     onChange={(e) => setDirectToken(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-pink-500 font-mono"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
                   />
                 </div>
+
                 <button
                   type="submit"
                   disabled={tokenLoading || !directToken.trim()}
-                  className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-lg shadow-pink-600/20"
+                  className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
                 >
-                  <Key className="w-4 h-4" />
-                  {tokenLoading ? 'Verifying & Saving...' : 'Save & Verify Instagram Token'}
+                  <CheckCircle2 className="w-4 h-4" />
+                  {tokenLoading ? 'Verifying with Graph API...' : 'Save & Verify Token'}
                 </button>
               </form>
             )}
           </div>
         )}
 
-        {/* TAB 2: FACEBOOK PAGE CONNECTION */}
+        {/* TAB 2: FACEBOOK PAGE */}
         {activeChannel === 'facebook_page' && (
-          <div className="space-y-4">
-            <div className={`p-4 rounded-2xl border ${
+          <div>
+            <div className={`p-4 rounded-2xl border mb-4 ${
               fbPageStatus.isConnected 
                 ? 'bg-emerald-500/10 border-emerald-500/30' 
                 : fbPageStatus.isExpired 
                   ? 'bg-amber-500/10 border-amber-500/30' 
-                  : 'bg-blue-500/10 border-blue-500/30'
+                  : 'bg-slate-950/50 border-slate-800'
             }`}>
-              <div className="flex items-start gap-3">
-                <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
-                  fbPageStatus.isConnected 
-                    ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
-                    : fbPageStatus.isExpired 
-                      ? 'bg-amber-400 shadow-lg shadow-amber-400/40 animate-pulse' 
-                      : 'bg-blue-400'
-                }`} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className={`text-sm font-bold ${
-                        fbPageStatus.isConnected 
-                          ? 'text-emerald-300' 
-                          : fbPageStatus.isExpired 
-                            ? 'text-amber-300' 
-                            : 'text-blue-300'
-                      }`}>
-                        {fbPageStatus.isConnected 
-                          ? 'Facebook Page Connected' 
-                          : fbPageStatus.isExpired 
-                            ? 'Facebook Page Session Expired' 
-                            : 'Facebook Page Not Connected'}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {fbPageStatus.isConnected 
-                          ? `Ready for simultaneous Reels: "${fbPageStatus.name}"` 
-                          : fbPageStatus.isExpired 
-                            ? 'Meta Session Expired: Your token expired on Meta. Follow the guide below to generate a Never-Expiring Page Token.' 
-                            : 'Provide your Page ID & Page Access Token to broadcast Reels to Facebook Page.'}
-                      </p>
-                    </div>
-                    {(fbPageStatus.isConnected || fbPageStatus.isExpired) && (
-                      <button
-                        type="button"
-                        onClick={handleDisconnectFacebookPage}
-                        disabled={fbPageLoading}
-                        className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[10px] font-bold text-rose-300 hover:bg-rose-500/20 flex items-center gap-1 disabled:opacity-50"
-                      >
-                        <Unplug className="w-3 h-3" />
-                        Disconnect
-                      </button>
-                    )}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
+                    fbPageStatus.isConnected 
+                      ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
+                      : fbPageStatus.isExpired 
+                        ? 'bg-amber-400 animate-pulse' 
+                        : 'bg-slate-600'
+                  }`} />
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${
+                      fbPageStatus.isConnected ? 'text-emerald-300' : fbPageStatus.isExpired ? 'text-amber-300' : 'text-slate-300'
+                    }`}>
+                      {fbPageStatus.isConnected ? 'Facebook Page Connected' : fbPageStatus.isExpired ? 'Facebook Page Session Expired' : 'Facebook Page Not Connected'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {fbPageStatus.isConnected
+                        ? `Connected to "${fbPageStatus.name}" (ID: ${fbPageStatus.pageId})`
+                        : fbPageStatus.isExpired
+                          ? 'Token has expired or was invalidated. Please re-authenticate below.'
+                          : 'Reels will be pushed directly to your Facebook Page when published.'}
+                    </p>
                   </div>
-
-                  {(fbPageStatus.isConnected || fbPageStatus.isExpired) && fbPageStatus.pageId && (
-                    <div className="mt-3 text-[11px] text-slate-300 space-y-1 bg-slate-950/50 p-2.5 rounded-xl border border-blue-500/20">
-                      <div><span className="text-slate-500">Page Name:</span> <span className="font-semibold text-white">{fbPageStatus.name}</span></div>
-                      <div><span className="text-slate-500">Page ID:</span> <span className="font-mono text-blue-400">{fbPageStatus.pageId}</span></div>
-                      {fbPageStatus.isExpired && (
-                        <div className="text-amber-400 font-semibold pt-1">
-                          ⚠️ Notice: Meta returned token expired error. Auto-cross-posting to Facebook Page is paused until a fresh token is saved.
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={statusLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-700 text-[10px] font-bold text-slate-200 flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                >
+                  <RefreshCw className={`w-3 h-3 ${statusLoading ? 'animate-spin' : ''}`} />
+                  Verify
+                </button>
               </div>
             </div>
 
-            {/* Auto-Detect Panel (Primary / Recommended) */}
-            <div className="space-y-3 bg-gradient-to-b from-blue-950/30 to-slate-950/60 p-4 rounded-2xl border border-blue-500/30 shadow-lg">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-blue-400" />
-                  Auto-Detect Facebook Page (Recommended)
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  Zero Config
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Paste your Facebook Access Token (<code className="text-blue-400 font-mono text-[10px]">EAAB...</code> or <code className="text-blue-400 font-mono text-[10px]">EAA...</code>). The system will automatically detect your Page ID, Page name, and connect it with 1 click.
+            {/* Auto Detect Section */}
+            <div className="p-4 rounded-2xl bg-slate-950/50 border border-slate-800 mb-4 space-y-3">
+              <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                1-Click Auto-Detect Facebook Pages
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Paste any Meta User Access Token or Facebook Token. Texvic will automatically scan all Facebook Pages you manage.
               </p>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  Facebook Access Token (User Token or Page Token)
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Paste EAAB... or EAA... token here"
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Paste Meta Token (EAA...)"
                   value={fbAutoDetectToken}
                   onChange={(e) => setFbAutoDetectToken(e.target.value)}
-                  className={`w-full px-3 py-2 bg-slate-950 border rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none font-mono ${
-                    fbAutoDetectToken.trim().startsWith('IG')
-                      ? 'border-rose-500 focus:border-rose-400'
-                      : 'border-slate-800 focus:border-blue-500'
-                  }`}
+                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
                 />
-                {fbAutoDetectToken.trim().startsWith('IG') && (
-                  <div className="mt-1.5 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-300 leading-relaxed">
-                    ⚠️ <strong>Instagram Token Detected:</strong> This token begins with <code className="font-mono text-rose-200">IG...</code>. Meta strictly separates Instagram and Facebook Graph APIs. Follow the 60-second guide below to get a Facebook token (<code className="font-mono text-rose-200">EAAB...</code>).
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={handleAutoDetectPages}
+                  disabled={fbAutoDetectLoading || !fbAutoDetectToken.trim()}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white flex items-center gap-1.5 shrink-0 shadow-lg shadow-blue-600/20"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  {fbAutoDetectLoading ? 'Scanning...' : 'Scan Pages'}
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => handleAutoDetectFacebook()}
-                disabled={fbAutoDetectLoading || !fbAutoDetectToken.trim() || fbAutoDetectToken.trim().startsWith('IG')}
-                className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-lg shadow-blue-600/25 transition-all cursor-pointer"
-              >
-                <Search className="w-4 h-4" />
-                {fbAutoDetectLoading ? 'Detecting Facebook Pages...' : '🔍 Auto-Detect & Connect Facebook Page'}
-              </button>
-
-              {/* Discovered Pages List (if user manages multiple pages) */}
               {fbDiscoveredPages.length > 0 && (
-                <div className="mt-3 space-y-2 pt-2 border-t border-slate-800">
-                  <p className="text-[11px] font-bold text-slate-300">
-                    Discovered {fbDiscoveredPages.length} Facebook Pages. Select yours to connect:
-                  </p>
+                <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-300">Managed Pages Found:</p>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                    {fbDiscoveredPages.map(page => (
-                      <div key={page.id} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
+                    {fbDiscoveredPages.map((page: any) => (
+                      <div key={page.id} className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-white truncate">{page.name}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">ID: {page.id} {page.category ? `• ${page.category}` : ''}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">ID: {page.id} • {page.category || 'Page'}</p>
                         </div>
                         <button
                           type="button"
-                          onClick={() => handleSelectDiscoveredPage(page)}
+                          onClick={() => handleConnectDiscoveredPage(page)}
                           disabled={fbPageLoading}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shrink-0 flex items-center gap-1 shadow-sm"
+                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold flex items-center gap-1 shrink-0"
                         >
-                          <Check className="w-3.5 h-3.5" />
+                          <Check className="w-3 h-3" />
                           Connect
                         </button>
                       </div>
@@ -944,169 +1315,103 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
               )}
             </div>
 
-            {/* Step-by-Step 60-Second Setup Guide */}
-            <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="font-bold text-slate-200 text-xs flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-400" />
-                  Guide: Get a Never-Expiring Facebook Page Token
-                </div>
-                <div className="flex gap-2">
-                  <a
-                    href="https://developers.facebook.com/tools/explorer/?method=GET&path=me%2Faccounts%3Ffields%3Did%2Cname%2Caccess_token"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-[11px] font-bold text-blue-300 flex items-center gap-1 transition-colors"
-                  >
-                    Graph Explorer
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                  <a
-                    href="https://developers.facebook.com/tools/debug/accesstoken/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-[11px] font-bold text-indigo-300 flex items-center gap-1 transition-colors"
-                  >
-                    Token Debugger
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
+            {/* Manual Form */}
+            <form onSubmit={handleManualConnectPage} className="p-4 rounded-2xl bg-slate-950/30 border border-slate-800/80 space-y-3">
+              <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                <Key className="w-4 h-4 text-blue-400" />
+                Manual Page Credentials
+              </h3>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Facebook Page ID (Leave blank to auto-detect from token)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 1000892837465"
+                  value={fbPageIdInput}
+                  onChange={(e) => setFbPageIdInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                />
               </div>
-              <div className="text-[11px] text-slate-300 space-y-1.5 leading-relaxed">
-                <p>1. Open <strong>Graph Explorer</strong> and select your Meta App.</p>
-                <p>2. In the <strong>User or Page</strong> dropdown, choose your <strong>Facebook Page</strong> (or select User Token with <code className="text-blue-300 font-mono">pages_manage_posts</code>, <code className="text-blue-300 font-mono">pages_read_engagement</code>, and <code className="text-blue-300 font-mono">publish_video</code>).</p>
-                <p>3. 💡 <strong>How to make it NEVER expire:</strong> Open <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noreferrer" className="text-blue-400 underline">Access Token Debugger</a>, paste your user token, click <strong>Extend Access Token</strong> to get a 60-day token. Then in Graph Explorer run <code className="text-blue-300 font-mono">GET /me/accounts?fields=id,name,access_token</code> — the Page token returned has <strong>Expires: Never</strong>!</p>
-                <p>4. Paste that <code className="text-blue-300 font-mono">EAAB...</code> token above and click <strong>Auto-Detect</strong>.</p>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                  Facebook Page Access Token
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="EAA..."
+                  value={fbPageTokenInput}
+                  onChange={(e) => setFbPageTokenInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                />
               </div>
-            </div>
 
-            {/* Manual Entry Fallback */}
-            <details className="bg-slate-950/40 p-3 rounded-2xl border border-slate-800 text-xs">
-              <summary className="font-bold text-slate-400 cursor-pointer hover:text-white transition-colors">
-                Advanced: Manual Page ID & Page Token Entry
-              </summary>
-              <form onSubmit={handleConnectFacebookPage} className="space-y-3 mt-3 pt-3 border-t border-slate-800">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Facebook Page ID or Username
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 109283746524123 or theuntoldarch"
-                    value={fbPageIdInput}
-                    onChange={(e) => setFbPageIdInput(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                    Facebook Page Access Token
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="EAAB... or EAA..."
-                    value={fbPageTokenInput}
-                    onChange={(e) => setFbPageTokenInput(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={fbPageLoading || !fbPageIdInput.trim() || !fbPageTokenInput.trim() || fbPageTokenInput.trim().startsWith('IG')}
-                  className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white flex items-center justify-center gap-2 border border-slate-700"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  {fbPageLoading ? 'Verifying with Meta...' : 'Save Manual Credentials'}
-                </button>
-              </form>
-            </details>
+              <button
+                type="submit"
+                disabled={fbPageLoading || !fbPageTokenInput.trim()}
+                className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {fbPageLoading ? 'Verifying with Meta...' : 'Save & Verify Page'}
+              </button>
+            </form>
           </div>
         )}
 
-        {/* TAB 3: FACEBOOK USER ACCOUNT (PROFILE) CONNECTION */}
+        {/* TAB 3: FACEBOOK USER PROFILE */}
         {activeChannel === 'facebook_account' && (
-          <div className="space-y-4">
-            <div className={`p-4 rounded-2xl border ${
+          <div>
+            <div className={`p-4 rounded-2xl border mb-4 ${
               fbAccountStatus.isConnected 
                 ? 'bg-emerald-500/10 border-emerald-500/30' 
                 : fbAccountStatus.isExpired 
                   ? 'bg-amber-500/10 border-amber-500/30' 
-                  : 'bg-indigo-500/10 border-indigo-500/30'
+                  : 'bg-slate-950/50 border-slate-800'
             }`}>
-              <div className="flex items-start gap-3">
-                <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
-                  fbAccountStatus.isConnected 
-                    ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
-                    : fbAccountStatus.isExpired 
-                      ? 'bg-amber-400 shadow-lg shadow-amber-400/40 animate-pulse' 
-                      : 'bg-indigo-400'
-                }`} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className={`text-sm font-bold ${
-                        fbAccountStatus.isConnected 
-                          ? 'text-emerald-300' 
-                          : fbAccountStatus.isExpired 
-                            ? 'text-amber-300' 
-                            : 'text-indigo-300'
-                      }`}>
-                        {fbAccountStatus.isConnected 
-                          ? 'Facebook User Profile Connected' 
-                          : fbAccountStatus.isExpired 
-                            ? 'Facebook User Profile Session Expired' 
-                            : 'Facebook User Profile Not Connected'}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {fbAccountStatus.isConnected 
-                          ? `Ready for simultaneous Reels: "${fbAccountStatus.name}"` 
-                          : fbAccountStatus.isExpired 
-                            ? 'Meta Session Expired: Personal profile tokens expire after 60 days. Reconnect with a new User Token below.' 
-                            : 'Provide your User ID & User Access Token with video publish permission.'}
-                      </p>
-                    </div>
-                    {(fbAccountStatus.isConnected || fbAccountStatus.isExpired) && (
-                      <button
-                        type="button"
-                        onClick={handleDisconnectFacebookAccount}
-                        disabled={fbAccountLoading}
-                        className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[10px] font-bold text-rose-300 hover:bg-rose-500/20 flex items-center gap-1 disabled:opacity-50"
-                      >
-                        <Unplug className="w-3 h-3" />
-                        Disconnect
-                      </button>
-                    )}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
+                    fbAccountStatus.isConnected 
+                      ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
+                      : fbAccountStatus.isExpired 
+                        ? 'bg-amber-400 animate-pulse' 
+                        : 'bg-slate-600'
+                  }`} />
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${
+                      fbAccountStatus.isConnected ? 'text-emerald-300' : fbAccountStatus.isExpired ? 'text-amber-300' : 'text-slate-300'
+                    }`}>
+                      {fbAccountStatus.isConnected ? 'Facebook Profile Connected' : fbAccountStatus.isExpired ? 'Facebook Profile Session Expired' : 'Facebook Profile Not Connected'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {fbAccountStatus.isConnected
+                        ? `Connected as "${fbAccountStatus.name}"`
+                        : 'Reels can be pushed concurrently to your personal Facebook Profile.'}
+                    </p>
                   </div>
-
-                  {(fbAccountStatus.isConnected || fbAccountStatus.isExpired) && fbAccountStatus.userId && (
-                    <div className="mt-3 text-[11px] text-slate-300 space-y-1 bg-slate-950/50 p-2.5 rounded-xl border border-indigo-500/20">
-                      <div><span className="text-slate-500">Profile Name:</span> <span className="font-semibold text-white">{fbAccountStatus.name}</span></div>
-                      <div><span className="text-slate-500">User ID:</span> <span className="font-mono text-indigo-400">{fbAccountStatus.userId}</span></div>
-                      {fbAccountStatus.isExpired && (
-                        <div className="text-amber-400 font-semibold pt-1">
-                          ⚠️ Notice: Meta returned token expired error. Auto-cross-posting to Facebook Profile is paused.
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={statusLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-700 text-[10px] font-bold text-slate-200 flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                >
+                  <RefreshCw className={`w-3 h-3 ${statusLoading ? 'animate-spin' : ''}`} />
+                  Verify
+                </button>
               </div>
             </div>
 
-            <form onSubmit={handleConnectFacebookAccount} className="space-y-3 bg-slate-950/40 p-4 rounded-2xl border border-slate-800">
+            <form onSubmit={handleConnectFacebookAccount} className="p-4 rounded-2xl bg-slate-950/50 border border-slate-800 space-y-3">
               <h3 className="text-xs font-bold text-white flex items-center gap-2">
                 <UserCheck className="w-4 h-4 text-indigo-400" />
-                {fbAccountStatus.isConnected ? 'Update Facebook Profile Credentials' : 'Connect Facebook Profile'}
+                Connect Facebook Profile
               </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Broadcasts videos directly to your personal Facebook Profile feed. Can also be set in <code className="text-indigo-400 font-mono text-[10px]">.env</code> as <code className="text-indigo-400 font-mono text-[10px]">FACEBOOK_USER_ID</code> & <code className="text-indigo-400 font-mono text-[10px]">FACEBOOK_USER_ACCESS_TOKEN</code>.
-              </p>
-
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                  Facebook User ID (Leave blank or "me" for authenticated user)
+                  Facebook User ID (Leave blank or "me")
                 </label>
                 <input
                   type="text"
@@ -1142,18 +1447,341 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
           </div>
         )}
 
+        {/* TAB 4: YOUTUBE SHORTS */}
+        {activeChannel === 'youtube' && (
+          <div>
+            <div className={`p-4 rounded-2xl border mb-4 ${
+              ytStatus.isConnected 
+                ? 'bg-emerald-500/10 border-emerald-500/30' 
+                : ytStatus.isExpired 
+                  ? 'bg-amber-500/10 border-amber-500/30' 
+                  : 'bg-slate-950/50 border-slate-800'
+            }`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
+                    ytStatus.isConnected 
+                      ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
+                      : ytStatus.isExpired 
+                        ? 'bg-amber-400 animate-pulse' 
+                        : 'bg-slate-600'
+                  }`} />
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${
+                      ytStatus.isConnected ? 'text-emerald-300' : ytStatus.isExpired ? 'text-amber-300' : 'text-slate-300'
+                    }`}>
+                      {ytStatus.isConnected ? 'YouTube Shorts Connected' : ytStatus.isExpired ? 'YouTube Session Expired' : 'YouTube Channel Not Connected'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {ytStatus.isConnected
+                        ? `Channel: "${ytStatus.title}" (${(ytStatus.subscriberCount || 0).toLocaleString()} subscribers)`
+                        : 'Reels will be published as vertical YouTube Shorts with chapter timestamps & #Shorts tags.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={statusLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-700 text-[10px] font-bold text-slate-200 flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                >
+                  <RefreshCw className={`w-3 h-3 ${statusLoading ? 'animate-spin' : ''}`} />
+                  Verify
+                </button>
+              </div>
+
+              {ytStatus.isConnected && (
+                <div className="mt-3 pt-3 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">Default Upload Visibility:</span>
+                    <select
+                      value={ytPrivacy}
+                      onChange={(e) => setYtPrivacy(e.target.value as any)}
+                      className="px-2 py-1 bg-slate-900 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none"
+                    >
+                      <option value="public">Public (Immediate Distribution)</option>
+                      <option value="unlisted">Unlisted (Review Before Public)</option>
+                      <option value="private">Private (Draft)</option>
+                    </select>
+                  </div>
+                  <span className="text-emerald-400 font-mono text-[11px]">{ytStatus.customUrl || ytStatus.channelId}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Sub-tab: OAuth vs Token */}
+            <div className="flex border-b border-slate-800 mb-4">
+              <button
+                type="button"
+                onClick={() => setConnectTab('oauth')}
+                className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                  connectTab === 'oauth'
+                    ? 'border-red-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                Google OAuth Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setConnectTab('token')}
+                className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                  connectTab === 'token'
+                    ? 'border-red-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Key className="w-3.5 h-3.5" />
+                Direct API Credentials
+              </button>
+            </div>
+
+            {connectTab === 'oauth' ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Sign in with the Google Account that manages your YouTube channel. Requires <code className="text-red-400 font-mono text-[10px]">GOOGLE_CLIENT_ID</code> and <code className="text-red-400 font-mono text-[10px]">GOOGLE_CLIENT_SECRET</code> in <code className="text-slate-300 font-mono text-[10px]">.env</code>.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={handleYouTubeOAuthConnect}
+                  disabled={ytOauthLoading}
+                  className="w-full px-4 py-3 rounded-xl text-xs font-bold bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 disabled:opacity-60 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-600/20"
+                >
+                  <Youtube className="w-4 h-4" />
+                  {ytOauthLoading ? 'Connecting to Google / YouTube...' : ytStatus.isConnected ? 'Reconnect YouTube Channel' : 'Connect YouTube Channel with Google'}
+                </button>
+
+                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-2">
+                  <div className="truncate">
+                    <span className="text-slate-500">Authorized Redirect URI: </span>
+                    <span className="font-mono text-red-400 select-all">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/auth/youtube/callback` : '/auth/youtube/callback'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        navigator.clipboard.writeText(`${window.location.origin}/auth/youtube/callback`);
+                        showNotification('Redirect URI copied!');
+                      }
+                    }}
+                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] shrink-0 font-medium"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleYouTubeDirectConnect} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Google OAuth Client ID (Optional if in .env)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 123456789-abc.apps.googleusercontent.com"
+                    value={ytClientId}
+                    onChange={(e) => setYtClientId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    Google OAuth Client Secret (Optional if in .env)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="GOCSPX-..."
+                    value={ytClientSecret}
+                    onChange={(e) => setYtClientSecret(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    YouTube Refresh Token or Direct Access Token
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Paste Google Refresh Token (1//0...) or Access Token (ya29...)"
+                    value={ytRefreshToken || ytDirectToken}
+                    onChange={(e) => {
+                      setYtRefreshToken(e.target.value);
+                      setYtDirectToken(e.target.value);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 font-mono"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={ytLoading || (!ytRefreshToken.trim() && !ytDirectToken.trim())}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-600/20"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {ytLoading ? 'Verifying YouTube Channel...' : 'Save & Verify YouTube Channel'}
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: TIKTOK */}
+        {activeChannel === 'tiktok' && (
+          <div>
+            <div className={`p-4 rounded-2xl border mb-4 ${
+              tiktokStatus.isConnected 
+                ? 'bg-emerald-500/10 border-emerald-500/30' 
+                : tiktokStatus.isExpired 
+                  ? 'bg-amber-500/10 border-amber-500/30' 
+                  : 'bg-slate-950/50 border-slate-800'
+            }`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`mt-1 w-3 h-3 rounded-full shrink-0 ${
+                    tiktokStatus.isConnected 
+                      ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40' 
+                      : tiktokStatus.isExpired 
+                        ? 'bg-amber-400 animate-pulse' 
+                        : 'bg-slate-600'
+                  }`} />
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${
+                      tiktokStatus.isConnected ? 'text-emerald-300' : tiktokStatus.isExpired ? 'text-amber-300' : 'text-slate-300'
+                    }`}>
+                      {tiktokStatus.isConnected ? 'TikTok Connected' : tiktokStatus.isExpired ? 'TikTok Session Expired' : 'TikTok Not Connected'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {tiktokStatus.isConnected
+                        ? `Account: "${tiktokStatus.displayName}" (${(tiktokStatus.followerCount || 0).toLocaleString()} followers)`
+                        : 'Reels will be uploaded directly via TikTok Content Posting API with #historytok tags.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={statusLoading}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-700 text-[10px] font-bold text-slate-200 flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                >
+                  <RefreshCw className={`w-3 h-3 ${statusLoading ? 'animate-spin' : ''}`} />
+                  Verify
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-tab: OAuth vs Token */}
+            <div className="flex border-b border-slate-800 mb-4">
+              <button
+                type="button"
+                onClick={() => setConnectTab('oauth')}
+                className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                  connectTab === 'oauth'
+                    ? 'border-cyan-400 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                TikTok OAuth Login
+              </button>
+              <button
+                type="button"
+                onClick={() => setConnectTab('token')}
+                className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                  connectTab === 'token'
+                    ? 'border-cyan-400 text-white'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Key className="w-3.5 h-3.5" />
+                Direct Access Token
+              </button>
+            </div>
+
+            {connectTab === 'oauth' ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Log in with your TikTok Creator account via TikTok Login Kit. Requires <code className="text-cyan-400 font-mono text-[10px]">TIKTOK_CLIENT_KEY</code> and <code className="text-cyan-400 font-mono text-[10px]">TIKTOK_CLIENT_SECRET</code> in <code className="text-slate-300 font-mono text-[10px]">.env</code>.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={handleTikTokOAuthConnect}
+                  disabled={tiktokOauthLoading}
+                  className="w-full px-4 py-3 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 border border-slate-700 disabled:opacity-60 text-white flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/10"
+                >
+                  <TikTokIcon className="w-4 h-4 text-cyan-400" />
+                  {tiktokOauthLoading ? 'Connecting to TikTok...' : tiktokStatus.isConnected ? 'Reconnect TikTok Account' : 'Connect TikTok Account'}
+                </button>
+
+                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-2">
+                  <div className="truncate">
+                    <span className="text-slate-500">Authorized Redirect URI: </span>
+                    <span className="font-mono text-cyan-400 select-all">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/auth/tiktok/callback` : '/auth/tiktok/callback'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== 'undefined') {
+                        navigator.clipboard.writeText(`${window.location.origin}/auth/tiktok/callback`);
+                        showNotification('Redirect URI copied!');
+                      }
+                    }}
+                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] shrink-0 font-medium"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleTikTokDirectConnect} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                    TikTok Developer Access Token (act.example...)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Paste TikTok Access Token"
+                    value={tiktokDirectToken}
+                    onChange={(e) => setTiktokDirectToken(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={tiktokLoading || !tiktokDirectToken.trim()}
+                  className="w-full px-4 py-2.5 rounded-xl text-xs font-bold bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {tiktokLoading ? 'Verifying with TikTok...' : 'Save & Verify TikTok Token'}
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
         {/* Security Assurance */}
         <div className="mt-4 p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 flex items-start gap-2">
           <Shield className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
           <span>
-            Tokens are verified directly against Meta Graph API and encrypted at rest with AES-256-GCM. Reels are pushed simultaneously across all connected channels.
+            Credentials are verified live against official platform APIs and encrypted with AES-256-GCM. Finished Reels are published concurrently across all connected channels.
           </span>
         </div>
 
         {/* Modal Footer */}
         <div className="pt-4 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            {isConnected && activeChannel === 'instagram' && (
+            {activeChannel === 'instagram' && isConnected && (
               <button
                 type="button"
                 onClick={handleDisconnect}
@@ -1162,6 +1790,54 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
               >
                 <Unplug className="w-3 h-3" />
                 {isDisconnecting ? 'Disconnecting...' : 'Disconnect Instagram'}
+              </button>
+            )}
+
+            {activeChannel === 'facebook_page' && fbPageStatus.isConnected && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Unplug className="w-3 h-3" />
+                Disconnect FB Page
+              </button>
+            )}
+
+            {activeChannel === 'facebook_account' && fbAccountStatus.isConnected && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Unplug className="w-3 h-3" />
+                Disconnect FB Profile
+              </button>
+            )}
+
+            {activeChannel === 'youtube' && ytStatus.isConnected && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Unplug className="w-3 h-3" />
+                Disconnect YouTube
+              </button>
+            )}
+
+            {activeChannel === 'tiktok' && tiktokStatus.isConnected && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Unplug className="w-3 h-3" />
+                Disconnect TikTok
               </button>
             )}
 

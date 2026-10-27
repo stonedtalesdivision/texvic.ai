@@ -1,4 +1,4 @@
-import { db, getFacebookPageConnection, getFacebookAccountConnection } from './database.js';
+import { db, getFacebookPageConnection, getFacebookAccountConnection, getYouTubeConnection, getTikTokConnection } from './database.js';
 import { decryptSecret } from './tokenVault.js';
 import { 
   fetchLiveInstagramInsights, 
@@ -10,6 +10,9 @@ import {
   postCommentToMedia
 } from './metaGraphApi.js';
 import { renderReelVideo, normalizeVideoUrl } from './reelPipeline.js';
+import { publishReelToYouTube } from './youtubeApi.js';
+import { publishReelToTikTok } from './tiktokApi.js';
+import { buildSyndicationPackage } from './syndicationEngine.js';
 import { executeSwarmCycle, checkDailyReset } from './agentSwarm.js';
 import { getActivePersona } from './themePage.js';
 import { notifyReelPublished } from './telegramBot.js';
@@ -243,12 +246,50 @@ export function startJobWorker() {
                   }
                 }
 
-                if (pubResult.success || fbPageResult?.success || fbAccountResult?.success) {
+                // Optional simultaneous broadcast to YouTube Shorts if configured
+                const ytConn = getYouTubeConnection();
+                let ytResult: any = null;
+                if (ytConn?.isConnected && ytConn.accessToken) {
+                  try {
+                    console.info('[Job Queue] ▶️ Broadcasting scheduled reel to YouTube Shorts...');
+                    const syndPkg = await buildSyndicationPackage(reel);
+                    ytResult = await publishReelToYouTube(ytConn.accessToken, {
+                      videoUrl,
+                      title: syndPkg.youtubeShorts.title,
+                      description: syndPkg.youtubeShorts.description,
+                      tags: syndPkg.youtubeShorts.tags,
+                      coverPath: reel.cover_path || undefined,
+                      privacyStatus: ytConn.defaultPrivacy || 'public'
+                    });
+                  } catch (ytErr: any) {
+                    console.warn('[Job Queue] YouTube broadcast notice:', ytErr?.message || ytErr);
+                  }
+                }
+
+                // Optional simultaneous broadcast to TikTok if configured
+                const ttConn = getTikTokConnection();
+                let ttResult: any = null;
+                if (ttConn?.isConnected && ttConn.accessToken) {
+                  try {
+                    console.info('[Job Queue] 🎵 Broadcasting scheduled reel to TikTok...');
+                    const syndPkg = await buildSyndicationPackage(reel);
+                    ttResult = await publishReelToTikTok(ttConn.accessToken, {
+                      videoUrl,
+                      caption: syndPkg.tiktok.caption
+                    });
+                  } catch (ttErr: any) {
+                    console.warn('[Job Queue] TikTok broadcast notice:', ttErr?.message || ttErr);
+                  }
+                }
+
+                if (pubResult.success || fbPageResult?.success || fbAccountResult?.success || ytResult?.success || ttResult?.success) {
                   const publishedAt = new Date().toISOString();
                   const platformsPublished: string[] = [];
                   if (pubResult.success) platformsPublished.push('instagram');
                   if (fbPageResult?.success) platformsPublished.push('facebook_page');
                   if (fbAccountResult?.success) platformsPublished.push('facebook_account');
+                  if (ytResult?.success) platformsPublished.push('youtube');
+                  if (ttResult?.success) platformsPublished.push('tiktok');
 
                   db.prepare(`
                     UPDATE reels
@@ -256,6 +297,8 @@ export function startJobWorker() {
                         ig_media_id = ?, ig_container_id = ?, permalink = ?,
                         fb_video_id = ?, fb_permalink = ?, fb_status = ?,
                         fb_account_video_id = ?, fb_account_permalink = ?, fb_account_status = ?,
+                        yt_video_id = ?, yt_permalink = ?, yt_status = ?,
+                        tiktok_publish_id = ?, tiktok_status = ?,
                         platforms_published_json = ?,
                         publish_timestamp = ?, updated_at = ?
                     WHERE id = ?
@@ -269,6 +312,11 @@ export function startJobWorker() {
                     fbAccountResult?.videoId || null,
                     fbAccountResult?.permalink || null,
                     fbAccountResult?.success ? 'published' : (fbAccountResult ? 'failed' : null),
+                    ytResult?.videoId || null,
+                    ytResult?.permalink || null,
+                    ytResult?.success ? 'published' : (ytResult ? 'failed' : null),
+                    ttResult?.publishId || null,
+                    ttResult?.success ? 'published' : (ttResult ? 'failed' : null),
                     JSON.stringify(platformsPublished),
                     publishedAt,
                     publishedAt,

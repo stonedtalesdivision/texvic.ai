@@ -22,7 +22,13 @@ import {
   getFacebookPageConnection,
   getFacebookAccountConnection,
   saveFacebookConnection,
-  disconnectFacebookConnection
+  disconnectFacebookConnection,
+  getYouTubeConnection,
+  saveYouTubeConnection,
+  disconnectYouTubeConnection,
+  getTikTokConnection,
+  saveTikTokConnection,
+  disconnectTikTokConnection
 } from "./server/database.js";
 import { 
   getMetaOAuthUrl, 
@@ -52,6 +58,21 @@ import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageMan
 import { composeReel } from "./server/reelComposer.js";
 import { generateReelCover } from "./server/thumbnailEngine.js";
 import { buildSyndicationPackage } from "./server/syndicationEngine.js";
+import {
+  getGoogleOAuthUrl,
+  exchangeGoogleCodeForTokens,
+  refreshGoogleAccessToken,
+  getYouTubeChannelProfile,
+  publishReelToYouTube
+} from "./server/youtubeApi.js";
+import {
+  getTikTokOAuthUrl,
+  exchangeTikTokCodeForTokens,
+  refreshTikTokAccessToken,
+  getTikTokUserProfile,
+  publishReelToTikTok
+} from "./server/tiktokApi.js";
+
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
 import { generateSpeech, generateSpeechWithNodeEdge, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from "./server/ttsEngine.js";
@@ -1940,6 +1961,500 @@ app.post("/api/auth/facebook/disconnect", (req, res) => {
     success: true,
     message: `Disconnected Facebook ${target === 'page' ? 'Page' : 'Profile'} successfully.`
   });
+});
+
+// ==========================================
+// YOUTUBE SHORTS AUTH & PUBLISHING ROUTES
+// ==========================================
+
+// GET /api/auth/youtube/status - Get status of YouTube connection
+app.get("/api/auth/youtube/status", async (req, res) => {
+  const conn = getYouTubeConnection();
+  if (!conn || !conn.isConnected || !conn.accessToken) {
+    return res.json({ success: true, isConnected: false });
+  }
+
+  let activeToken = conn.accessToken;
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '';
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '';
+
+  // Check channel profile
+  let check = await getYouTubeChannelProfile(activeToken);
+
+  // If token expired and we have refresh token, attempt auto-refresh
+  if (!check.success && conn.refreshToken && clientId && clientSecret) {
+    console.info('[YouTube Auth] Access token expired, attempting auto-refresh...');
+    const refreshed = await refreshGoogleAccessToken(conn.refreshToken, clientId, clientSecret);
+    if (refreshed.accessToken) {
+      activeToken = refreshed.accessToken;
+      saveYouTubeConnection({
+        channelId: conn.channelId,
+        title: conn.title,
+        customUrl: conn.customUrl,
+        accessToken: activeToken,
+        refreshToken: conn.refreshToken,
+        subscriberCount: conn.subscriberCount,
+        defaultPrivacy: conn.defaultPrivacy
+      });
+      check = await getYouTubeChannelProfile(activeToken);
+    }
+  }
+
+  if (check.success && check.data) {
+    res.json({
+      success: true,
+      isConnected: true,
+      channel: {
+        channelId: check.data.channelId,
+        title: check.data.title,
+        customUrl: check.data.customUrl,
+        subscriberCount: check.data.subscriberCount,
+        avatarUrl: check.data.avatarUrl,
+        defaultPrivacy: conn.defaultPrivacy || 'public'
+      }
+    });
+  } else {
+    res.json({
+      success: true,
+      isConnected: false,
+      isExpired: true,
+      error: check.error || 'YouTube session expired. Please re-authenticate.'
+    });
+  }
+});
+
+// GET /api/auth/youtube/url - Constructs Google OAuth 2.0 Authorization URL for YouTube
+app.get("/api/auth/youtube/url", (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '';
+  if (!clientId) {
+    return res.status(400).json({
+      success: false,
+      error: "GOOGLE_CLIENT_ID is not configured. Add it to .env or enter Direct Token."
+    });
+  }
+
+  const state = crypto.randomBytes(16).toString('hex');
+  oauthStates.set(state, Date.now());
+
+  const host = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const redirectUri = `${host.replace(/\/$/, '')}/auth/youtube/callback`;
+  const url = getGoogleOAuthUrl(clientId, redirectUri, state);
+
+  res.json({ success: true, url, state });
+});
+
+// GET /auth/youtube/callback - Handles Google OAuth 2.0 Redirect Callback
+app.get("/auth/youtube/callback", async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    const safeErr = String(error_description || error).replace(/['"\\]/g, ' ');
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+          <h2 style="color: #ef4444;">YouTube Authorization Denied</h2>
+          <p style="color: #94a3b8;">${safeErr}</p>
+          <script>
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', platform: 'youtube', error: '${safeErr}' }, '*');
+              }
+            } catch(e) {}
+            setTimeout(() => { try { window.close(); } catch(e){} }, 2500);
+          </script>
+        </body>
+      </html>
+    `);
+  }
+
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '';
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '';
+  const host = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const redirectUri = `${host.replace(/\/$/, '')}/auth/youtube/callback`;
+
+  const tokenResult = await exchangeGoogleCodeForTokens(String(code), clientId, clientSecret, redirectUri);
+  if (tokenResult.error || !tokenResult.accessToken) {
+    const safeErr = String(tokenResult.error || 'Failed to exchange Google OAuth code').replace(/['"\\]/g, ' ');
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+          <h2 style="color: #ef4444;">Token Exchange Failed</h2>
+          <p style="color: #94a3b8;">${safeErr}</p>
+          <script>
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', platform: 'youtube', error: '${safeErr}' }, '*');
+              }
+            } catch(e) {}
+            setTimeout(() => { try { window.close(); } catch(e){} }, 3000);
+          </script>
+        </body>
+      </html>
+    `);
+  }
+
+  // Get channel profile
+  const profileRes = await getYouTubeChannelProfile(tokenResult.accessToken);
+  const ch = profileRes.data || { channelId: '', title: 'YouTube Channel', customUrl: '', subscriberCount: 0 };
+
+  saveYouTubeConnection({
+    channelId: ch.channelId,
+    title: ch.title,
+    customUrl: ch.customUrl,
+    accessToken: tokenResult.accessToken,
+    refreshToken: tokenResult.refreshToken,
+    subscriberCount: ch.subscriberCount,
+    defaultPrivacy: 'public'
+  });
+
+  const safeTitle = String(ch.title || 'YouTube Channel').replace(/['"\\]/g, '');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+        <h2 style="color: #22c55e;">YouTube Connected!</h2>
+        <p style="color: #94a3b8;">Authorized as <strong>${safeTitle}</strong></p>
+        <script>
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({ 
+                type: 'OAUTH_AUTH_SUCCESS', 
+                platform: 'youtube',
+                channel: {
+                  channelId: '${ch.channelId}',
+                  title: '${safeTitle}',
+                  customUrl: '${ch.customUrl || ''}',
+                  subscriberCount: ${ch.subscriberCount || 0}
+                } 
+              }, '*');
+            }
+          } catch(e) {}
+          setTimeout(() => { try { window.close(); } catch(e){} }, 1500);
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// POST /api/auth/youtube/direct-token - Connect directly using OAuth Client ID, Secret, Refresh Token or Access Token
+app.post("/api/auth/youtube/direct-token", async (req, res) => {
+  const { clientId, clientSecret, refreshToken, accessToken, defaultPrivacy } = req.body;
+
+  let activeToken = String(accessToken || '').trim();
+  const cId = String(clientId || process.env.GOOGLE_CLIENT_ID || '').trim();
+  const cSec = String(clientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  const refToken = String(refreshToken || '').trim();
+
+  if (!activeToken && refToken && cId && cSec) {
+    const refreshRes = await refreshGoogleAccessToken(refToken, cId, cSec);
+    if (!refreshRes.accessToken) {
+      return res.status(400).json({ success: false, error: refreshRes.error || 'Failed to exchange refresh token' });
+    }
+    activeToken = refreshRes.accessToken;
+  }
+
+  if (!activeToken) {
+    return res.status(400).json({ success: false, error: 'Access Token or Refresh Token + Client ID & Secret are required.' });
+  }
+
+  // Validate live
+  const check = await getYouTubeChannelProfile(activeToken);
+  if (!check.success || !check.data) {
+    return res.status(400).json({ success: false, error: check.error || 'Invalid YouTube credentials' });
+  }
+
+  saveYouTubeConnection({
+    channelId: check.data.channelId,
+    title: check.data.title,
+    customUrl: check.data.customUrl,
+    accessToken: activeToken,
+    refreshToken: refToken || undefined,
+    subscriberCount: check.data.subscriberCount,
+    defaultPrivacy: defaultPrivacy || 'public'
+  });
+
+  res.json({
+    success: true,
+    channel: check.data,
+    message: `Connected YouTube Channel "${check.data.title}" successfully.`
+  });
+});
+
+// POST /api/auth/youtube/disconnect - Disconnect YouTube
+app.post("/api/auth/youtube/disconnect", (req, res) => {
+  disconnectYouTubeConnection();
+  res.json({ success: true, message: 'YouTube disconnected successfully.' });
+});
+
+// ==========================================
+// TIKTOK AUTH & PUBLISHING ROUTES
+// ==========================================
+
+// GET /api/auth/tiktok/status - Get status of TikTok connection
+app.get("/api/auth/tiktok/status", async (req, res) => {
+  const conn = getTikTokConnection();
+  if (!conn || !conn.isConnected || !conn.accessToken) {
+    return res.json({ success: true, isConnected: false });
+  }
+
+  let activeToken = conn.accessToken;
+  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '';
+  const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET || '';
+
+  // Check profile
+  let check = await getTikTokUserProfile(activeToken);
+
+  // Auto-refresh if expired
+  if (!check.success && conn.refreshToken && clientKey && clientSecret) {
+    const refreshed = await refreshTikTokAccessToken(conn.refreshToken, clientKey, clientSecret);
+    if (refreshed.accessToken) {
+      activeToken = refreshed.accessToken;
+      saveTikTokConnection({
+        openId: conn.openId,
+        username: conn.username,
+        displayName: conn.displayName,
+        avatarUrl: conn.avatarUrl,
+        accessToken: activeToken,
+        refreshToken: conn.refreshToken,
+        followerCount: conn.followerCount
+      });
+      check = await getTikTokUserProfile(activeToken);
+    }
+  }
+
+  if (check.success && check.data) {
+    res.json({
+      success: true,
+      isConnected: true,
+      account: check.data
+    });
+  } else {
+    res.json({
+      success: true,
+      isConnected: false,
+      isExpired: true,
+      error: check.error || 'TikTok session expired. Please re-authenticate.'
+    });
+  }
+});
+
+// GET /api/auth/tiktok/url - Constructs TikTok OAuth 2.0 Authorization URL
+app.get("/api/auth/tiktok/url", (req, res) => {
+  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '';
+  if (!clientKey) {
+    return res.status(400).json({
+      success: false,
+      error: "TIKTOK_CLIENT_KEY is not configured. Add it to .env or enter Direct Token."
+    });
+  }
+
+  const state = crypto.randomBytes(16).toString('hex');
+  oauthStates.set(state, Date.now());
+
+  const host = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const redirectUri = `${host.replace(/\/$/, '')}/auth/tiktok/callback`;
+  const url = getTikTokOAuthUrl(clientKey, redirectUri, state);
+
+  res.json({ success: true, url, state });
+});
+
+// GET /auth/tiktok/callback - Handles TikTok OAuth 2.0 Redirect Callback
+app.get("/auth/tiktok/callback", async (req, res) => {
+  const { code, state, error, error_description } = req.query;
+
+  if (error) {
+    const safeErr = String(error_description || error).replace(/['"\\]/g, ' ');
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+          <h2 style="color: #ef4444;">TikTok Authorization Denied</h2>
+          <p style="color: #94a3b8;">${safeErr}</p>
+          <script>
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', platform: 'tiktok', error: '${safeErr}' }, '*');
+              }
+            } catch(e) {}
+            setTimeout(() => { try { window.close(); } catch(e){} }, 2500);
+          </script>
+        </body>
+      </html>
+    `);
+  }
+
+  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '';
+  const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET || '';
+  const host = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const redirectUri = `${host.replace(/\/$/, '')}/auth/tiktok/callback`;
+
+  const tokenResult = await exchangeTikTokCodeForTokens(String(code), clientKey, clientSecret, redirectUri);
+  if (tokenResult.error || !tokenResult.accessToken) {
+    const safeErr = String(tokenResult.error || 'Failed to exchange TikTok authorization code').replace(/['"\\]/g, ' ');
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+          <h2 style="color: #ef4444;">TikTok Token Exchange Failed</h2>
+          <p style="color: #94a3b8;">${safeErr}</p>
+          <script>
+            try {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'OAUTH_AUTH_FAILED', platform: 'tiktok', error: '${safeErr}' }, '*');
+              }
+            } catch(e) {}
+            setTimeout(() => { try { window.close(); } catch(e){} }, 3000);
+          </script>
+        </body>
+      </html>
+    `);
+  }
+
+  // Get TikTok user profile
+  const profileRes = await getTikTokUserProfile(tokenResult.accessToken);
+  const u = profileRes.data || { openId: tokenResult.openId || '', displayName: 'TikTok Creator', username: '@creator' };
+
+  saveTikTokConnection({
+    openId: u.openId,
+    username: u.username,
+    displayName: u.displayName,
+    avatarUrl: u.avatarUrl,
+    accessToken: tokenResult.accessToken,
+    refreshToken: tokenResult.refreshToken,
+    followerCount: u.followerCount
+  });
+
+  const safeName = String(u.displayName || 'TikTok Creator').replace(/['"\\]/g, '');
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <body style="font-family: system-ui; background: #0b0f17; color: #fff; padding: 32px; text-align: center;">
+        <h2 style="color: #22c55e;">TikTok Connected!</h2>
+        <p style="color: #94a3b8;">Authorized as <strong>${safeName}</strong></p>
+        <script>
+          try {
+            if (window.opener && !window.opener.closed) {
+              window.opener.postMessage({ 
+                type: 'OAUTH_AUTH_SUCCESS', 
+                platform: 'tiktok',
+                account: {
+                  openId: '${u.openId}',
+                  displayName: '${safeName}',
+                  username: '${u.username || ''}'
+                } 
+              }, '*');
+            }
+          } catch(e) {}
+          setTimeout(() => { try { window.close(); } catch(e){} }, 1500);
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// POST /api/auth/tiktok/direct-token - Connect directly using Client Key, Secret or Access Token
+app.post("/api/auth/tiktok/direct-token", async (req, res) => {
+  const { accessToken } = req.body;
+  const token = String(accessToken || '').trim();
+
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'TikTok Access Token is required.' });
+  }
+
+  const check = await getTikTokUserProfile(token);
+  if (!check.success || !check.data) {
+    return res.status(400).json({ success: false, error: check.error || 'Invalid TikTok Access Token' });
+  }
+
+  saveTikTokConnection({
+    openId: check.data.openId,
+    username: check.data.username,
+    displayName: check.data.displayName,
+    avatarUrl: check.data.avatarUrl,
+    accessToken: token,
+    followerCount: check.data.followerCount
+  });
+
+  res.json({
+    success: true,
+    account: check.data,
+    message: `Connected TikTok account "${check.data.displayName}" successfully.`
+  });
+});
+
+// POST /api/auth/tiktok/disconnect - Disconnect TikTok
+app.post("/api/auth/tiktok/disconnect", (req, res) => {
+  disconnectTikTokConnection();
+  res.json({ success: true, message: 'TikTok disconnected successfully.' });
+});
+
+// POST /api/reels/:id/publish-youtube - Manual/Instant publish to YouTube Shorts
+app.post("/api/reels/:id/publish-youtube", async (req, res) => {
+  const { id } = req.params;
+  const ytConn = getYouTubeConnection();
+  if (!ytConn?.isConnected || !ytConn.accessToken) {
+    return res.status(400).json({ success: false, error: 'YouTube Channel is not connected.' });
+  }
+
+  const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+  if (!reel) {
+    return res.status(404).json({ success: false, error: 'Reel not found.' });
+  }
+
+  try {
+    const pkg = await buildSyndicationPackage(reel);
+    const videoUrl = normalizeVideoUrl(reel.video_url);
+    const result = await publishReelToYouTube(ytConn.accessToken, {
+      videoUrl,
+      title: pkg.youtubeShorts.title,
+      description: pkg.youtubeShorts.description,
+      tags: pkg.youtubeShorts.tags,
+      coverPath: reel.cover_path || undefined
+    });
+
+    if (result.success) {
+      db.prepare('UPDATE reels SET yt_video_id = ?, yt_permalink = ?, yt_status = ? WHERE id = ?')
+        .run(result.videoId || null, result.permalink || null, 'published', id);
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to publish to YouTube' });
+  }
+});
+
+// POST /api/reels/:id/publish-tiktok - Manual/Instant publish to TikTok
+app.post("/api/reels/:id/publish-tiktok", async (req, res) => {
+  const { id } = req.params;
+  const ttConn = getTikTokConnection();
+  if (!ttConn?.isConnected || !ttConn.accessToken) {
+    return res.status(400).json({ success: false, error: 'TikTok Account is not connected.' });
+  }
+
+  const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+  if (!reel) {
+    return res.status(404).json({ success: false, error: 'Reel not found.' });
+  }
+
+  try {
+    const pkg = await buildSyndicationPackage(reel);
+    const videoUrl = normalizeVideoUrl(reel.video_url);
+    const result = await publishReelToTikTok(ttConn.accessToken, {
+      videoUrl,
+      caption: pkg.tiktok.caption
+    });
+
+    if (result.success) {
+      db.prepare('UPDATE reels SET tiktok_publish_id = ?, tiktok_status = ? WHERE id = ?')
+        .run(result.publishId || null, 'published', id);
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to publish to TikTok' });
+  }
 });
 
 // ==========================================

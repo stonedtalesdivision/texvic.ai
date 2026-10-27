@@ -551,6 +551,12 @@ if (!accountColumns.some((c: any) => c.name === 'is_active')) {
 if (!accountColumns.some((c: any) => c.name === 'persona_json')) {
   db.exec('ALTER TABLE account_connections ADD COLUMN persona_json TEXT');
 }
+if (!accountColumns.some((c: any) => c.name === 'refresh_token')) {
+  db.exec('ALTER TABLE account_connections ADD COLUMN refresh_token TEXT');
+}
+if (!accountColumns.some((c: any) => c.name === 'settings_json')) {
+  db.exec("ALTER TABLE account_connections ADD COLUMN settings_json TEXT DEFAULT '{}'");
+}
 
 // Ensure at least one account is marked active
 const activeCount = Number((db.prepare('SELECT COUNT(*) as count FROM account_connections WHERE is_active = 1').get() as any)?.count || 0);
@@ -564,6 +570,21 @@ if (!reelColumns.some((c: any) => c.name === 'video_url')) {
 }
 if (!reelColumns.some((c: any) => c.name === 'account_id')) {
   db.exec('ALTER TABLE reels ADD COLUMN account_id TEXT');
+}
+if (!reelColumns.some((c: any) => c.name === 'yt_video_id')) {
+  db.exec('ALTER TABLE reels ADD COLUMN yt_video_id TEXT');
+}
+if (!reelColumns.some((c: any) => c.name === 'yt_permalink')) {
+  db.exec('ALTER TABLE reels ADD COLUMN yt_permalink TEXT');
+}
+if (!reelColumns.some((c: any) => c.name === 'yt_status')) {
+  db.exec('ALTER TABLE reels ADD COLUMN yt_status TEXT');
+}
+if (!reelColumns.some((c: any) => c.name === 'tiktok_publish_id')) {
+  db.exec('ALTER TABLE reels ADD COLUMN tiktok_publish_id TEXT');
+}
+if (!reelColumns.some((c: any) => c.name === 'tiktok_status')) {
+  db.exec('ALTER TABLE reels ADD COLUMN tiktok_status TEXT');
 }
 
 const postColumns = db.prepare('PRAGMA table_info(posts)').all() as any[];
@@ -757,6 +778,222 @@ export function disconnectFacebookConnection(target: 'page' | 'account'): void {
     SET is_connected = 0, access_token = '', updated_at = ?
     WHERE id = ?
   `).run(new Date().toISOString(), connectionId);
+}
+
+/**
+ * Returns the currently active YouTube connection (from SQLite or .env fallback)
+ */
+export function getYouTubeConnection(): {
+  channelId: string;
+  title: string;
+  customUrl?: string;
+  accessToken: string;
+  refreshToken?: string;
+  isConnected: boolean;
+  subscriberCount?: number;
+  defaultPrivacy?: 'public' | 'unlisted' | 'private';
+} | null {
+  try {
+    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'youtube_primary' OR platform = 'youtube' LIMIT 1").get() as any;
+    if (dbRow && dbRow.is_connected && dbRow.access_token) {
+      let token = '';
+      try { token = decryptSecret(dbRow.access_token); } catch { token = String(dbRow.access_token); }
+      let refToken = '';
+      if (dbRow.refresh_token) {
+        try { refToken = decryptSecret(dbRow.refresh_token); } catch { refToken = String(dbRow.refresh_token); }
+      }
+      let settings: any = {};
+      try { settings = JSON.parse(dbRow.settings_json || '{}'); } catch {}
+
+      return {
+        channelId: dbRow.account_id || '',
+        title: dbRow.name || 'YouTube Channel',
+        customUrl: dbRow.username || '',
+        accessToken: token,
+        refreshToken: refToken || undefined,
+        isConnected: true,
+        subscriberCount: Number(dbRow.followers_count || 0),
+        defaultPrivacy: settings.defaultPrivacy || 'public'
+      };
+    }
+  } catch (err) {
+    console.warn('[Database] getYouTubeConnection notice:', err);
+  }
+
+  // Fallback to environment variables
+  if (process.env.YOUTUBE_REFRESH_TOKEN || process.env.YOUTUBE_ACCESS_TOKEN) {
+    return {
+      channelId: process.env.YOUTUBE_CHANNEL_ID || '',
+      title: 'YouTube Channel (.env)',
+      customUrl: process.env.YOUTUBE_CUSTOM_URL || '@TheUntoldArchive',
+      accessToken: process.env.YOUTUBE_ACCESS_TOKEN || '',
+      refreshToken: process.env.YOUTUBE_REFRESH_TOKEN || undefined,
+      isConnected: true,
+      defaultPrivacy: 'public'
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Saves or updates YouTube Channel credentials in SQLite
+ */
+export function saveYouTubeConnection(params: {
+  channelId: string;
+  title: string;
+  customUrl?: string;
+  accessToken: string;
+  refreshToken?: string;
+  subscriberCount?: number;
+  defaultPrivacy?: 'public' | 'unlisted' | 'private';
+}): void {
+  const now = new Date().toISOString();
+  const settings = JSON.stringify({ defaultPrivacy: params.defaultPrivacy || 'public' });
+
+  db.prepare(`
+    INSERT INTO account_connections (
+      id, platform, account_id, username, name, profile_picture_url, biography,
+      followers_count, follows_count, media_count, access_token, refresh_token,
+      settings_json, is_connected, updated_at
+    ) VALUES ('youtube_primary', 'youtube', ?, ?, ?, '', '', ?, 0, 0, ?, ?, ?, 1, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      account_id = excluded.account_id,
+      username = excluded.username,
+      name = excluded.name,
+      followers_count = excluded.followers_count,
+      access_token = excluded.access_token,
+      refresh_token = excluded.refresh_token,
+      settings_json = excluded.settings_json,
+      is_connected = 1,
+      updated_at = excluded.updated_at
+  `).run(
+    params.channelId,
+    params.customUrl || params.title,
+    params.title,
+    params.subscriberCount || 0,
+    encryptSecret(params.accessToken),
+    params.refreshToken ? encryptSecret(params.refreshToken) : '',
+    settings,
+    now
+  );
+}
+
+/**
+ * Disconnects YouTube Channel connection
+ */
+export function disconnectYouTubeConnection(): void {
+  db.prepare(`
+    UPDATE account_connections
+    SET is_connected = 0, access_token = '', refresh_token = '', updated_at = ?
+    WHERE id = 'youtube_primary' OR platform = 'youtube'
+  `).run(new Date().toISOString());
+}
+
+/**
+ * Returns the currently active TikTok connection (from SQLite or .env fallback)
+ */
+export function getTikTokConnection(): {
+  openId: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  accessToken: string;
+  refreshToken?: string;
+  isConnected: boolean;
+  followerCount?: number;
+} | null {
+  try {
+    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'tiktok_primary' OR platform = 'tiktok' LIMIT 1").get() as any;
+    if (dbRow && dbRow.is_connected && dbRow.access_token) {
+      let token = '';
+      try { token = decryptSecret(dbRow.access_token); } catch { token = String(dbRow.access_token); }
+      let refToken = '';
+      if (dbRow.refresh_token) {
+        try { refToken = decryptSecret(dbRow.refresh_token); } catch { refToken = String(dbRow.refresh_token); }
+      }
+
+      return {
+        openId: dbRow.account_id || '',
+        username: dbRow.username || '@tiktok_creator',
+        displayName: dbRow.name || 'TikTok Creator',
+        avatarUrl: dbRow.profile_picture_url || undefined,
+        accessToken: token,
+        refreshToken: refToken || undefined,
+        isConnected: true,
+        followerCount: Number(dbRow.followers_count || 0)
+      };
+    }
+  } catch (err) {
+    console.warn('[Database] getTikTokConnection notice:', err);
+  }
+
+  // Fallback to environment variables
+  if (process.env.TIKTOK_ACCESS_TOKEN || process.env.TIKTOK_REFRESH_TOKEN) {
+    return {
+      openId: process.env.TIKTOK_OPEN_ID || '',
+      username: process.env.TIKTOK_USERNAME || '@tiktok_creator',
+      displayName: 'TikTok Creator (.env)',
+      accessToken: process.env.TIKTOK_ACCESS_TOKEN || '',
+      refreshToken: process.env.TIKTOK_REFRESH_TOKEN || undefined,
+      isConnected: true
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Saves or updates TikTok credentials in SQLite
+ */
+export function saveTikTokConnection(params: {
+  openId: string;
+  username?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  accessToken: string;
+  refreshToken?: string;
+  followerCount?: number;
+}): void {
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO account_connections (
+      id, platform, account_id, username, name, profile_picture_url, biography,
+      followers_count, follows_count, media_count, access_token, refresh_token,
+      is_connected, updated_at
+    ) VALUES ('tiktok_primary', 'tiktok', ?, ?, ?, ?, '', ?, 0, 0, ?, ?, 1, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      account_id = excluded.account_id,
+      username = excluded.username,
+      name = excluded.name,
+      profile_picture_url = excluded.profile_picture_url,
+      followers_count = excluded.followers_count,
+      access_token = excluded.access_token,
+      refresh_token = excluded.refresh_token,
+      is_connected = 1,
+      updated_at = excluded.updated_at
+  `).run(
+    params.openId,
+    params.username || '@tiktok_creator',
+    params.displayName || 'TikTok Creator',
+    params.avatarUrl || '',
+    params.followerCount || 0,
+    encryptSecret(params.accessToken),
+    params.refreshToken ? encryptSecret(params.refreshToken) : '',
+    now
+  );
+}
+
+/**
+ * Disconnects TikTok connection
+ */
+export function disconnectTikTokConnection(): void {
+  db.prepare(`
+    UPDATE account_connections
+    SET is_connected = 0, access_token = '', refresh_token = '', updated_at = ?
+    WHERE id = 'tiktok_primary' OR platform = 'tiktok'
+  `).run(new Date().toISOString());
 }
 
 export interface LeadMagnetTrigger {
