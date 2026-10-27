@@ -198,10 +198,12 @@ export async function generateReelCover(
     const host = options.publicBaseUrl || process.env.PUBLIC_BASE_URL || process.env.BASE_URL || '';
     const coverUrl = host ? `${host.replace(/\/$/, '')}/data/media/covers/${path.basename(coverPath)}` : `/data/media/covers/${path.basename(coverPath)}`;
 
-    try {
-      db.prepare('UPDATE reels SET cover_path = ?, cover_url = ? WHERE id = ?').run(coverPath, coverUrl, options.reelId);
-    } catch (dbErr) {
-      console.warn('[Thumbnail Engine] Notice updating reel cover in database:', dbErr);
+    if (options.reelId) {
+      try {
+        db.prepare('UPDATE reels SET cover_path = ?, cover_url = ? WHERE id = ?').run(coverPath, coverUrl, String(options.reelId));
+      } catch (dbErr) {
+        console.warn('[Thumbnail Engine] Notice updating reel cover in database:', dbErr);
+      }
     }
 
     return { coverPath, coverUrl };
