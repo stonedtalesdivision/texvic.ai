@@ -2454,12 +2454,151 @@ app.post("/api/auth/tiktok/disconnect", (req, res) => {
   res.json({ success: true, message: 'TikTok disconnected successfully.' });
 });
 
+// GET /api/reels/youtube-sync-status - Count unposted historical reels for YouTube Shorts
+app.get("/api/reels/youtube-sync-status", (req, res) => {
+  const ytConn = getYouTubeConnection();
+  const isConnected = Boolean(ytConn?.isConnected && ytConn.accessToken);
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as totalRendered,
+      SUM(CASE WHEN yt_status = 'published' OR yt_video_id IS NOT NULL THEN 1 ELSE 0 END) as publishedCount,
+      SUM(CASE WHEN (yt_status IS NULL OR yt_status != 'published') AND (yt_video_id IS NULL) AND video_url IS NOT NULL THEN 1 ELSE 0 END) as unpostedCount
+    FROM reels
+  `).get() as any;
+
+  res.json({
+    success: true,
+    isConnected,
+    channelTitle: ytConn?.title || undefined,
+    totalRendered: Number(stats?.totalRendered || 0),
+    publishedCount: Number(stats?.publishedCount || 0),
+    unpostedCount: Number(stats?.unpostedCount || 0)
+  });
+});
+
+// POST /api/reels/sync-youtube-batch - Batch sync unposted historical reels to YouTube Shorts
+app.post("/api/reels/sync-youtube-batch", async (req, res) => {
+  const ytConn = getYouTubeConnection();
+  if (!ytConn?.isConnected || !ytConn.accessToken) {
+    return res.status(400).json({ success: false, error: 'YouTube Channel is not connected. Connect YouTube in Settings.' });
+  }
+
+  // Batch limit (default 6 per request to respect Google daily API upload quota)
+  const limit = Math.max(1, Math.min(10, Number(req.body?.limit || 6)));
+
+  const unpostedReels = db.prepare(`
+    SELECT * FROM reels
+    WHERE video_url IS NOT NULL
+      AND (yt_status IS NULL OR yt_status != 'published')
+      AND yt_video_id IS NULL
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(limit) as any[];
+
+  if (unpostedReels.length === 0) {
+    return res.json({
+      success: true,
+      processed: 0,
+      successful: 0,
+      failed: 0,
+      message: 'All rendered reels are already published to YouTube Shorts!'
+    });
+  }
+
+  const results: Array<{ id: string; title: string; success: boolean; videoId?: string; permalink?: string; error?: string }> = [];
+  let quotaReached = false;
+
+  for (const reel of unpostedReels) {
+    if (quotaReached) {
+      results.push({ id: reel.id, title: reel.title, success: false, error: 'Daily upload quota limit reached.' });
+      continue;
+    }
+
+    try {
+      console.info(`[YouTube Batch Sync] Uploading "${reel.title}" (${reel.id})...`);
+      const pkg = await buildSyndicationPackage(reel);
+      const videoUrl = normalizeVideoUrl(reel.video_url);
+
+      const pubResult = await publishReelToYouTube(ytConn.accessToken, {
+        videoUrl,
+        title: pkg.youtubeShorts.title,
+        description: pkg.youtubeShorts.description,
+        tags: pkg.youtubeShorts.tags,
+        coverPath: reel.cover_path || undefined,
+        privacyStatus: ytConn.defaultPrivacy || 'public'
+      });
+
+      if (pubResult.success && pubResult.videoId) {
+        let platforms: string[] = [];
+        try {
+          platforms = JSON.parse(reel.platforms_published_json || '[]');
+        } catch {}
+        if (!platforms.includes('youtube')) platforms.push('youtube');
+
+        const ytLink = pubResult.permalink || `https://youtube.com/shorts/${pubResult.videoId}`;
+        db.prepare(`
+          UPDATE reels
+          SET yt_video_id = ?, yt_permalink = ?, yt_status = 'published', platforms_published_json = ?
+          WHERE id = ?
+        `).run(pubResult.videoId, ytLink, JSON.stringify(platforms), reel.id);
+
+        results.push({
+          id: reel.id,
+          title: reel.title,
+          success: true,
+          videoId: pubResult.videoId,
+          permalink: ytLink
+        });
+      } else {
+        if (pubResult.error && pubResult.error.toLowerCase().includes('quota')) {
+          quotaReached = true;
+        }
+        results.push({
+          id: reel.id,
+          title: reel.title,
+          success: false,
+          error: pubResult.error || 'Upload failed'
+        });
+      }
+
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (err: any) {
+      console.error(`[YouTube Batch Sync] Error uploading reel ${reel.id}:`, err);
+      if (String(err?.message || '').toLowerCase().includes('quota')) {
+        quotaReached = true;
+      }
+      results.push({
+        id: reel.id,
+        title: reel.title,
+        success: false,
+        error: err?.message || 'Unexpected upload error'
+      });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  const failCount = results.filter(r => !r.success).length;
+
+  res.json({
+    success: successCount > 0,
+    processed: results.length,
+    successful: successCount,
+    failed: failCount,
+    quotaReached,
+    results,
+    message: quotaReached
+      ? `Published ${successCount} reel(s). Google daily YouTube API quota reached for today.`
+      : `Successfully published ${successCount} reel(s) to YouTube Shorts!`
+  });
+});
+
 // POST /api/reels/:id/publish-youtube - Manual/Instant publish to YouTube Shorts
 app.post("/api/reels/:id/publish-youtube", async (req, res) => {
   const { id } = req.params;
   const ytConn = getYouTubeConnection();
   if (!ytConn?.isConnected || !ytConn.accessToken) {
-    return res.status(400).json({ success: false, error: 'YouTube Channel is not connected.' });
+    return res.status(400).json({ success: false, error: 'YouTube Channel is not connected. Connect YouTube in Settings.' });
   }
 
   const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
@@ -2475,15 +2614,30 @@ app.post("/api/reels/:id/publish-youtube", async (req, res) => {
       title: pkg.youtubeShorts.title,
       description: pkg.youtubeShorts.description,
       tags: pkg.youtubeShorts.tags,
-      coverPath: reel.cover_path || undefined
+      coverPath: reel.cover_path || undefined,
+      privacyStatus: ytConn.defaultPrivacy || 'public'
     });
 
-    if (result.success) {
-      db.prepare('UPDATE reels SET yt_video_id = ?, yt_permalink = ?, yt_status = ? WHERE id = ?')
-        .run(result.videoId || null, result.permalink || null, 'published', id);
+    if (result.success && result.videoId) {
+      let platforms: string[] = [];
+      try {
+        platforms = JSON.parse(reel.platforms_published_json || '[]');
+      } catch {}
+      if (!platforms.includes('youtube')) platforms.push('youtube');
+
+      const ytLink = result.permalink || `https://youtube.com/shorts/${result.videoId}`;
+      db.prepare('UPDATE reels SET yt_video_id = ?, yt_permalink = ?, yt_status = ?, platforms_published_json = ? WHERE id = ?')
+        .run(result.videoId, ytLink, 'published', JSON.stringify(platforms), id);
+
+      return res.json({
+        success: true,
+        videoId: result.videoId,
+        permalink: ytLink,
+        message: `Reel "${reel.title}" published to YouTube Shorts!`
+      });
     }
 
-    res.json(result);
+    res.status(400).json({ success: false, error: result.error || 'Failed to upload video to YouTube.' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || 'Failed to publish to YouTube' });
   }
@@ -2896,6 +3050,11 @@ function getDatabaseState() {
     fb_account_video_id: r.fb_account_video_id || undefined,
     fb_account_permalink: r.fb_account_permalink || undefined,
     fb_account_status: r.fb_account_status || 'idle',
+    yt_video_id: r.yt_video_id || undefined,
+    yt_permalink: r.yt_permalink || undefined,
+    yt_status: r.yt_status || 'idle',
+    tiktok_publish_id: r.tiktok_publish_id || undefined,
+    tiktok_status: r.tiktok_status || 'idle',
     platforms_published: (() => {
       try {
         const arr = JSON.parse(r.platforms_published_json || '[]');

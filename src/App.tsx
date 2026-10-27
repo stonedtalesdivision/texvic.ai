@@ -64,7 +64,7 @@ export default function App() {
   const [insights, setInsights] = useState<StrategyInsight[]>(DEFAULT_STRATEGY_INSIGHTS);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
-  const [accountModalInitialChannel, setAccountModalInitialChannel] = useState<'instagram' | 'facebook_page' | 'facebook_account'>('instagram');
+  const [accountModalInitialChannel, setAccountModalInitialChannel] = useState<'instagram' | 'facebook_page' | 'facebook_account' | 'youtube' | 'tiktok'>('instagram');
   const [isPersonaModalOpen, setIsPersonaModalOpen] = useState<boolean>(false);
   const [previewReel, setPreviewReel] = useState<ReelItem | null>(null);
   const [instagramConnected, setInstagramConnected] = useState(false);

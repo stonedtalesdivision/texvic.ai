@@ -79,6 +79,11 @@ export interface ReelItem {
   fb_account_video_id?: string;
   fb_account_permalink?: string;
   fb_account_status?: string;
+  yt_video_id?: string;
+  yt_permalink?: string;
+  yt_status?: string;
+  tiktok_publish_id?: string;
+  tiktok_status?: string;
   platforms_published?: string[];
   publishTimestamp?: string;
 }

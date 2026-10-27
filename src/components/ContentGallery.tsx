@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Film, Layers, Play, Calendar, Eye, 
   Bookmark, Download, Check, Trash2, Send, 
   Loader2, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, X,
-  Zap, Search, Facebook, Sparkles
+  Zap, Search, Facebook, Sparkles, Youtube
 } from 'lucide-react';
 import { ReelItem, PostItem } from '../types';
 import { ReelPlayer } from './ReelPlayer';
@@ -22,7 +22,7 @@ interface ContentGalleryProps {
   onShowToast?: (msg: string) => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
-  onOpenAccountConnector?: (channel?: 'instagram' | 'facebook_page' | 'facebook_account') => void;
+  onOpenAccountConnector?: (channel?: 'instagram' | 'facebook_page' | 'facebook_account' | 'youtube' | 'tiktok') => void;
 }
 
 export const ContentGallery: React.FC<ContentGalleryProps> = ({
@@ -52,6 +52,27 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
   const [reRenderingId, setReRenderingId] = useState<string | null>(null);
   const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{ id: string; title: string; type: 'reel' | 'post' } | null>(null);
   const [, setForceUpdate] = useState<number>(0);
+  const [publishingYtId, setPublishingYtId] = useState<string | null>(null);
+  const [isSyncingBatchYt, setIsSyncingBatchYt] = useState(false);
+  const [ytSyncStatus, setYtSyncStatus] = useState<{ isConnected: boolean; unpostedCount: number; channelTitle?: string } | null>(null);
+
+  const fetchYtSyncStatus = async () => {
+    try {
+      const res = await fetch('/api/reels/youtube-sync-status');
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setYtSyncStatus({
+          isConnected: Boolean(data.isConnected),
+          unpostedCount: Number(data.unpostedCount || 0),
+          channelTitle: data.channelTitle
+        });
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchYtSyncStatus();
+  }, [reels]);
 
   const handleReRenderReel = async (reel: ReelItem) => {
     if (reRenderingId) return;
@@ -224,6 +245,91 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
     }
   };
 
+  const handlePublishYouTubeClick = async (reel: ReelItem) => {
+    setPublishingYtId(reel.id);
+    try {
+      const res = await fetch(`/api/reels/${reel.id}/publish-youtube`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to publish to YouTube Shorts.');
+      }
+      reel.yt_video_id = data.videoId;
+      reel.yt_permalink = data.permalink;
+      reel.yt_status = 'published';
+      if (!reel.platforms_published) reel.platforms_published = [];
+      if (!reel.platforms_published.includes('youtube')) reel.platforms_published.push('youtube');
+      setForceUpdate(n => n + 1);
+      if (onShowToast) {
+        onShowToast(`Posted Reel "${reel.title}" to YouTube Shorts!`);
+      }
+      fetchYtSyncStatus();
+    } catch (err: any) {
+      console.error('Failed to post reel to YouTube Shorts:', err);
+      const msg = err?.message || 'Failed to post reel to YouTube Shorts.';
+      if (onShowToast) {
+        onShowToast(msg);
+      }
+      if (/connected|credentials|setup|client id/i.test(msg) && onOpenAccountConnector) {
+        onOpenAccountConnector('youtube');
+      }
+    } finally {
+      setPublishingYtId(null);
+    }
+  };
+
+  const handleBatchSyncYouTube = async () => {
+    if (isSyncingBatchYt) return;
+    setIsSyncingBatchYt(true);
+    if (onShowToast) {
+      onShowToast('▶️ Starting YouTube Shorts batch sync...');
+    }
+    try {
+      const res = await fetch('/api/reels/sync-youtube-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 6 })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Batch sync failed.');
+      }
+
+      if (Array.isArray(data.results)) {
+        for (const item of data.results) {
+          if (item.success && item.videoId) {
+            const r = reels.find(x => x.id === item.id);
+            if (r) {
+              r.yt_video_id = item.videoId;
+              r.yt_permalink = item.permalink;
+              r.yt_status = 'published';
+              if (!r.platforms_published) r.platforms_published = [];
+              if (!r.platforms_published.includes('youtube')) r.platforms_published.push('youtube');
+            }
+          }
+        }
+      }
+      setForceUpdate(n => n + 1);
+      await fetchYtSyncStatus();
+      if (onShowToast) {
+        onShowToast(data.message || 'YouTube Shorts batch sync completed!');
+      }
+    } catch (err: any) {
+      console.error('Batch sync error:', err);
+      const msg = err?.message || 'Failed to batch sync reels to YouTube';
+      if (onShowToast) {
+        onShowToast(msg);
+      }
+      if (/connected|credentials|setup|client id/i.test(msg) && onOpenAccountConnector) {
+        onOpenAccountConnector('youtube');
+      }
+    } finally {
+      setIsSyncingBatchYt(false);
+    }
+  };
+
   const handlePublishPostClick = async (post: PostItem) => {
     if (!onPublishPostNow) return;
     setPublishingId(post.id);
@@ -330,6 +436,29 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
               Carousels ({filteredPosts.length})
             </button>
           </div>
+
+          {/* YouTube Shorts Batch Sync Trigger */}
+          {Boolean(ytSyncStatus?.isConnected && ytSyncStatus.unpostedCount > 0) && (
+            <button
+              type="button"
+              disabled={isSyncingBatchYt}
+              onClick={handleBatchSyncYouTube}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white flex items-center gap-1.5 shadow-md shadow-red-600/30 transition-all disabled:opacity-50 shrink-0 active:scale-95"
+              title="Batch sync all unposted historical reels to YouTube Shorts"
+            >
+              {isSyncingBatchYt ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Syncing to Shorts...
+                </>
+              ) : (
+                <>
+                  <Youtube className="w-3.5 h-3.5" />
+                  Sync to YouTube ({ytSyncStatus?.unpostedCount})
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -419,13 +548,13 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                     </span>
                   </div>
 
-                  {/* Action Controls: Tier 1 - Dedicated Channel Publishing Row */}
+                  {/* Action Controls: Tier 1 - Dedicated Multi-Channel Publishing Row */}
                   <div className="pt-2 border-t border-slate-800 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-1.5">
                       {/* Instagram Channel Control */}
                       {isPublished ? (
-                        <div className="py-1.5 px-2 rounded-lg text-xs font-bold bg-pink-500/15 text-pink-300 border border-pink-500/30 flex items-center justify-center gap-1.5">
-                          <CheckCircle className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                        <div className="py-1 px-1.5 rounded-lg text-[11px] font-bold bg-pink-500/15 text-pink-300 border border-pink-500/30 flex items-center justify-center gap-1">
+                          <CheckCircle className="w-3 h-3 text-pink-400 shrink-0" />
                           <span className="truncate">IG Live</span>
                           {reel.permalink && (
                             <a
@@ -448,22 +577,22 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                             e.stopPropagation();
                             handlePublishReelClick(reel);
                           }}
-                          className="w-full py-1.5 px-2.5 rounded-lg text-xs font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                          className="w-full py-1 px-1.5 rounded-lg text-[11px] font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-sm flex items-center justify-center gap-1 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
                           title="Publish immediately to Instagram"
                         >
                           {isPublishing ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
-                            <Send className="w-3.5 h-3.5" />
+                            <Send className="w-3 h-3" />
                           )}
                           Post IG
                         </button>
                       )}
 
-                      {/* Facebook Page Channel Control (Always Visible) */}
+                      {/* Facebook Page Channel Control */}
                       {reel.fb_permalink || reel.fb_status === 'published' ? (
-                        <div className="py-1.5 px-2 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center justify-center gap-1.5">
-                          <Facebook className="w-3.5 h-3.5 text-blue-400 fill-blue-400 shrink-0" />
+                        <div className="py-1 px-1.5 rounded-lg text-[11px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center justify-center gap-1">
+                          <Facebook className="w-3 h-3 text-blue-400 fill-blue-400 shrink-0" />
                           <span className="truncate">FB Live</span>
                           {reel.fb_permalink && (
                             <a
@@ -486,15 +615,53 @@ export const ContentGallery: React.FC<ContentGalleryProps> = ({
                             e.stopPropagation();
                             handlePublishFacebookClick(reel);
                           }}
-                          className="w-full py-1.5 px-2.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/50 shadow-md shadow-blue-600/30 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                          className="w-full py-1 px-1.5 rounded-lg text-[11px] font-bold bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/50 shadow-md shadow-blue-600/30 flex items-center justify-center gap-1 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
                           title="Post this Reel directly to your Facebook Page"
                         >
                           {publishingFbId === reel.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                            <Loader2 className="w-3 h-3 animate-spin text-white" />
                           ) : (
-                            <Facebook className="w-3.5 h-3.5 text-white fill-white shrink-0" />
+                            <Facebook className="w-3 h-3 text-white fill-white shrink-0" />
                           )}
                           Post FB
+                        </button>
+                      )}
+
+                      {/* YouTube Shorts Channel Control */}
+                      {reel.yt_permalink || reel.yt_status === 'published' ? (
+                        <div className="py-1 px-1.5 rounded-lg text-[11px] font-bold bg-red-500/15 text-red-300 border border-red-500/30 flex items-center justify-center gap-1">
+                          <CheckCircle className="w-3 h-3 text-red-400 shrink-0" />
+                          <span className="truncate">YT Live</span>
+                          {reel.yt_permalink && (
+                            <a
+                              href={reel.yt_permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-red-300 hover:text-white inline-flex items-center text-xs font-bold ml-0.5"
+                              title="View on YouTube Shorts"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              ↗
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={publishingYtId === reel.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePublishYouTubeClick(reel);
+                          }}
+                          className="w-full py-1 px-1.5 rounded-lg text-[11px] font-bold bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white shadow-sm flex items-center justify-center gap-1 transition-all disabled:opacity-50 cursor-pointer active:scale-95"
+                          title="Post this Reel directly to YouTube Shorts"
+                        >
+                          {publishingYtId === reel.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Youtube className="w-3 h-3" />
+                          )}
+                          Post YT
                         </button>
                       )}
                     </div>

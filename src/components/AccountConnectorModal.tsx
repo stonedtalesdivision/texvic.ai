@@ -141,6 +141,19 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   const [editingYtAppCreds, setEditingYtAppCreds] = useState(false);
   const [ytFallbackUrl, setYtFallbackUrl] = useState<string | null>(null);
   const [ytLocalError, setYtLocalError] = useState<string | null>(null);
+  const [ytUnpostedCount, setYtUnpostedCount] = useState<number>(0);
+  const [isModalBatchSyncing, setIsModalBatchSyncing] = useState<boolean>(false);
+  const [modalBatchMsg, setModalBatchMsg] = useState<string | null>(null);
+
+  const fetchModalYtSyncCount = async () => {
+    try {
+      const res = await fetch('/api/reels/youtube-sync-status');
+      const data = await res.json().catch(() => ({}));
+      if (data?.success) {
+        setYtUnpostedCount(Number(data.unpostedCount || 0));
+      }
+    } catch {}
+  };
 
   // TikTok Account fields
   const [tiktokStatus, setTiktokStatus] = useState<TikTokStatus>({ isConnected: false });
@@ -259,6 +272,7 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
     setErrorMsg(null);
     setStatusLoading(true);
 
+    fetchModalYtSyncCount();
     Promise.allSettled([
       onRefreshStatus(),
       fetchFacebookStatus(),
@@ -709,6 +723,31 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
       setErrorMsg(err?.message || 'Failed to connect YouTube channel.');
     } finally {
       setYtLoading(false);
+    }
+  };
+
+  const handleModalBatchSync = async () => {
+    if (isModalBatchSyncing) return;
+    setIsModalBatchSyncing(true);
+    setModalBatchMsg(null);
+    try {
+      const res = await fetch('/api/reels/sync-youtube-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 6 })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to batch sync to YouTube Shorts.');
+      }
+      setModalBatchMsg(data.message || 'Batch sync completed!');
+      await fetchModalYtSyncCount();
+      await fetchYouTubeStatus();
+      showNotification(data.message || 'Synced to YouTube Shorts!');
+    } catch (err: any) {
+      setModalBatchMsg(err?.message || 'Batch sync failed.');
+    } finally {
+      setIsModalBatchSyncing(false);
     }
   };
 
@@ -1576,6 +1615,49 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                     </select>
                   </div>
                   <span className="text-emerald-400 font-mono text-[11px]">{ytStatus.customUrl || ytStatus.channelId}</span>
+                </div>
+              )}
+
+              {/* Historical Reels Sync Card */}
+              {ytStatus.isConnected && (
+                <div className="mt-3 p-3 rounded-xl bg-slate-950/70 border border-red-500/30 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-red-400">
+                      <Youtube className="w-4 h-4" />
+                      <span>Historical Reels Sync</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-300 font-mono text-[10px] border border-red-500/20">
+                      {ytUnpostedCount} unposted reel{ytUnpostedCount === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Publish previously rendered reels to YouTube Shorts with chapter markers, captions & <code className="text-red-400 font-mono">#Shorts</code> metadata.
+                  </p>
+
+                  {modalBatchMsg && (
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
+                      {modalBatchMsg}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={isModalBatchSyncing || ytUnpostedCount === 0}
+                    onClick={handleModalBatchSync}
+                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white flex items-center justify-center gap-1.5 shadow-md shadow-red-600/20 disabled:opacity-50 transition-all active:scale-95 cursor-pointer"
+                  >
+                    {isModalBatchSyncing ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Uploading to YouTube Shorts...
+                      </>
+                    ) : ytUnpostedCount === 0 ? (
+                      '✓ All Past Reels Synced to YouTube'
+                    ) : (
+                      `Sync ${ytUnpostedCount} Past Reel${ytUnpostedCount === 1 ? '' : 's'} to YouTube (Daily Batch)`
+                    )}
+                  </button>
                 </div>
               )}
             </div>
