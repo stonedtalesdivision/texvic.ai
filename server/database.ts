@@ -794,7 +794,7 @@ export function getYouTubeConnection(): {
   defaultPrivacy?: 'public' | 'unlisted' | 'private';
 } | null {
   try {
-    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'youtube_primary' OR platform = 'youtube' LIMIT 1").get() as any;
+    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'youtube_primary' OR (platform = 'youtube' AND id != 'youtube_app_credentials') LIMIT 1").get() as any;
     if (dbRow && dbRow.is_connected && dbRow.access_token) {
       let token = '';
       try { token = decryptSecret(dbRow.access_token); } catch { token = String(dbRow.access_token); }
@@ -886,8 +886,63 @@ export function disconnectYouTubeConnection(): void {
   db.prepare(`
     UPDATE account_connections
     SET is_connected = 0, access_token = '', refresh_token = '', updated_at = ?
-    WHERE id = 'youtube_primary' OR platform = 'youtube'
+    WHERE id = 'youtube_primary' OR (platform = 'youtube' AND id != 'youtube_app_credentials')
   `).run(new Date().toISOString());
+}
+
+/**
+ * Returns Google OAuth App Client ID & Secret from SQLite or .env
+ */
+export function getYouTubeAppCredentials(): {
+  clientId: string;
+  clientSecret: string;
+  isConfigured: boolean;
+} {
+  try {
+    const row = db.prepare("SELECT account_id, access_token FROM account_connections WHERE id = 'youtube_app_credentials'").get() as any;
+    if (row && row.account_id) {
+      let clientSecret = '';
+      if (row.access_token) {
+        try { clientSecret = decryptSecret(row.access_token); } catch { clientSecret = String(row.access_token); }
+      }
+      return {
+        clientId: String(row.account_id).trim(),
+        clientSecret: clientSecret.trim(),
+        isConfigured: Boolean(String(row.account_id).trim())
+      };
+    }
+  } catch (err) {
+    console.warn('[Database] getYouTubeAppCredentials notice:', err);
+  }
+
+  const envId = (process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '').trim();
+  const envSecret = (process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '').trim();
+
+  return {
+    clientId: envId,
+    clientSecret: envSecret,
+    isConfigured: Boolean(envId)
+  };
+}
+
+/**
+ * Persists Google OAuth App Client ID & Secret into SQLite (AES-256-GCM encrypted)
+ */
+export function saveYouTubeAppCredentials(clientId: string, clientSecret: string): void {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO account_connections (
+      id, platform, account_id, username, name, access_token, refresh_token, settings_json, is_connected, updated_at
+    ) VALUES ('youtube_app_credentials', 'youtube_config', ?, 'Google OAuth App', 'YouTube App Credentials', ?, '', '', 1, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      account_id = excluded.account_id,
+      access_token = excluded.access_token,
+      updated_at = excluded.updated_at
+  `).run(
+    clientId.trim(),
+    clientSecret.trim() ? encryptSecret(clientSecret.trim()) : '',
+    now
+  );
 }
 
 /**
@@ -904,7 +959,7 @@ export function getTikTokConnection(): {
   followerCount?: number;
 } | null {
   try {
-    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'tiktok_primary' OR platform = 'tiktok' LIMIT 1").get() as any;
+    const dbRow = db.prepare("SELECT * FROM account_connections WHERE id = 'tiktok_primary' OR (platform = 'tiktok' AND id != 'tiktok_app_credentials') LIMIT 1").get() as any;
     if (dbRow && dbRow.is_connected && dbRow.access_token) {
       let token = '';
       try { token = decryptSecret(dbRow.access_token); } catch { token = String(dbRow.access_token); }
@@ -992,8 +1047,63 @@ export function disconnectTikTokConnection(): void {
   db.prepare(`
     UPDATE account_connections
     SET is_connected = 0, access_token = '', refresh_token = '', updated_at = ?
-    WHERE id = 'tiktok_primary' OR platform = 'tiktok'
+    WHERE id = 'tiktok_primary' OR (platform = 'tiktok' AND id != 'tiktok_app_credentials')
   `).run(new Date().toISOString());
+}
+
+/**
+ * Returns TikTok Developer App Client Key & Secret from SQLite or .env
+ */
+export function getTikTokAppCredentials(): {
+  clientKey: string;
+  clientSecret: string;
+  isConfigured: boolean;
+} {
+  try {
+    const row = db.prepare("SELECT account_id, access_token FROM account_connections WHERE id = 'tiktok_app_credentials'").get() as any;
+    if (row && row.account_id) {
+      let clientSecret = '';
+      if (row.access_token) {
+        try { clientSecret = decryptSecret(row.access_token); } catch { clientSecret = String(row.access_token); }
+      }
+      return {
+        clientKey: String(row.account_id).trim(),
+        clientSecret: clientSecret.trim(),
+        isConfigured: Boolean(String(row.account_id).trim())
+      };
+    }
+  } catch (err) {
+    console.warn('[Database] getTikTokAppCredentials notice:', err);
+  }
+
+  const envKey = (process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '').trim();
+  const envSecret = (process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET || '').trim();
+
+  return {
+    clientKey: envKey,
+    clientSecret: envSecret,
+    isConfigured: Boolean(envKey)
+  };
+}
+
+/**
+ * Persists TikTok Developer App Client Key & Secret into SQLite (AES-256-GCM encrypted)
+ */
+export function saveTikTokAppCredentials(clientKey: string, clientSecret: string): void {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO account_connections (
+      id, platform, account_id, username, name, access_token, refresh_token, settings_json, is_connected, updated_at
+    ) VALUES ('tiktok_app_credentials', 'tiktok_config', ?, 'TikTok App', 'TikTok App Credentials', ?, '', '', 1, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      account_id = excluded.account_id,
+      access_token = excluded.access_token,
+      updated_at = excluded.updated_at
+  `).run(
+    clientKey.trim(),
+    clientSecret.trim() ? encryptSecret(clientSecret.trim()) : '',
+    now
+  );
 }
 
 export interface LeadMagnetTrigger {

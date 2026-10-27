@@ -26,9 +26,13 @@ import {
   getYouTubeConnection,
   saveYouTubeConnection,
   disconnectYouTubeConnection,
+  getYouTubeAppCredentials,
+  saveYouTubeAppCredentials,
   getTikTokConnection,
   saveTikTokConnection,
-  disconnectTikTokConnection
+  disconnectTikTokConnection,
+  getTikTokAppCredentials,
+  saveTikTokAppCredentials
 } from "./server/database.js";
 import { 
   getMetaOAuthUrl, 
@@ -1969,14 +1973,20 @@ app.post("/api/auth/facebook/disconnect", (req, res) => {
 
 // GET /api/auth/youtube/status - Get status of YouTube connection
 app.get("/api/auth/youtube/status", async (req, res) => {
+  const appCreds = getYouTubeAppCredentials();
   const conn = getYouTubeConnection();
   if (!conn || !conn.isConnected || !conn.accessToken) {
-    return res.json({ success: true, isConnected: false });
+    return res.json({
+      success: true,
+      isConnected: false,
+      isAppConfigured: appCreds.isConfigured,
+      clientId: appCreds.clientId || ''
+    });
   }
 
   let activeToken = conn.accessToken;
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '';
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '';
+  const clientId = appCreds.clientId;
+  const clientSecret = appCreds.clientSecret;
 
   // Check channel profile
   let check = await getYouTubeChannelProfile(activeToken);
@@ -2004,6 +2014,8 @@ app.get("/api/auth/youtube/status", async (req, res) => {
     res.json({
       success: true,
       isConnected: true,
+      isAppConfigured: appCreds.isConfigured,
+      clientId: appCreds.clientId || '',
       channel: {
         channelId: check.data.channelId,
         title: check.data.title,
@@ -2018,6 +2030,8 @@ app.get("/api/auth/youtube/status", async (req, res) => {
       success: true,
       isConnected: false,
       isExpired: true,
+      isAppConfigured: appCreds.isConfigured,
+      clientId: appCreds.clientId || '',
       error: check.error || 'YouTube session expired. Please re-authenticate.'
     });
   }
@@ -2025,11 +2039,20 @@ app.get("/api/auth/youtube/status", async (req, res) => {
 
 // GET /api/auth/youtube/url - Constructs Google OAuth 2.0 Authorization URL for YouTube
 app.get("/api/auth/youtube/url", (req, res) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '';
+  const queryClientId = typeof req.query.clientId === 'string' ? req.query.clientId.trim() : '';
+  const queryClientSecret = typeof req.query.clientSecret === 'string' ? req.query.clientSecret.trim() : '';
+
+  if (queryClientId) {
+    saveYouTubeAppCredentials(queryClientId, queryClientSecret);
+  }
+
+  const appCreds = getYouTubeAppCredentials();
+  const clientId = queryClientId || appCreds.clientId;
+
   if (!clientId) {
     return res.status(400).json({
       success: false,
-      error: "GOOGLE_CLIENT_ID is not configured. Add it to .env or enter Direct Token."
+      error: "Google Client ID is not configured. Please enter your Google OAuth Client ID."
     });
   }
 
@@ -2041,6 +2064,16 @@ app.get("/api/auth/youtube/url", (req, res) => {
   const url = getGoogleOAuthUrl(clientId, redirectUri, state);
 
   res.json({ success: true, url, state });
+});
+
+// POST /api/auth/youtube/app-credentials - Saves Google OAuth App Client ID & Secret
+app.post("/api/auth/youtube/app-credentials", (req, res) => {
+  const { clientId, clientSecret } = req.body;
+  if (!clientId) {
+    return res.status(400).json({ success: false, error: "Google Client ID is required." });
+  }
+  saveYouTubeAppCredentials(String(clientId).trim(), String(clientSecret || '').trim());
+  res.json({ success: true, message: "Google OAuth credentials saved successfully." });
 });
 
 // GET /auth/youtube/callback - Handles Google OAuth 2.0 Redirect Callback
@@ -2068,8 +2101,9 @@ app.get("/auth/youtube/callback", async (req, res) => {
     `);
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '';
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '';
+  const appCreds = getYouTubeAppCredentials();
+  const clientId = appCreds.clientId;
+  const clientSecret = appCreds.clientSecret;
   const host = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
   const redirectUri = `${host.replace(/\/$/, '')}/auth/youtube/callback`;
 
@@ -2194,14 +2228,20 @@ app.post("/api/auth/youtube/disconnect", (req, res) => {
 
 // GET /api/auth/tiktok/status - Get status of TikTok connection
 app.get("/api/auth/tiktok/status", async (req, res) => {
+  const appCreds = getTikTokAppCredentials();
   const conn = getTikTokConnection();
   if (!conn || !conn.isConnected || !conn.accessToken) {
-    return res.json({ success: true, isConnected: false });
+    return res.json({
+      success: true,
+      isConnected: false,
+      isAppConfigured: appCreds.isConfigured,
+      clientKey: appCreds.clientKey || ''
+    });
   }
 
   let activeToken = conn.accessToken;
-  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '';
-  const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET || '';
+  const clientKey = appCreds.clientKey;
+  const clientSecret = appCreds.clientSecret;
 
   // Check profile
   let check = await getTikTokUserProfile(activeToken);
@@ -2228,6 +2268,8 @@ app.get("/api/auth/tiktok/status", async (req, res) => {
     res.json({
       success: true,
       isConnected: true,
+      isAppConfigured: appCreds.isConfigured,
+      clientKey: appCreds.clientKey || '',
       account: check.data
     });
   } else {
@@ -2235,6 +2277,8 @@ app.get("/api/auth/tiktok/status", async (req, res) => {
       success: true,
       isConnected: false,
       isExpired: true,
+      isAppConfigured: appCreds.isConfigured,
+      clientKey: appCreds.clientKey || '',
       error: check.error || 'TikTok session expired. Please re-authenticate.'
     });
   }
@@ -2242,11 +2286,20 @@ app.get("/api/auth/tiktok/status", async (req, res) => {
 
 // GET /api/auth/tiktok/url - Constructs TikTok OAuth 2.0 Authorization URL
 app.get("/api/auth/tiktok/url", (req, res) => {
-  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '';
+  const queryClientKey = typeof req.query.clientKey === 'string' ? req.query.clientKey.trim() : '';
+  const queryClientSecret = typeof req.query.clientSecret === 'string' ? req.query.clientSecret.trim() : '';
+
+  if (queryClientKey) {
+    saveTikTokAppCredentials(queryClientKey, queryClientSecret);
+  }
+
+  const appCreds = getTikTokAppCredentials();
+  const clientKey = queryClientKey || appCreds.clientKey;
+
   if (!clientKey) {
     return res.status(400).json({
       success: false,
-      error: "TIKTOK_CLIENT_KEY is not configured. Add it to .env or enter Direct Token."
+      error: "TikTok Client Key is not configured. Please enter your TikTok App Client Key."
     });
   }
 
@@ -2258,6 +2311,16 @@ app.get("/api/auth/tiktok/url", (req, res) => {
   const url = getTikTokOAuthUrl(clientKey, redirectUri, state);
 
   res.json({ success: true, url, state });
+});
+
+// POST /api/auth/tiktok/app-credentials - Saves TikTok Developer App Credentials
+app.post("/api/auth/tiktok/app-credentials", (req, res) => {
+  const { clientKey, clientSecret } = req.body;
+  if (!clientKey) {
+    return res.status(400).json({ success: false, error: "TikTok Client Key is required." });
+  }
+  saveTikTokAppCredentials(String(clientKey).trim(), String(clientSecret || '').trim());
+  res.json({ success: true, message: "TikTok Developer App credentials saved successfully." });
 });
 
 // GET /auth/tiktok/callback - Handles TikTok OAuth 2.0 Redirect Callback
@@ -2285,8 +2348,9 @@ app.get("/auth/tiktok/callback", async (req, res) => {
     `);
   }
 
-  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID || '';
-  const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET || '';
+  const appCreds = getTikTokAppCredentials();
+  const clientKey = appCreds.clientKey;
+  const clientSecret = appCreds.clientSecret;
   const host = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
   const redirectUri = `${host.replace(/\/$/, '')}/auth/tiktok/callback`;
 

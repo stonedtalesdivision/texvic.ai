@@ -63,6 +63,8 @@ interface FacebookUserStatus {
 interface YouTubeStatus {
   isConnected: boolean;
   isExpired?: boolean;
+  isAppConfigured?: boolean;
+  savedClientId?: string;
   channelId?: string;
   title?: string;
   customUrl?: string;
@@ -75,6 +77,8 @@ interface YouTubeStatus {
 interface TikTokStatus {
   isConnected: boolean;
   isExpired?: boolean;
+  isAppConfigured?: boolean;
+  savedClientKey?: string;
   openId?: string;
   username?: string;
   displayName?: string;
@@ -134,12 +138,20 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   const [ytRefreshToken, setYtRefreshToken] = useState('');
   const [ytDirectToken, setYtDirectToken] = useState('');
   const [ytPrivacy, setYtPrivacy] = useState<'public' | 'unlisted' | 'private'>('public');
+  const [editingYtAppCreds, setEditingYtAppCreds] = useState(false);
+  const [ytFallbackUrl, setYtFallbackUrl] = useState<string | null>(null);
+  const [ytLocalError, setYtLocalError] = useState<string | null>(null);
 
   // TikTok Account fields
   const [tiktokStatus, setTiktokStatus] = useState<TikTokStatus>({ isConnected: false });
   const [tiktokLoading, setTiktokLoading] = useState(false);
   const [tiktokOauthLoading, setTiktokOauthLoading] = useState(false);
   const [tiktokDirectToken, setTiktokDirectToken] = useState('');
+  const [tiktokClientKey, setTiktokClientKey] = useState('');
+  const [tiktokClientSecret, setTiktokClientSecret] = useState('');
+  const [editingTiktokAppCreds, setEditingTiktokAppCreds] = useState(false);
+  const [tiktokFallbackUrl, setTiktokFallbackUrl] = useState<string | null>(null);
+  const [tiktokLocalError, setTiktokLocalError] = useState<string | null>(null);
 
   // Fetch Facebook connections status
   const fetchFacebookStatus = async () => {
@@ -175,6 +187,8 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         if (data.isConnected && data.channel) {
           setYtStatus({
             isConnected: true,
+            isAppConfigured: Boolean(data.isAppConfigured),
+            savedClientId: data.clientId || '',
             channelId: data.channel.channelId,
             title: data.channel.title,
             customUrl: data.channel.customUrl,
@@ -188,9 +202,14 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         } else {
           setYtStatus({
             isConnected: false,
+            isAppConfigured: Boolean(data.isAppConfigured),
+            savedClientId: data.clientId || '',
             isExpired: Boolean(data.isExpired),
             error: data.error
           });
+        }
+        if (data.clientId && !ytClientId) {
+          setYtClientId(data.clientId);
         }
       }
     } catch {}
@@ -205,6 +224,8 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         if (data.isConnected && data.account) {
           setTiktokStatus({
             isConnected: true,
+            isAppConfigured: Boolean(data.isAppConfigured),
+            savedClientKey: data.clientKey || '',
             openId: data.account.openId,
             username: data.account.username,
             displayName: data.account.displayName,
@@ -214,9 +235,14 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
         } else {
           setTiktokStatus({
             isConnected: false,
+            isAppConfigured: Boolean(data.isAppConfigured),
+            savedClientKey: data.clientKey || '',
             isExpired: Boolean(data.isExpired),
             error: data.error
           });
+        }
+        if (data.clientKey && !tiktokClientKey) {
+          setTiktokClientKey(data.clientKey);
         }
       }
     } catch {}
@@ -555,24 +581,47 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   // ----------------------------------------------------
   const handleYouTubeOAuthConnect = async () => {
     setYtOauthLoading(true);
+    setYtLocalError(null);
     setErrorMsg(null);
+    setYtFallbackUrl(null);
+
+    // If OAuth app is not configured yet and fields are empty, require Client ID
+    if (!ytStatus.isAppConfigured && !ytClientId.trim()) {
+      setYtOauthLoading(false);
+      setYtLocalError('Please enter your Google OAuth Client ID to start Google Login.');
+      return;
+    }
+
+    // 1. Immediately create a blank popup synchronously to guarantee it is not blocked by the browser
+    let popup: Window | null = null;
+    try {
+      popup = window.open('about:blank', 'texvic-youtube-oauth', 'width=620,height=760');
+    } catch {
+      popup = null;
+    }
 
     try {
-      const res = await fetch('/api/auth/youtube/url');
+      const q = new URLSearchParams();
+      if (ytClientId.trim()) q.set('clientId', ytClientId.trim());
+      if (ytClientSecret.trim()) q.set('clientSecret', ytClientSecret.trim());
+      const qs = q.toString() ? `?${q.toString()}` : '';
+
+      const res = await fetch(`/api/auth/youtube/url${qs}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success || !data.url) {
-        throw new Error(data.error || 'Could not start YouTube OAuth. Check GOOGLE_CLIENT_ID configuration.');
+        if (popup && !popup.closed) popup.close();
+        throw new Error(data.error || 'Could not start YouTube OAuth.');
       }
 
-      const popup = window.open(
-        data.url,
-        'texvic-youtube-oauth',
-        'width=620,height=760'
-      );
-
-      if (!popup) {
-        throw new Error('Popup blocked by browser. Allow popups for this site and try again.');
+      // If popup was blocked by strict browser setting, offer direct link
+      if (!popup || popup.closed) {
+        setYtFallbackUrl(data.url);
+        throw new Error('Your browser blocked the popup. Click the button below to open Google Login directly.');
       }
+
+      // Direct popup to Google OAuth URL
+      popup.location.href = data.url;
+      try { popup.focus(); } catch {}
 
       await new Promise<void>((resolve, reject) => {
         let finished = false;
@@ -617,8 +666,9 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
       });
 
       showNotification('YouTube Channel connected successfully!');
+      setEditingYtAppCreds(false);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'YouTube connection failed.');
+      setYtLocalError(err?.message || 'YouTube connection failed.');
     } finally {
       setYtOauthLoading(false);
     }
@@ -680,24 +730,43 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
   // ----------------------------------------------------
   const handleTikTokOAuthConnect = async () => {
     setTiktokOauthLoading(true);
+    setTiktokLocalError(null);
     setErrorMsg(null);
+    setTiktokFallbackUrl(null);
+
+    if (!tiktokStatus.isAppConfigured && !tiktokClientKey.trim()) {
+      setTiktokOauthLoading(false);
+      setTiktokLocalError('Please enter your TikTok App Client Key to start authorization.');
+      return;
+    }
+
+    let popup: Window | null = null;
+    try {
+      popup = window.open('about:blank', 'texvic-tiktok-oauth', 'width=620,height=760');
+    } catch {
+      popup = null;
+    }
 
     try {
-      const res = await fetch('/api/auth/tiktok/url');
+      const q = new URLSearchParams();
+      if (tiktokClientKey.trim()) q.set('clientKey', tiktokClientKey.trim());
+      if (tiktokClientSecret.trim()) q.set('clientSecret', tiktokClientSecret.trim());
+      const qs = q.toString() ? `?${q.toString()}` : '';
+
+      const res = await fetch(`/api/auth/tiktok/url${qs}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success || !data.url) {
-        throw new Error(data.error || 'Could not start TikTok OAuth. Check TIKTOK_CLIENT_KEY configuration.');
+        if (popup && !popup.closed) popup.close();
+        throw new Error(data.error || 'Could not start TikTok OAuth.');
       }
 
-      const popup = window.open(
-        data.url,
-        'texvic-tiktok-oauth',
-        'width=620,height=760'
-      );
-
-      if (!popup) {
-        throw new Error('Popup blocked by browser. Allow popups for this site and try again.');
+      if (!popup || popup.closed) {
+        setTiktokFallbackUrl(data.url);
+        throw new Error('Your browser blocked the popup. Click the button below to open TikTok Login directly.');
       }
+
+      popup.location.href = data.url;
+      try { popup.focus(); } catch {}
 
       await new Promise<void>((resolve, reject) => {
         let finished = false;
@@ -742,8 +811,9 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
       });
 
       showNotification('TikTok account connected successfully!');
+      setEditingTiktokAppCreds(false);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'TikTok connection failed.');
+      setTiktokLocalError(err?.message || 'TikTok connection failed.');
     } finally {
       setTiktokOauthLoading(false);
     }
@@ -1540,9 +1610,124 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
 
             {connectTab === 'oauth' ? (
               <div className="space-y-3">
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Sign in with the Google Account that manages your YouTube channel. Requires <code className="text-red-400 font-mono text-[10px]">GOOGLE_CLIENT_ID</code> and <code className="text-red-400 font-mono text-[10px]">GOOGLE_CLIENT_SECRET</code> in <code className="text-slate-300 font-mono text-[10px]">.env</code>.
-                </p>
+                {/* Local Error */}
+                {ytLocalError && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{ytLocalError}</span>
+                  </div>
+                )}
+
+                {/* Popup Blocked Fallback */}
+                {ytFallbackUrl && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-2">
+                    <p className="font-semibold">Popup blocked by browser</p>
+                    <div className="flex gap-2">
+                      <a
+                        href={ytFallbackUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[11px] inline-flex items-center gap-1.5"
+                      >
+                        Open Google Login in New Tab ↗
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => { window.location.href = ytFallbackUrl; }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg text-[11px]"
+                      >
+                        Open in Current Tab
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* App Configuration Card */}
+                {(!ytStatus.isAppConfigured || editingYtAppCreds) ? (
+                  <div className="p-3.5 rounded-xl bg-slate-950/70 border border-red-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                        <Youtube className="w-4 h-4" />
+                        Google Cloud OAuth App Credentials
+                      </span>
+                      {ytStatus.isAppConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingYtAppCreds(false)}
+                          className="text-[10px] text-slate-400 hover:text-slate-200 underline"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Enter your Google OAuth Client ID & Secret from Google Cloud Console. These are securely encrypted at rest.
+                    </p>
+
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-[10px] text-slate-300 flex items-center justify-between gap-2">
+                      <div className="truncate">
+                        <span className="text-slate-500">Redirect URI: </span>
+                        <span className="font-mono text-red-400 select-all">
+                          {typeof window !== 'undefined' ? `${window.location.origin}/auth/youtube/callback` : '/auth/youtube/callback'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            navigator.clipboard.writeText(`${window.location.origin}/auth/youtube/callback`);
+                            showNotification('Redirect URI copied to clipboard!');
+                          }
+                        }}
+                        className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] shrink-0 font-medium"
+                      >
+                        Copy
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-300 mb-1">
+                          Google Client ID <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 123456789-abcdef.apps.googleusercontent.com"
+                          value={ytClientId}
+                          onChange={(e) => setYtClientId(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-300 mb-1">
+                          Google Client Secret <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="GOCSPX-..."
+                          value={ytClientSecret}
+                          onChange={(e) => setYtClientSecret(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span className="text-slate-300 font-medium">Google OAuth App Configured</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingYtAppCreds(true)}
+                      className="text-[11px] text-red-400 hover:text-red-300 font-medium underline"
+                    >
+                      Edit Keys
+                    </button>
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -1551,29 +1736,14 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   className="w-full px-4 py-3 rounded-xl text-xs font-bold bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 disabled:opacity-60 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-600/20"
                 >
                   <Youtube className="w-4 h-4" />
-                  {ytOauthLoading ? 'Connecting to Google / YouTube...' : ytStatus.isConnected ? 'Reconnect YouTube Channel' : 'Connect YouTube Channel with Google'}
+                  {ytOauthLoading
+                    ? 'Launching Google Login...'
+                    : (!ytStatus.isAppConfigured && ytClientId.trim())
+                      ? 'Save Credentials & Connect with Google'
+                      : ytStatus.isConnected
+                        ? 'Reconnect YouTube Channel'
+                        : 'Connect YouTube Channel with Google'}
                 </button>
-
-                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-2">
-                  <div className="truncate">
-                    <span className="text-slate-500">Authorized Redirect URI: </span>
-                    <span className="font-mono text-red-400 select-all">
-                      {typeof window !== 'undefined' ? `${window.location.origin}/auth/youtube/callback` : '/auth/youtube/callback'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof window !== 'undefined') {
-                        navigator.clipboard.writeText(`${window.location.origin}/auth/youtube/callback`);
-                        showNotification('Redirect URI copied!');
-                      }
-                    }}
-                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] shrink-0 font-medium"
-                  >
-                    Copy
-                  </button>
-                </div>
               </div>
             ) : (
               <form onSubmit={handleYouTubeDirectConnect} className="space-y-3">
@@ -1707,9 +1877,124 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
 
             {connectTab === 'oauth' ? (
               <div className="space-y-3">
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Log in with your TikTok Creator account via TikTok Login Kit. Requires <code className="text-cyan-400 font-mono text-[10px]">TIKTOK_CLIENT_KEY</code> and <code className="text-cyan-400 font-mono text-[10px]">TIKTOK_CLIENT_SECRET</code> in <code className="text-slate-300 font-mono text-[10px]">.env</code>.
-                </p>
+                {/* Local Error */}
+                {tiktokLocalError && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{tiktokLocalError}</span>
+                  </div>
+                )}
+
+                {/* Popup Blocked Fallback */}
+                {tiktokFallbackUrl && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-2">
+                    <p className="font-semibold">Popup blocked by browser</p>
+                    <div className="flex gap-2">
+                      <a
+                        href={tiktokFallbackUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-lg text-[11px] inline-flex items-center gap-1.5"
+                      >
+                        Open TikTok Login in New Tab ↗
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => { window.location.href = tiktokFallbackUrl; }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg text-[11px]"
+                      >
+                        Open in Current Tab
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* App Configuration Card */}
+                {(!tiktokStatus.isAppConfigured || editingTiktokAppCreds) ? (
+                  <div className="p-3.5 rounded-xl bg-slate-950/70 border border-cyan-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                        <TikTokIcon className="w-4 h-4" />
+                        TikTok Developer App Credentials
+                      </span>
+                      {tiktokStatus.isAppConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingTiktokAppCreds(false)}
+                          className="text-[10px] text-slate-400 hover:text-slate-200 underline"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Enter your TikTok App Client Key & Secret from TikTok Developer Portal.
+                    </p>
+
+                    <div className="p-2 rounded-lg bg-slate-900 border border-slate-800 text-[10px] text-slate-300 flex items-center justify-between gap-2">
+                      <div className="truncate">
+                        <span className="text-slate-500">Redirect URI: </span>
+                        <span className="font-mono text-cyan-400 select-all">
+                          {typeof window !== 'undefined' ? `${window.location.origin}/auth/tiktok/callback` : '/auth/tiktok/callback'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            navigator.clipboard.writeText(`${window.location.origin}/auth/tiktok/callback`);
+                            showNotification('Redirect URI copied!');
+                          }
+                        }}
+                        className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] shrink-0 font-medium"
+                      >
+                        Copy
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-300 mb-1">
+                          TikTok Client Key <span className="text-cyan-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. aw..."
+                          value={tiktokClientKey}
+                          onChange={(e) => setTiktokClientKey(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-300 mb-1">
+                          TikTok Client Secret <span className="text-cyan-400">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Secret..."
+                          value={tiktokClientSecret}
+                          onChange={(e) => setTiktokClientSecret(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span className="text-slate-300 font-medium">TikTok App Configured</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingTiktokAppCreds(true)}
+                      className="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium underline"
+                    >
+                      Edit Keys
+                    </button>
+                  </div>
+                )}
 
                 <button
                   type="button"
@@ -1718,29 +2003,14 @@ export const AccountConnectorModal: React.FC<AccountConnectorModalProps> = ({
                   className="w-full px-4 py-3 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 border border-slate-700 disabled:opacity-60 text-white flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/10"
                 >
                   <TikTokIcon className="w-4 h-4 text-cyan-400" />
-                  {tiktokOauthLoading ? 'Connecting to TikTok...' : tiktokStatus.isConnected ? 'Reconnect TikTok Account' : 'Connect TikTok Account'}
+                  {tiktokOauthLoading
+                    ? 'Launching TikTok Login...'
+                    : (!tiktokStatus.isAppConfigured && tiktokClientKey.trim())
+                      ? 'Save Credentials & Connect TikTok'
+                      : tiktokStatus.isConnected
+                        ? 'Reconnect TikTok Account'
+                        : 'Connect TikTok Account with Login Kit'}
                 </button>
-
-                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-2">
-                  <div className="truncate">
-                    <span className="text-slate-500">Authorized Redirect URI: </span>
-                    <span className="font-mono text-cyan-400 select-all">
-                      {typeof window !== 'undefined' ? `${window.location.origin}/auth/tiktok/callback` : '/auth/tiktok/callback'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (typeof window !== 'undefined') {
-                        navigator.clipboard.writeText(`${window.location.origin}/auth/tiktok/callback`);
-                        showNotification('Redirect URI copied!');
-                      }
-                    }}
-                    className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] shrink-0 font-medium"
-                  >
-                    Copy
-                  </button>
-                </div>
               </div>
             ) : (
               <form onSubmit={handleTikTokDirectConnect} className="space-y-3">
