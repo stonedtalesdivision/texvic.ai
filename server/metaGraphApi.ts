@@ -445,6 +445,7 @@ export async function publishReelToInstagram(
     caption: string;
     shareToFeed?: boolean;
     audioName?: string;
+    coverUrl?: string;
   }
 ): Promise<PublishReelResult> {
   if (!igAccountId || !accessToken) {
@@ -476,6 +477,9 @@ export async function publishReelToInstagram(
     });
     if (params.audioName) {
       containerBody.set('audio_name', params.audioName.slice(0, 255));
+    }
+    if (params.coverUrl) {
+      containerBody.set('cover_url', params.coverUrl);
     }
 
     const createRes = await fetch(createContainerUrl, {

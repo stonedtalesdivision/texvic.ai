@@ -7,13 +7,26 @@ import fsSync from 'node:fs';
 const execFileAsync = promisify(execFile);
 const SFX_DIR = path.join(process.cwd(), 'data', 'media', 'sfx');
 
+export interface CinematicSfxPaths {
+  impactPath: string;
+  whooshPath: string;
+  thudPath: string;
+  clickPath: string;
+}
+
 /**
- * Ensures built-in procedural cinematic SFX files exist (Impact Hit & Whoosh)
+ * Ensures built-in procedural cinematic SFX files exist:
+ * 1. Deep Sub-bass Impact (Opening hook impact)
+ * 2. Filtered Air Whoosh (Camera motion transition)
+ * 3. Dossier Thud (Heavy mechanical archival stamp/thud for chapter cards)
+ * 4. Tape Click (Vintage analog relay switch / recorder click)
  */
-export async function ensureCinematicSfx(): Promise<{ impactPath: string; whooshPath: string }> {
+export async function ensureCinematicSfx(): Promise<CinematicSfxPaths> {
   await fs.mkdir(SFX_DIR, { recursive: true });
   const impactPath = path.join(SFX_DIR, 'cinematic_subbass_impact.wav');
   const whooshPath = path.join(SFX_DIR, 'cinematic_air_whoosh.wav');
+  const thudPath = path.join(SFX_DIR, 'cinematic_dossier_thud.wav');
+  const clickPath = path.join(SFX_DIR, 'cinematic_tape_click.wav');
 
   if (!fsSync.existsSync(impactPath)) {
     // 55Hz deep sub-bass cinematic impact hit with exponential decay
@@ -35,7 +48,42 @@ export async function ensureCinematicSfx(): Promise<{ impactPath: string; whoosh
     ]);
   }
 
-  return { impactPath, whooshPath };
+  if (!fsSync.existsSync(thudPath)) {
+    // Heavy mechanical archival dossier stamp/thud (105Hz transient down to 45Hz sub with quick decay)
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-f', 'lavfi', '-i', 'sine=frequency=95:duration=0.55',
+      '-af', 'afade=t=out:st=0.08:d=0.47,volume=1.75,lowpass=f=200',
+      '-c:a', 'pcm_s16le', thudPath
+    ]);
+  }
+
+  if (!fsSync.existsSync(clickPath)) {
+    // Vintage analog tape recorder relay click
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-f', 'lavfi', '-i', 'anoisesrc=d=0.08:c=white:r=44100:a=0.85',
+      '-af', 'bandpass=f=2400:width_type=h:w=700,afade=t=out:st=0.01:d=0.07,volume=1.4',
+      '-c:a', 'pcm_s16le', clickPath
+    ]);
+  }
+
+  return { impactPath, whooshPath, thudPath, clickPath };
+}
+
+/**
+ * Applies an authentic vintage radio / dispatch frequency filter to audio segments
+ * (e.g. For historical quotes, classified intercepts, or wiretap audio).
+ */
+export async function applyArchivalRadioFilter(inputAudioPath: string, outputAudioPath: string): Promise<string> {
+  await fs.mkdir(path.dirname(outputAudioPath), { recursive: true });
+  await execFileAsync('ffmpeg', [
+    '-y',
+    '-i', inputAudioPath,
+    '-af', 'highpass=f=400,lowpass=f=3400,volume=1.20,compand=attacks=0.02:decays=0.15:points=-60/-60|-30/-15|-10/-6|0/0,alimiter=limit=0.95',
+    '-c:a', 'pcm_s16le', outputAudioPath
+  ]);
+  return outputAudioPath;
 }
 
 export interface MasterAudioOptions {
@@ -48,14 +96,14 @@ export interface MasterAudioOptions {
 
 /**
  * Builds the broadcast-grade audio mix:
- * 1. Narration voiceover (elevated & crystal-clear)
+ * 1. Narration voiceover (elevated & crystal-clear with broadcast compand)
  * 2. Opening sub-bass impact hit at t=0.0s
- * 3. Subtle whoosh transitions on each scene cut
+ * 3. Synchronized chapter transition SFX on each cut (Air Whoosh + Dossier Thud / Tape Click)
  * 4. Background music dynamically ducked via sidechain compression (smooth ducking when speaking)
  */
 export async function composeCinematicAudio(options: MasterAudioOptions): Promise<string> {
   const { voicePath, musicPath, sceneCutTimestamps, totalDuration, workDir } = options;
-  const { impactPath, whooshPath } = await ensureCinematicSfx();
+  const { impactPath, whooshPath, thudPath, clickPath } = await ensureCinematicSfx();
   const masterAudioPath = path.join(workDir, `master-audio-${Date.now()}.wav`);
 
   // Case 1: Only voice, no background music
@@ -99,8 +147,7 @@ export async function composeCinematicAudio(options: MasterAudioOptions): Promis
     return masterAudioPath;
   }
 
-  // Case 4: Full Broadcast Mix (Voice + Music + SFX + Sidechain Compression Ducking)
-  // Build transition whoosh overlay filter string
+  // Case 4: Full Broadcast Mix (Voice + Music + Synchronized Chapter SFX + Dynamic Ducking)
   const inputs: string[] = [
     '-y',
     '-i', voicePath!,
@@ -108,17 +155,14 @@ export async function composeCinematicAudio(options: MasterAudioOptions): Promis
     '-i', impactPath
   ];
 
-  // Add whoosh inputs for each subsequent scene cut (starting from index 1)
+  // Add synchronized chapter transition inputs for each scene boundary
   const cutsAfterHook = sceneCutTimestamps.filter(t => t > 0.5 && t < totalDuration - 0.5);
   for (let i = 0; i < cutsAfterHook.length; i++) {
     inputs.push('-i', whooshPath);
+    // Alternate between dossier thud and tape click for sonic variety
+    inputs.push('-i', i % 2 === 0 ? thudPath : clickPath);
   }
 
-  // Build filtergraph:
-  // [0:a] is Voiceover -> split via asplit=2 into [voice_mix] (for output) and [voice_sc] (sidechain trigger)
-  // [1:a] is Background Music
-  // [2:a] is Sub-bass Impact at t=0.0s
-  // [3:a ... N:a] are Whooshes delayed to each cut timestamp
   const filterParts: string[] = [];
 
   // 1. Voice boost & dual-stream splitting: broadcast dynamic vocal compression keeps speech clear at -6 to -10 dBFS
@@ -134,24 +178,32 @@ export async function composeCinematicAudio(options: MasterAudioOptions): Promis
     `[raw_bgm][voice_sc]sidechaincompress=threshold=0.05:ratio=4.0:attack=25:release=350[ducked_bgm]`
   );
 
-  // 3. Opening impact (subtle at 0.40 so it doesn't mask the first spoken word)
+  // 3. Opening sub-bass impact (subtle at 0.40 so it doesn't mask the first spoken word)
   filterParts.push('[2:a]volume=0.40,aformat=sample_rates=44100:channel_layouts=stereo[impact]');
 
-  // 4. Whoosh sounds with adelay (subtle at 0.22)
-  const whooshLabels: string[] = [];
+  // 4. Synchronized Chapter Cut SFX (Air Whoosh + Dossier Thud / Tape Click)
+  const transitionLabels: string[] = [];
   for (let i = 0; i < cutsAfterHook.length; i++) {
     const delayMs = Math.round(cutsAfterHook[i] * 1000);
-    const inputIdx = 3 + i;
-    const label = `w${i}`;
+    const whooshInputIdx = 3 + (i * 2);
+    const thudInputIdx = 4 + (i * 2);
+
+    const whooshLabel = `w${i}`;
+    const thudLabel = `t${i}`;
+
     filterParts.push(
-      `[${inputIdx}:a]volume=0.22,adelay=${delayMs}|${delayMs},aformat=sample_rates=44100:channel_layouts=stereo[${label}]`
+      `[${whooshInputIdx}:a]volume=0.20,adelay=${delayMs}|${delayMs},aformat=sample_rates=44100:channel_layouts=stereo[${whooshLabel}]`
     );
-    whooshLabels.push(`[${label}]`);
+    filterParts.push(
+      `[${thudInputIdx}:a]volume=0.26,adelay=${delayMs}|${delayMs},aformat=sample_rates=44100:channel_layouts=stereo[${thudLabel}]`
+    );
+
+    transitionLabels.push(`[${whooshLabel}]`, `[${thudLabel}]`);
   }
 
   // 5. Final Master Mix with normalize=0 and broadcast limiter
-  const allTracks = ['[voice_mix]', '[ducked_bgm]', '[impact]', ...whooshLabels].join('');
-  const totalInputs = 3 + whooshLabels.length;
+  const allTracks = ['[voice_mix]', '[ducked_bgm]', '[impact]', ...transitionLabels].join('');
+  const totalInputs = 3 + transitionLabels.length;
   filterParts.push(
     `${allTracks}amix=inputs=${totalInputs}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[out]`
   );

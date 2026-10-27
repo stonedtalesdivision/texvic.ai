@@ -328,8 +328,8 @@ async function renderGeneratedScene(
     }
   }
 
-  // 5. Render Scene Video with unified Dark Archive grade (1080x1920 @ 30fps)
-  const DARK_GRADE = 'eq=saturation=0.55:contrast=1.20:brightness=-0.08,vignette=PI/4';
+  // 5. Render Scene Video with unified Dark Archive 35mm grade (1080x1920 @ 30fps)
+  const DARK_GRADE = 'eq=saturation=0.55:contrast=1.20:brightness=-0.08,vignette=PI/4,noise=alls=6:allf=t';
 
   try {
     if (hasMotionVideo) {

@@ -220,6 +220,9 @@ try { db.exec(`ALTER TABLE reels ADD COLUMN fb_account_status TEXT DEFAULT 'idle
 try { db.exec(`ALTER TABLE reels ADD COLUMN platforms_published_json TEXT DEFAULT '[]'`); } catch {}
 try { db.exec(`ALTER TABLE reels ADD COLUMN research_dossier_json TEXT`); } catch {}
 try { db.exec(`ALTER TABLE reels ADD COLUMN audit_json TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN cover_url TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN cover_path TEXT`); } catch {}
+try { db.exec(`ALTER TABLE reels ADD COLUMN syndication_json TEXT DEFAULT '{}'`); } catch {}
 
 // Seed Default Lead Magnet Keyword Triggers
 try {

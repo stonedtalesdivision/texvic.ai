@@ -10,6 +10,7 @@ import { composeCinematicAudio } from './cinematicAudioEngine.js';
 import { composeWithHyperframes } from './hyperframesCompositor.js';
 import { renderOverlayToPng } from './vectorOverlayEngine.js';
 import { getActivePersona } from './themePage.js';
+import { generateReelCover } from './thumbnailEngine.js';
 
 export interface ReelScene {
   assetId: string;
@@ -157,6 +158,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
       if (!isFullVertical) {
         vf.push('eq=saturation=0.45:contrast=1.25:brightness=-0.12');
         vf.push('vignette=PI/4');
+        vf.push('noise=alls=6:allf=t');
       }
 
       const filters = [
@@ -294,6 +296,18 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
 
         if (hfResult.success && hfResult.outputPath && fsSync.existsSync(hfResult.outputPath)) {
           console.info(`[Reel Composer] 🏆 HyperFrames Compositor completed broadcast master: ${hfResult.outputPath}`);
+          try {
+            await generateReelCover({
+              reelId: input.reelId,
+              title: reelRecord?.title || cleanSubject,
+              niche: input.verticalBadge || reelRecord?.niche,
+              accentColor: accentHex,
+              badge: verticalBadge,
+              videoPath: hfResult.outputPath
+            });
+          } catch (covErr) {
+            console.warn('[Reel Composer] Notice generating reel cover:', covErr);
+          }
           return { outputPath: hfResult.outputPath, reelId: input.reelId, scenes: input.scenes };
         }
         console.warn(`[Reel Composer] HyperFrames compositor notice (${hfResult.error || 'unspecified'}), falling back to direct FFmpeg assembly...`);
@@ -368,6 +382,21 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
     await run('ffmpeg', finalArgs);
 
     console.info(`[Reel Composer] 🚀 Studio Reel Mastered with Archival HUD & Subtitles: ${outputPath}`);
+
+    // Generate high-CTR 9:16 Reel Cover / Thumbnail automatically
+    try {
+      await generateReelCover({
+        reelId: input.reelId,
+        title: reelRecord?.title || cleanSubject,
+        niche: input.verticalBadge || reelRecord?.niche,
+        accentColor: accentHex,
+        badge: verticalBadge,
+        videoPath: outputPath
+      });
+    } catch (covErr) {
+      console.warn('[Reel Composer] Notice generating reel cover:', covErr);
+    }
+
     return { outputPath, reelId: input.reelId, scenes: input.scenes };
   } finally {
     try {

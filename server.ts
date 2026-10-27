@@ -50,6 +50,8 @@ import multer from "multer";
 import { registerAsset, getAsset, listAssets, selectAssets, deleteAsset, syncAssetsFromDisk, getStorageStats, saveUploadedAsset } from "./server/assetLibrary.js";
 import { runStorageSweep, pruneExpiredPublishedReels } from "./server/storageManager.js";
 import { composeReel } from "./server/reelComposer.js";
+import { generateReelCover } from "./server/thumbnailEngine.js";
+import { buildSyndicationPackage } from "./server/syndicationEngine.js";
 import { ensureAutonomousVisualAssets } from "./server/autonomousVisualAssets.js";
 import { ensureAutonomousAudioAsset } from "./server/autonomousAudio.js";
 import { generateSpeech, generateSpeechWithNodeEdge, generateCohesiveReelSpeech, generateSilentAudioSegment, padAudioSegment, concatenateAudioTracks, CREATOR_VOICES, resolveBestVoiceForTopic, getAudioDuration, generateSpeechViaHttp, generateSpeechWithPiper } from "./server/ttsEngine.js";
@@ -2986,6 +2988,47 @@ app.post("/api/reels/:id/re-render", async (req, res) => {
     });
   } catch (err: any) {
     console.error(`[Reel Re-render] Failed to re-render reel ${id}:`, err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// GET /api/reels/:id/syndication - Multi-platform metadata for YouTube Shorts and TikTok
+app.get("/api/reels/:id/syndication", async (req, res) => {
+  const { id } = req.params;
+  const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+  if (!reel) return res.status(404).json({ success: false, error: 'Reel not found.' });
+
+  try {
+    const pkg = await buildSyndicationPackage(reel);
+    res.json({ success: true, syndication: pkg });
+  } catch (err: any) {
+    console.error(`[Syndication] Error building syndication package for ${id}:`, err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// POST /api/reels/:id/generate-cover - Generate automated high-CTR 9:16 cover/thumbnail
+app.post("/api/reels/:id/generate-cover", async (req, res) => {
+  const { id } = req.params;
+  const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+  if (!reel) return res.status(404).json({ success: false, error: 'Reel not found.' });
+
+  try {
+    const videoPath = reel.video_url
+      ? (reel.video_url.startsWith('http') ? undefined : path.resolve(reel.video_url.replace(/^\//, '')))
+      : undefined;
+
+    const cover = await generateReelCover({
+      reelId: id,
+      title: reel.title,
+      niche: reel.niche,
+      videoPath: (videoPath && fs.existsSync(videoPath)) ? videoPath : undefined
+    });
+
+    const updated = db.prepare('SELECT * FROM reels WHERE id = ?').get(id) as any;
+    res.json({ success: true, coverPath: cover.coverPath, coverUrl: cover.coverUrl, reel: updated });
+  } catch (err: any) {
+    console.error(`[Cover Generator] Error generating cover for ${id}:`, err);
     res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });

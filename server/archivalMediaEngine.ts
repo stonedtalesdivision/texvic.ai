@@ -230,8 +230,8 @@ export async function fetchAndAnimateArchivalClip(
   // Alternating authentic Ken Burns camera animations
   let zoomFilter = '';
   if (cameraType === 0) {
-    // Camera 1: Slow Dramatic Zoom-In
-    zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(zoom+0.0015,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1`;
+    // Camera 1: Slow Dramatic Zoom-In with Forensic Document Highlighter strip
+    zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(zoom+0.0015,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,drawbox=x=120:y=880:w=840:h=90:color=0xd4af37@0.22:t=fill,setsar=1`;
   } else if (cameraType === 1) {
     // Camera 2: Slow Revealing Zoom-Out
     zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.25-0.0015*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,setsar=1`;
