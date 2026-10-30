@@ -62,19 +62,15 @@ export const CREATOR_VOICES = {
 
 /**
  * Automatically resolves the most human, atmospheric voice based on post topic and mood
+ * Defaults to refined British documentary baritone (en-GB-RyanNeural) for universal global appeal (BBC / NatGeo style)
  */
 export function resolveBestVoiceForTopic(topicOrNiche = '', mood = ''): string {
   const text = `${topicOrNiche} ${mood}`.toLowerCase();
-  if (/scary|spooky|horror|creepy|dark|unsolved|mystery|paranormal|conspiracy|crime|heist|dossier|classified|ancient|ruins|island|abyss|ocean|nuclear/i.test(text)) {
-    return CREATOR_VOICES.deepDocumentaryMale;
+  if (/tech|infrastructure|satellite|subsea|power|cyber|internet/i.test(text)) {
+    return CREATOR_VOICES.cinematicStorytellerMale; // Calm, deep cinematic storytelling tone
   }
-  if (/history|historical|civilization|documentary|archive|dossier/i.test(text)) {
-    return CREATOR_VOICES.cinematicStorytellerMale;
-  }
-  if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
-    return CREATOR_VOICES.authorityMale;
-  }
-  return CREATOR_VOICES.deepDocumentaryMale;
+  // Universal global authority for mysteries, history, heists, ancient ruins, and earth phenomena
+  return CREATOR_VOICES.britishNarratorMale; // en-GB-RyanNeural (Sophisticated BBC/NatGeo documentary baritone)
 }
 
 /**

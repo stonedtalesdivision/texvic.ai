@@ -11,91 +11,99 @@ export interface ContentVertical {
 export const CONTENT_VERTICALS: ContentVertical[] = [
   {
     id: "untold-heists-history",
-    niche: "Untold Heists & Documented World Events",
-    badge: "🏛️ UNTOLD EVENTS",
-    description: "Documented international heists, historical operations, currency collapses, and verified forensic timelines.",
+    niche: "Untold World Heists & International Mysteries",
+    badge: "🏛️ GLOBAL HEISTS & EVENTS",
+    description: "Documented international heists, high-stakes operations, global currency anomalies, and verified forensic timelines across Europe, Asia, and the Americas.",
     pillars: [
-      "The 2016 Bangladesh Bank cyber heist halted by a single printer routing typo",
-      "The 2003 Antwerp diamond heist: how thieves bypassed 10 layers of seismic and radar security",
-      "Operation Pastorius: how an 8-man German sabotage mission collapsed in New York in 1942",
-      "The 1971 Lufthansa Flight 649 hijacking and the $5M duffel bag drop in the desert"
+      "The 2003 Antwerp diamond heist: how thieves bypassed 10 layers of seismic sensors and heat detectors in Belgium",
+      "The 2016 Bangladesh Bank cyber heist halted across three continents by a single printer routing typo",
+      "The 2019 Dresden Green Vault royal jewel heist in Germany: cutting the city electrical grid to seize 4,300 Saxon diamonds",
+      "The 2005 Banco Central burglary in Fortaleza, Brazil: digging an 80-meter tunnel beneath the city streets",
+      "The 1971 Lufthansa Flight 649 international skyjacking and the desert cash drop"
     ],
     sampleHooks: [
-      "In 2016, a bank teller flagged a spelling mistake on a $1 billion wire transfer—halting the largest cyber heist in history.",
-      "In 2003, thieves cracked a vault guarded by magnetic field sensors, heat detectors, and 100 million combination locks without tripping a single alarm.",
-      "In 1942, an 8-man espionage team landed on Long Island with explosives—and within days, their own commander turned them in."
+      "In 2003, thieves broke into an impenetrable vault guarded by seismic sensors and Doppler radar in Antwerp—without tripping a single alarm.",
+      "In 2016, a bank teller flagged a single spelling mistake on a $1 billion transfer—halting the largest international cyber heist in human history.",
+      "In 2019, thieves cut power to an entire German district, smashed into the historic Green Vault, and vanished with priceless royal diamonds in under 5 minutes."
     ],
-    visualAesthetic: "Dark archival documentary footage, authentic forensic documents, vintage newspaper microfiche, high-contrast monochrome and antique gold grading, 35mm film grain"
+    visualAesthetic: "Dark international archival documentary footage, authentic forensic documents, vintage newspaper microfiche, high-contrast monochrome and antique gold grading, 35mm film grain"
   },
   {
     id: "forbidden-places-infrastructure",
-    niche: "Forbidden Places, Hidden Infrastructure & Geopolitics",
+    niche: "Forbidden Geography, Hidden Infrastructure & Geopolitics",
     badge: "🗺️ FORBIDDEN GEOGRAPHY",
-    description: "Banned airspace, deep government continuity bunkers, sovereign trade choke points, and isolated territories.",
+    description: "Banned sovereign airspace, deep alpine mountain bunkers, international trade choke points, and isolated closed territories worldwide.",
     pillars: [
-      "Project Greek Island: the 112,000-square-foot congressional nuclear bunker hidden under The Greenbrier resort",
-      "Why commercial airliners avoid the Tibetan Plateau: decompression emergency ceilings and lack of radar corridors",
-      "The Strait of Malacca choke point where 90,000 ships carry a third of global maritime trade",
-      "Svalbard Global Seed Vault: a permafrost fortress carved 120 meters into Arctic sandstone"
+      "The subterranean city of Derinkuyu in Cappadocia, Turkey: 18 levels beneath the earth built to shelter 20,000 people",
+      "Why international airliners avoid the Tibetan Plateau: decompression emergency ceilings and lack of descent corridors",
+      "The Strait of Malacca choke point where 90,000 vessels carry one-third of all global maritime trade",
+      "Svalbard Global Seed Vault: a permafrost fortress carved 120 meters (400 feet) into Arctic sandstone in Norway",
+      "North Sentinel Island in the Bay of Bengal: the sovereign territory where modern humans are legally forbidden to step foot",
+      "The Paris Catacombs: over 300 kilometers (180 miles) of ancient subterranean limestone quarries beneath France"
     ],
     sampleHooks: [
-      "For 34 years, thousands of hotel guests slept directly above a 112,000-square-foot bunker built for the entire U.S. Congress.",
-      "Commercial flights avoid the Tibetan Plateau not because of altitude, but because emergency passenger oxygen runs out before an airliner can descend.",
-      "If a single 1.5-mile maritime choke point in Southeast Asia closes, one-third of all global trade halts within 48 hours."
+      "Eighteen stories below the plains of Turkey lies an ancient underground city with stone blast doors and ventilation shafts engineered for 20,000 people.",
+      "International flights avoid the Tibetan Plateau not because of altitude, but because emergency passenger oxygen runs out before an airliner can descend.",
+      "If a single 2-kilometer maritime choke point in Southeast Asia closes, one-third of all global trade halts within 48 hours."
     ],
-    visualAesthetic: "High-resolution satellite topography, dark telemetry overlays, 3D geographic flyovers, military architectural blueprints, deep slate cyan and amber telemetry"
+    visualAesthetic: "High-resolution satellite topography, dark telemetry overlays, 3D geographic flyovers, international architectural blueprints, deep slate cyan and amber telemetry"
   },
   {
     id: "earth-scientific-discoveries",
     niche: "Mind-Blowing Earth Discoveries & Scientific Phenomena",
-    badge: "🌋 SCIENTIFIC PHENOMENA",
-    description: "Documented physical anomalies, extreme geological deep boreholes, oceanic depths, and peer-reviewed mysteries.",
+    badge: "🌋 EARTH PHENOMENA",
+    description: "Documented physical anomalies, extreme geological deep boreholes, abyssal ocean trenches, and peer-reviewed mysteries across every continent.",
     pillars: [
-      "The Kola Superdeep Borehole: what Soviet geologists actually discovered at 12,262 meters deep",
-      "Point Nemo: the oceanic pole of inaccessibility where decommissioned space stations are guided to rest",
-      "The underwater sand cascade of Mauritius: how bathymetric drop-offs create an ocean illusion",
-      "Lake Vostok: an Antarctic freshwater lake sealed beneath 4,000 meters of ice for 15 million years"
+      "The Kola Superdeep Borehole in the Russian Arctic: what geologists discovered at 12,262 meters (40,230 feet) deep",
+      "The Eye of the Sahara (Richat Structure) in Mauritania: a 40-kilometer (25-mile) concentric geological ring visible from orbit",
+      "Point Nemo in the South Pacific: the oceanic pole of inaccessibility where decommissioned space stations are laid to rest",
+      "The underwater sand cascade off the coast of Mauritius: how bathymetric drop-offs create an ocean illusion",
+      "Lake Vostok: a subglacial Antarctic freshwater lake sealed beneath 4,000 meters (13,000 feet) of ice for 15 million years",
+      "The Hamza River: an underground freshwater flow 4,000 meters beneath the Amazon River basin"
     ],
     sampleHooks: [
-      "At 12,000 meters beneath the Arctic tundra, geologists found liquid water and microscopic fossils where physics said they could not exist.",
-      "At Point Nemo in the South Pacific, the closest humans to you are astronauts aboard the International Space Station 250 miles above.",
-      "Satellite images show what looks like a massive waterfall in the Indian Ocean—here is the real geological mechanism."
+      "At 12,000 meters (40,000 feet) beneath the Arctic tundra, geologists found boiling liquid water and microfossils where physics said they could not exist.",
+      "In the middle of the Sahara Desert lies a 40-kilometer concentric ring structure so massive astronauts use it to navigate in space.",
+      "At Point Nemo in the South Pacific, the closest humans to you are astronauts aboard the International Space Station 400 kilometers (250 miles) above."
     ],
     visualAesthetic: "Scientific bathymetric scans, aerial ocean cinematography, volcanic geothermal steam, microscopic crystal macro shots, deep abyss indigo with warm amber lighting"
   },
   {
     id: "intelligence-tech-power",
-    niche: "High-Stakes Technology, Intelligence History & Power",
-    badge: "🛰️ INTELLIGENCE HISTORY",
-    description: "Cold War surveillance technology, undersea data cables, signal intelligence breakthroughs, and sovereign infrastructure.",
+    niche: "Global Technology, Subsea Infrastructure & Power",
+    badge: "🛰️ GLOBAL INFRASTRUCTURE",
+    description: "Worldwide communication backbones, subsea fiber cables, alpine gold vaults, satellite networks, and maritime choke points.",
     pillars: [
-      "Operation Ivy Bells: how U.S. divers tapped Soviet undersea military cables 400 feet beneath the Sea of Okhotsk",
-      "Project Azorian: the CIA's covert 6-year engineering project to raise a sunken Soviet nuclear submarine from 16,000 feet",
-      "The 550 undersea fiber-optic cables that carry 99% of all transcontinental internet communications",
-      "The atomic clock synchronization network required to keep GPS satellites and global bank transfers accurate to nanoseconds"
+      "The 550 undersea fiber-optic cables that carry over 99% of all transcontinental global internet traffic",
+      "The Swiss alpine fortresses: military bunker complexes drilled deep inside the granite Alps to secure sovereign gold reserves",
+      "The atomic clock synchronization network required to keep GPS satellites and global SWIFT bank transfers accurate to nanoseconds",
+      "The Panama and Suez Canal oceanic choke points that dictate global container trade logistics",
+      "Project Azorian: the deep-sea salvage expedition to raise a sunken submarine 5,000 meters (16,000 feet) beneath the Pacific"
     ],
     sampleHooks: [
-      "In 1971, deep-sea divers placed a 6-ton recording pod on a Soviet undersea military cable 400 feet below the surface.",
-      "In 1974, the CIA built a 600-foot mining ship with a giant mechanical claw to lift a sunken nuclear submarine from 3 miles deep.",
-      "Over 99% of all transcontinental internet data does not travel by satellite—it moves through 550 undersea cables as thin as a garden hose."
+      "Over 99% of all international internet data does not travel by satellite—it moves through 550 undersea cables resting on the ocean floor.",
+      "Inside the Swiss Alps lies a network of nuclear-hardened mountain vaults drilled directly into solid granite.",
+      "Every global bank transfer and navigation system on Earth depends on a network of atomic clocks synchronized to billionths of a second."
     ],
     visualAesthetic: "Fiber-optic telemetry maps, classified engineering diagrams, deep oceanic sonar visuals, titanium hardware close-ups, obsidian and gold grading"
   },
   {
     id: "ancient-enigmas-artifacts",
-    niche: "Documented Enigmas & Ancient Engineering",
+    niche: "Ancient Engineering, Lost Civilizations & Documented Enigmas",
     badge: "🏛️ ANCIENT ENIGMAS",
-    description: "Physical archaeological discoveries, undeciphered historical scripts, and ancient engineering feats documented by modern science.",
+    description: "Physical archaeological discoveries, undeciphered historical scripts, and ancient engineering feats documented by modern international science.",
     pillars: [
-      "The Antikythera Mechanism: the 2,000-year-old geared calculator that predicted eclipses centuries before modern clocks",
-      "The self-healing chemistry of ancient Roman concrete unlocked by MIT researchers in 2023",
-      "The subterranean city of Derinkuyu: 18 levels of ancient volcanic rock capable of sheltering 20,000 people",
+      "The Great Pyramid of Giza: 2023 cosmic-ray muon scans that revealed a hidden 9-meter corridor behind the chevron entrance",
+      "The 2,000-year-old Antikythera Mechanism: an ancient Greek geared computer recovered from an Aegean shipwreck",
+      "The self-healing chemistry of ancient Roman concrete unlocked by international researchers in 2023",
+      "The Nazca Lines of Peru: hundreds of massive geoglyphs preserved for 2,000 years in the arid coastal desert",
+      "The 8,000 Terracotta Warriors and sealed mercury rivers of Qin Shi Huang's mausoleum in Xi'an, China",
       "The Voynich Manuscript: why modern computational linguistics still cannot decode its medieval cipher"
     ],
     sampleHooks: [
-      "In 1901, divers recovered a corroded bronze artifact from an ancient shipwreck—and modern CT scans revealed a 2,000-year-old analog computer.",
-      "Roman sea walls get stronger as they age—and in 2023, scientists finally proved lime clasts actively heal micro-cracks when exposed to seawater.",
-      "Eighteen stories below the plains of Cappadocia lies an ancient underground city with ventilation shafts and stone blast doors built for 20,000 people."
+      "In 2023, scientists using cosmic rays fired through the Great Pyramid discovered a hidden 9-meter (30-foot) corridor sealed for 4,500 years.",
+      "In 1901, divers recovered a corroded bronze artifact from an Aegean shipwreck—and CT scans revealed a 2,000-year-old analog computer.",
+      "Roman maritime sea walls get stronger as they age—and in 2023, scientists finally proved hot-mixed lime clasts heal micro-cracks upon contact with seawater."
     ],
     visualAesthetic: "Museum archival macro photography, antique parchment and papyrus scans, 3D laser photogrammetry, ancient stone corridors, warm candlelight and slate contrast"
   }
@@ -107,19 +115,19 @@ import { AccountPersona, ContentPillar } from '../src/types.js';
 export const DEFAULT_THEME_PROFILE = {
   handle: "@theuntoldarch",
   brand: "The Untold Archive",
-  niche: "Documentary Storytelling: Heists, Forbidden Infrastructure & Global Mysteries",
-  audience: "Curious thinkers, history buffs, and global mystery enthusiasts who value verified true stories, declassified historical records, and evidence-led investigative storytelling.",
+  niche: "Documentary Storytelling: Global Mysteries, World Heists & Earth Phenomena",
+  audience: "Curious minds, global history buffs, and mystery enthusiasts across 150+ countries who value verified true stories, international archaeological discoveries, and forensic storytelling.",
   pillars: [
-    "Untold heists and documented world events",
-    "Forbidden places, hidden infrastructure, and geopolitics",
-    "Mind-blowing Earth and scientific discoveries",
-    "High-stakes technology, intelligence history, and power",
-    "Documented enigmas and ancient engineering"
+    "Untold world heists and documented international events",
+    "Forbidden geography, hidden infrastructure, and global geopolitics",
+    "Mind-blowing Earth and scientific phenomena across all continents",
+    "Global technology, subsea infrastructure, and power moves",
+    "Ancient engineering, lost civilizations, and documented enigmas"
   ],
-  format: "original short-form cinematic documentary Instagram Reels",
+  format: "original short-form cinematic documentary Instagram Reels & YouTube Shorts",
   visualDirection: "cinematic dark documentary aesthetic, authentic archival photography, 3D satellite map flyovers, deep obsidian (#08080a) and charcoal (#0d0e12) with antique gold (#d4af37) and telemetry cyan (#0284c7) accents, 35mm film grain, high-contrast evidence typography",
-  originalityRule: "Focus on verified true stories, documented anomalies, primary source evidence, and concise investigative breakdowns that educate and fascinate viewers without sensationalized clickbait.",
-  defaultCta: "Follow @theuntoldarch for daily verified documentary deep dives 📜 | Save this reference 📌"
+  originalityRule: "Focus on verified true stories, documented global anomalies, primary source evidence, and concise investigative breakdowns that educate and fascinate viewers worldwide without sensationalized clickbait.",
+  defaultCta: "Follow @theuntoldarch for daily verified global documentaries 🌍 | Save this file 📌"
 } as const;
 
 export const DEFAULT_SARLX_PROFILE = DEFAULT_THEME_PROFILE;
@@ -130,9 +138,12 @@ export function getActivePersona(): AccountPersona {
     const active = getActiveAccount();
     if (active?.persona_json) {
       const parsed = JSON.parse(active.persona_json);
-      if (parsed && Array.isArray(parsed.contentPillars) && parsed.contentPillars.length > 0) {
-        return parsed;
-      }
+      return {
+        ...parsed,
+        niche: DEFAULT_THEME_PROFILE.niche,
+        audience: DEFAULT_THEME_PROFILE.audience,
+        contentPillars: CONTENT_VERTICALS
+      };
     }
     // If account has handle/name but no persona yet
     if (active && (active.username || active.name)) {

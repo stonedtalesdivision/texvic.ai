@@ -465,49 +465,54 @@ Select ONE specific, real-world, documented historical event, scientific discove
 Do NOT repeat any of these recently covered subjects:
 ${avoidTopics.length ? avoidTopics.map(t => `- ${t}`).join('\n') : '- none'}
 
-RESEARCH & FACT-CHECKING MANDATES (CRITICAL):
-1. THOROUGH RESEARCH: Understand the topic thoroughly before drafting. Focus on ONE specific event with concrete dates, names, locations, and official records.
-2. RELIABLE SOURCES: Prioritize primary sources, national archives (NARA/FOIA), scientific papers (Nature/Science), official investigation reports, and credible publications.
-3. VERIFY FACTS VS OPINIONS: Separate confirmed facts from opinions, assumptions, and speculation. Explicitly identify any common misconceptions or exaggerated myths to avoid.
-4. NO CLICKBAIT: Avoid clickbait claims, misleading statistics, and unsupported statements.
-5. TARGET AUDIENCE & CENTRAL MESSAGE:
-   - Target Audience: Everyday curious viewers with zero technical or academic background.
-   - Central Message: The ONE clear, educational takeaway explained in simple everyday language.
-6. SIMPLIFIED STORY BEAT MAP:
-   - hookBeat: Interesting question, surprising real fact, or relatable observation that hooks attention in 3 seconds without exaggeration.
-   - explanationBeats: 2 to 3 step-by-step points explaining the story in logical order. Each point covers ONE main idea and explains why it matters.
-   - resolutionBeat: Explaining the final takeaway, resolving the opening hook, and giving the viewer closure.
-7. RECORD CITATIONS: Record actual archive or publication names and supported claims so they can be verified.
+GLOBAL AUDIENCE & WORLDWIDE RESEARCH MANDATES (CRITICAL):
+1. WORLDWIDE CONTINENTAL SCOPE (TARGETING THE ENTIRE GLOBAL INSTAGRAM AUDIENCE):
+   - Do NOT focus narrowly on American domestic politics, U.S. federal agencies, or local American crimes.
+   - The audience is global: curious minds across Europe, Asia, Latin America, Africa, the Middle East, and Oceania.
+   - Actively choose captivating international subjects across the globe:
+     * Europe & Arctic (e.g. Dresden Green Vault diamond heist in Germany, Svalbard Global Seed Vault in Norway, Kola Superdeep Borehole)
+     * Asia & Middle East (e.g. Derinkuyu subterranean city in Turkey, Terracotta Army in China, Mount Kailash airspace anomaly in Tibet, Petra in Jordan)
+     * Africa & Mediterranean (e.g. Great Pyramid hidden chambers discovered via cosmic-ray muons, Eye of the Sahara / Richat Structure in Mauritania, Roman self-healing maritime concrete)
+     * Latin America & Oceans (e.g. Nazca Lines in Peru, Point Nemo spacecraft graveyard in South Pacific, underwater sandfalls of Mauritius)
+2. UNIVERSAL INTERNATIONAL FRAMING (NO US DOMESTIC AGENCY TROPES):
+   - Avoid framing stories around domestic American agencies ("the FBI", "the CIA", "U.S. Congress", "Hoover").
+   - Frame through universal, internationally recognized authorities: "international archaeological teams", "satellite telemetry networks", "declassified naval hydrophone archives", "geological research expeditions", "forensic investigators".
+3. DUAL MEASUREMENT UNITS (MANDATORY FOR GLOBAL AUDIENCES):
+   - Always provide both metric and imperial units so international viewers (Europe, Asia, Latin America) and US viewers understand the scale immediately:
+     * e.g. "12,262 meters (40,230 feet) deep", "40 kilometers (25 miles) wide", "4,000 meters (13,000 feet) beneath the ice".
+4. THOROUGH RESEARCH & PRIMARY SOURCES: Focus on ONE specific event with concrete dates, names, locations, and official records. Prioritize national archives, scientific papers (Nature/Science), and verified investigation reports.
+5. NO SENSATIONALIZED CLICKBAIT: Avoid fake claims, fake curses, or exaggerated myths. Focus on mind-blowing verified reality.
+6. TARGET AUDIENCE: Everyday curious global viewers with zero technical background.
 
 Return ONLY valid JSON matching this schema:
 {
-  "subject": "Clear, specific subject name with dates/context (e.g. 'Project Greek Island: The Greenbrier Bunker (1958-1992)')",
+  "subject": "Clear, specific subject name with international location & dates (e.g. 'The 2003 Antwerp Diamond Vault Heist (Belgium)' or 'The Great Pyramid Cosmic Muon Discovery (Egypt 2023)')",
   "pillar": "${vertical.niche}",
-  "centralPremise": "The specific documented fact or anomaly that makes this story mind-blowing and educational.",
-  "targetAudience": "Everyday curious viewers with zero prior background on the topic",
-  "centralMessage": "The single main educational takeaway in plain English",
+  "centralPremise": "The specific documented fact or anomaly that makes this story mind-blowing and globally captivating.",
+  "targetAudience": "Curious global viewers worldwide with zero prior background on the topic",
+  "centralMessage": "The single main educational takeaway in plain English with dual units where applicable",
   "verifiedFacts": [
-    "Concrete verified claim 1 with date/metric",
-    "Concrete verified claim 2 with primary evidence",
+    "Concrete verified claim 1 with date and dual metric/imperial measurements (e.g. '12,000 meters / 40,000 feet')",
+    "Concrete verified claim 2 with primary evidence and international location",
     "Concrete verified claim 3 with historical outcome"
   ],
   "uncertaintiesOrLimits": [
-    "What remains unconfirmed, sealed, or genuinely disputed by historians/scientists"
+    "What remains unconfirmed, sealed, or disputed by international historians/scientists"
   ],
   "commonMisconceptions": [
     "Myths or exaggerated claims to avoid or debunk"
   ],
   "simplifiedStoryBeatMap": {
-    "hookBeat": "Surprising real fact or question that hooks within 3 seconds",
+    "hookBeat": "Surprising real fact or question that hooks within 3 seconds for a global audience",
     "explanationBeats": [
       "Step 1: How it started in simple everyday words",
-      "Step 2: The key event or discovery and why it mattered"
+      "Step 2: The key event or discovery and why it mattered globally"
     ],
     "resolutionBeat": "Final takeaway resolving the hook with a satisfying ending"
   },
   "citations": [
     {
-      "sourceName": "Name of official archive, paper, or outlet (e.g. 'National Security Archive / The Washington Post')",
+      "sourceName": "Name of official archive, paper, or outlet (e.g. 'Nature / Royal Belgian Academy / UNESCO')",
       "institutionOrPublisher": "Publishing entity",
       "sourceType": "archive",
       "claimSupported": "Specific claim substantiated by this source"
@@ -515,7 +520,7 @@ Return ONLY valid JSON matching this schema:
   ],
   "verificationStatus": "verified_primary",
   "isLiveGrounded": true,
-  "notes": "Brief editorial summary of why this subject is credible and high-impact."
+  "notes": "Brief editorial summary of why this subject is credible and has high universal global appeal."
 }`;
 
   // 1. Try Gemini Live Web Search Grounding
@@ -2371,15 +2376,19 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
 1. HIGH-RETENTION 4-CHAPTER PROGRESSION (25s TO 35s TOTAL / ~65 TO 85 WORDS TOTAL):
    - Never repeat the same claim or fact twice. Every chapter must advance the story with fresh narrative developments.
    - Total length: 65 to 85 words (approx. 16 to 22 words per chapter).
+   - WORLDWIDE AUDIENCE PERSPECTIVE (TARGETING ALL 2+ BILLION INSTAGRAM USERS):
+     * Do NOT write as an American local news broadcast. Avoid domestic U.S. federal agency tropes ("the FBI", "the CIA", "Hoover", "U.S. Congress").
+     * Frame stories through global, universal authorities: "international forensic teams", "archaeological expeditions", "satellite telemetry networks", "declassified naval archives".
+     * MANDATORY DUAL MEASUREMENTS: Whenever mentioning distance, depth, height, or weight, always include BOTH metric and imperial units (e.g. "12,000 meters—nearly 40,000 feet", "40 kilometers across (25 miles)", "300 meters beneath the surface").
    - ADAPT TO THE REAL HISTORICAL GENRE (NEVER INVENT FAKE LAB/CHEMICAL ANOMALIES):
-     * For Espionage, Sabotage, Heists & Military Operations (e.g. Operation Pastorius, Antwerp Heist, Lufthansa 649):
-       Focus on human motives, tactical plans, blunders, unexpected betrayals, confidential confessions, and intelligence cover-ups. (e.g., in Operation Pastorius, how an 8-man German sabotage team collapsed when their leader George Dasch voluntarily walked into FBI headquarters, and how Hoover hid the betrayal to make the FBI look infallible). NEVER force fake lab tests, corrosion, or chemical anomalies onto non-scientific stories!
-     * For Ancient Enigmas & Relics (e.g. Voynich Manuscript, Antikythera Mechanism):
-       Focus on real physical materials, undeciphered scripts, carbon dating, and craftsmanship mysteries.
-     * For Geography, Bunkers & Disappearances:
-       Focus on covert engineering, declassified blueprints, strategic choke points, and emergency protocols.
+     * For International Heists & Covert Operations (e.g. Antwerp Diamond Vault, Dresden Green Vault, Bangladesh Bank cyber heist):
+       Focus on human motives, tactical blueprints, blind spots in high-tech sensors, unexpected betrayals, and international police manhunts.
+     * For Ancient Enigmas & Relics (e.g. Great Pyramid hidden chambers, Antikythera Mechanism, Nazca Lines, Terracotta Army):
+       Focus on real physical materials, cosmic-ray muon scans, carbon dating, subterranean engineering, and craftsmanship mysteries.
+     * For Forbidden Geography & Deep Earth Phenomena (e.g. Derinkuyu underground city, Kola Superdeep Borehole, Point Nemo, Lake Vostok):
+       Focus on extreme physics, banned sovereign airspace, oceanic isolation, and deep geological discoveries.
    - Structure into EXACTLY 4 progressive chapters with DYNAMIC, STORY-SPECIFIC bottom HUD chapter labels:
-     * CHAPTER 1 — THE CURIOSITY-GAP HOOK (0-4s / ~16-20 words): DO NOT START WITH GENERIC INTRODUCTIONS ("In this video", "Today we look at", "Archival records show"). Open immediately with high-tension conflict or impossible paradox that names "${cleanSubject}" and stops thumbs dead in their tracks (e.g., "In 1942, Hitler sent 8 covert saboteurs into New York—and within 48 hours, their own leader walked into the FBI."). HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".
+     * CHAPTER 1 — THE CURIOSITY-GAP HOOK (0-4s / ~16-20 words): DO NOT START WITH GENERIC INTRODUCTIONS ("In this video", "Today we look at", "Archival records show"). Open immediately with high-tension conflict or impossible paradox that names "${cleanSubject}" and stops thumbs dead in their tracks across the globe (e.g., "In 2003, thieves cracked an Antwerp vault protected by 10 layers of seismic sensors—without tripping a single alarm."). HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".
      * CHAPTER 2 — THE CORE CONFLICT / THE MISSION (5-12s / ~16-20 words): Reveal the stakes, what the secret objective was, or the official version told to the public. HUD label: e.g. "HISTORICAL ORIGIN" or "THE OPERATION".
      * CHAPTER 3 — THE CRITICAL TWIST / BREAKDOWN (13-22s / ~16-20 words): The central shock, blunder, contradiction, or confidential confession that breaks standard expectations. HUD label: e.g. "TURNING POINT", "CRITICAL EVIDENCE", or "COVERT TWIST".
      * CHAPTER 4 — THE LOOP CLIMAX / VERDICT (23-30s / ~16-20 words): The declassified aftermath, coverup, or unsolved mystery that connects seamlessly back to the opening hook and sparks debate in the comments. HUD label: e.g. "CLASSIFIED COVERUP" or "HISTORICAL VERDICT".
@@ -2399,14 +2408,15 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
        - Bad: "spectral imaging aerospace" -> Good: "ultraviolet light scan", "laser microscope lens", "x-ray film dark"
        - Bad: "declassified defense files" -> Good: "classified stamped folder", "microfilm reader archive", "old typewriter dark"
        - Bad: "ancient botanical anomaly" -> Good: "ancient book candlelight", "strange plant illustration", "parchment folio dark"
-       - Bad: "espionage operation betrayal" -> Good: "1940s briefcase cash", "fbi headquarters dark", "vintage telephone dark"
+       - Bad: "espionage operation betrayal" -> Good: "bank vault lock dark", "vintage telephone dark", "briefcase documents dark"
 
-4. INSTAGRAM CAPTION (150-WORD CASE FILE + 3 COMPETING THEORIES):
-   - The caption must be an investigative case file (~150 words) detailing 3 competing theories:
+4. GLOBAL INSTAGRAM CAPTION (150-WORD CASE FILE + 3 COMPETING THEORIES):
+   - The caption must be an international investigative case file (~150 words) detailing 3 competing theories:
      * Theory A: The mainstream / official explanation
-     * Theory B: The covert history / alternative operational motive
+     * Theory B: The alternative historical / operational motive
      * Theory C: The unresolved / anomalous perspective
    - Conclude with a debate question: "Which theory do you believe: A, B, or C? Drop your thoughts below."
+   - Must include international viral hashtags: #worldmysteries #ancienthistory #unsolvedmysteries #earthphenomena #lostcivilizations #globalhistory #documentary #declassified
 
 Return ONLY valid JSON matching this schema:
 {
@@ -2644,11 +2654,14 @@ export async function constructDocumentaryReelPackage(
   let reelHashtags = [
     brandTag,
     '#theuntoldarchive',
-    '#untoldhistory',
-    '#documentarystorytelling',
-    '#historicalfacts',
     '#worldmysteries',
-    '#declassified'
+    '#ancienthistory',
+    '#unsolvedmysteries',
+    '#earthphenomena',
+    '#lostcivilizations',
+    '#globalhistory',
+    '#historicalfacts',
+    '#documentary'
   ];
   let structure: NarrativeStructureType = 'chronological_reconstruction';
 
