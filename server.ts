@@ -3845,7 +3845,7 @@ const activePublishingPosts = new Set<string>();
 async function publishReelInternal(
   rawReel: any,
   accountParam?: any,
-  targetDestinations?: ('instagram' | 'facebook_page' | 'facebook_account')[]
+  targetDestinations?: ('instagram' | 'facebook_page' | 'facebook_account' | 'youtube' | 'tiktok')[]
 ) {
   const reelId = rawReel?.id;
   const dbReel = reelId ? (db.prepare('SELECT * FROM reels WHERE id = ?').get(reelId) as any) : null;
@@ -3866,8 +3866,14 @@ async function publishReelInternal(
   const fbAccountConn = getFacebookAccountConnection();
   const isFbAccountConfigured = Boolean(fbAccountConn?.isConnected && fbAccountConn.userId && fbAccountConn.accessToken);
 
-  if (!isIgConfigured && !isFbPageConfigured && !isFbAccountConfigured) {
-    throw new Error("No social destination connected. Please connect Instagram or Facebook credentials in Settings before publishing.");
+  const ytConn = getYouTubeConnection();
+  const isYtConfigured = Boolean(ytConn?.isConnected && ytConn.accessToken);
+
+  const ttConn = getTikTokConnection();
+  const isTtConfigured = Boolean(ttConn?.isConnected && ttConn.accessToken);
+
+  if (!isIgConfigured && !isFbPageConfigured && !isFbAccountConfigured && !isYtConfigured && !isTtConfigured) {
+    throw new Error("No social destination connected. Please connect Instagram, Facebook, YouTube, or TikTok credentials in Settings before publishing.");
   }
 
   // Parse existing published platforms
@@ -3881,23 +3887,32 @@ async function publishReelInternal(
   if (currentReel.ig_media_id && !existingPlatforms.includes('instagram')) existingPlatforms.push('instagram');
   if (currentReel.fb_video_id && !existingPlatforms.includes('facebook_page')) existingPlatforms.push('facebook_page');
   if (currentReel.fb_account_video_id && !existingPlatforms.includes('facebook_account')) existingPlatforms.push('facebook_account');
+  if (currentReel.yt_video_id && !existingPlatforms.includes('youtube')) existingPlatforms.push('youtube');
+  if (currentReel.tiktok_publish_id && !existingPlatforms.includes('tiktok')) existingPlatforms.push('tiktok');
 
-  // Check if Facebook Page was explicitly requested but is unconfigured
+  // Check if Facebook Page or YouTube was explicitly requested but is unconfigured
   if (targetDestinations && targetDestinations.includes('facebook_page') && !targetDestinations.includes('instagram') && !isFbPageConfigured) {
     throw new Error("Facebook Page credentials are not configured. Please open Settings -> Facebook Page and connect your Facebook Page before publishing.");
+  }
+  if (targetDestinations && targetDestinations.includes('youtube') && !isYtConfigured && targetDestinations.length === 1) {
+    throw new Error("YouTube Channel is not connected. Please open Settings -> YouTube to connect your channel.");
   }
 
   // Determine which destinations are requested and actually need publishing
   const wantsIg = !targetDestinations || targetDestinations.includes('instagram');
   const wantsFbPage = !targetDestinations || targetDestinations.includes('facebook_page');
   const wantsFbAccount = !targetDestinations || targetDestinations.includes('facebook_account');
+  const wantsYt = !targetDestinations || targetDestinations.includes('youtube');
+  const wantsTt = !targetDestinations || targetDestinations.includes('tiktok');
 
   const needsInstagram = isIgConfigured && wantsIg && !Boolean(currentReel.ig_media_id);
   const needsFbPage = isFbPageConfigured && wantsFbPage && (!Boolean(currentReel.fb_video_id) || currentReel.fb_status !== 'published');
   const needsFbAccount = isFbAccountConfigured && wantsFbAccount && (!Boolean(currentReel.fb_account_video_id) || currentReel.fb_account_status !== 'published');
+  const needsYt = isYtConfigured && wantsYt && (!Boolean(currentReel.yt_video_id) || currentReel.yt_status !== 'published');
+  const needsTt = isTtConfigured && wantsTt && (!Boolean(currentReel.tiktok_publish_id) || currentReel.tiktok_status !== 'published');
 
   // 1. Idempotency Guard: If none of the requested & configured channels need publishing, exit early safely
-  if (!needsInstagram && !needsFbPage && !needsFbAccount) {
+  if (!needsInstagram && !needsFbPage && !needsFbAccount && !needsYt && !needsTt) {
     if (wantsFbPage && !isFbPageConfigured && (!currentReel.fb_video_id || currentReel.fb_status !== 'published')) {
       throw new Error("Facebook Page credentials are not configured. Please open Settings -> Facebook Page to connect your Page before publishing.");
     }
@@ -3911,6 +3926,9 @@ async function publishReelInternal(
       fbPermalink: currentReel.fb_permalink,
       fbAccountVideoId: currentReel.fb_account_video_id,
       fbAccountPermalink: currentReel.fb_account_permalink,
+      ytVideoId: currentReel.yt_video_id,
+      ytPermalink: currentReel.yt_permalink,
+      tiktokPublishId: currentReel.tiktok_publish_id,
       platformsPublished: existingPlatforms,
       alreadyPublished: true
     };
@@ -3998,7 +4016,7 @@ async function publishReelInternal(
     console.log(`[Reel Multi-Publish] Channels: Instagram (${needsInstagram ? 'PUBLISHING' : (currentReel.ig_media_id ? 'ALREADY_LIVE' : 'NO')}), Facebook Page (${needsFbPage ? 'PUBLISHING' : (currentReel.fb_video_id ? 'ALREADY_LIVE' : 'NO')}), Facebook Profile (${needsFbAccount ? 'PUBLISHING' : (currentReel.fb_account_video_id ? 'ALREADY_LIVE' : 'NO')})`);
 
     interface DestinationOutcome {
-      destination: 'instagram' | 'facebook_page' | 'facebook_account';
+      destination: 'instagram' | 'facebook_page' | 'facebook_account' | 'youtube' | 'tiktok';
       success: boolean;
       id?: string;
       containerId?: string;
@@ -4009,6 +4027,8 @@ async function publishReelInternal(
     let igOutcome: DestinationOutcome | undefined;
     let fbPageOutcome: DestinationOutcome | undefined;
     let fbAccountOutcome: DestinationOutcome | undefined;
+    let ytOutcome: DestinationOutcome | undefined;
+    let ttOutcome: DestinationOutcome | undefined;
 
     // Preserve existing publication outcomes if previously published
     if (currentReel.ig_media_id) {
@@ -4034,6 +4054,21 @@ async function publishReelInternal(
         success: true,
         id: currentReel.fb_account_video_id,
         permalink: currentReel.fb_account_permalink
+      };
+    }
+    if (currentReel.yt_video_id && currentReel.yt_status === 'published') {
+      ytOutcome = {
+        destination: 'youtube',
+        success: true,
+        id: currentReel.yt_video_id,
+        permalink: currentReel.yt_permalink
+      };
+    }
+    if (currentReel.tiktok_publish_id && currentReel.tiktok_status === 'published') {
+      ttOutcome = {
+        destination: 'tiktok',
+        success: true,
+        id: currentReel.tiktok_publish_id
       };
     }
 
@@ -4135,6 +4170,70 @@ async function publishReelInternal(
       console.log(`[Reel Multi-Publish] ℹ️ Facebook User Profile credentials not configured. Skipping Facebook Profile.`);
     }
 
+    // 4. YouTube Shorts Broadcast Task (Simultaneous cross-posting)
+    if (needsYt && ytConn) {
+      publishTasks.push(
+        (async (): Promise<DestinationOutcome> => {
+          try {
+            console.log(`[Reel Multi-Publish] ▶️ Broadcasting simultaneously to YouTube Shorts...`);
+            const syndPkg = await buildSyndicationPackage(reel);
+            const ytRes = await publishReelToYouTube(
+              ytConn.accessToken,
+              {
+                videoUrl,
+                videoPath: localDiskPath,
+                title: syndPkg.youtubeShorts.title,
+                description: syndPkg.youtubeShorts.description,
+                tags: syndPkg.youtubeShorts.tags,
+                coverPath: reel.cover_path || undefined,
+                privacyStatus: ytConn.defaultPrivacy || 'public'
+              }
+            );
+            return {
+              destination: 'youtube',
+              success: ytRes.success,
+              id: ytRes.videoId,
+              permalink: ytRes.permalink || (ytRes.videoId ? `https://youtube.com/shorts/${ytRes.videoId}` : undefined),
+              error: ytRes.error
+            };
+          } catch (err: any) {
+            return { destination: 'youtube', success: false, error: err?.message || 'YouTube publishing exception' };
+          }
+        })()
+      );
+    } else if (!isYtConfigured && wantsYt) {
+      console.log(`[Reel Multi-Publish] ℹ️ YouTube credentials not configured. Skipping YouTube.`);
+    }
+
+    // 5. TikTok Broadcast Task
+    if (needsTt && ttConn) {
+      publishTasks.push(
+        (async (): Promise<DestinationOutcome> => {
+          try {
+            console.log(`[Reel Multi-Publish] 🎵 Broadcasting simultaneously to TikTok...`);
+            const syndPkg = await buildSyndicationPackage(reel);
+            const ttRes = await publishReelToTikTok(
+              ttConn.accessToken,
+              {
+                videoUrl,
+                videoPath: localDiskPath,
+                caption: syndPkg.tiktok.caption
+              }
+            );
+            return {
+              destination: 'tiktok',
+              success: ttRes.success,
+              id: ttRes.publishId,
+              permalink: ttRes.shareUrl,
+              error: ttRes.error
+            };
+          } catch (err: any) {
+            return { destination: 'tiktok', success: false, error: err?.message || 'TikTok publishing exception' };
+          }
+        })()
+      );
+    }
+
     const settled = await Promise.allSettled(publishTasks);
 
     for (const item of settled) {
@@ -4143,6 +4242,8 @@ async function publishReelInternal(
         if (val.destination === 'instagram') igOutcome = val;
         if (val.destination === 'facebook_page') fbPageOutcome = val;
         if (val.destination === 'facebook_account') fbAccountOutcome = val;
+        if (val.destination === 'youtube') ytOutcome = val;
+        if (val.destination === 'tiktok') ttOutcome = val;
       }
     }
 
@@ -4150,6 +4251,8 @@ async function publishReelInternal(
     if (igOutcome?.success && needsInstagram) newlyPublished.push('instagram');
     if (fbPageOutcome?.success && needsFbPage) newlyPublished.push('facebook_page');
     if (fbAccountOutcome?.success && needsFbAccount) newlyPublished.push('facebook_account');
+    if (ytOutcome?.success && needsYt) newlyPublished.push('youtube');
+    if (ttOutcome?.success && needsTt) newlyPublished.push('tiktok');
 
     const totalPublishedPlatforms = Array.from(new Set([...existingPlatforms, ...newlyPublished]));
 
@@ -4160,7 +4263,9 @@ async function publishReelInternal(
       const allErrors = [
         (needsInstagram && igOutcome?.error) ? `Instagram: ${igOutcome.error}` : null,
         (needsFbPage && fbPageOutcome?.error) ? `Facebook Page: ${fbPageOutcome.error}` : null,
-        (needsFbAccount && fbAccountOutcome?.error) ? `Facebook Profile: ${fbAccountOutcome.error}` : null
+        (needsFbAccount && fbAccountOutcome?.error) ? `Facebook Profile: ${fbAccountOutcome.error}` : null,
+        (needsYt && ytOutcome?.error) ? `YouTube Shorts: ${ytOutcome.error}` : null,
+        (needsTt && ttOutcome?.error) ? `TikTok: ${ttOutcome.error}` : null
       ].filter(Boolean).join(' | ');
       throw new Error(allErrors || "Publishing failed across all requested destinations.");
     }
@@ -4184,6 +4289,21 @@ async function publishReelInternal(
         ? 'published'
         : (fbAccountOutcome?.error ? `failed: ${fbAccountOutcome.error.slice(0, 150)}` : (isFbAccountConfigured ? 'idle' : 'unconfigured')));
 
+    const finalYtVideoId = ytOutcome?.id || currentReel.yt_video_id || null;
+    const finalYtPermalink = ytOutcome?.permalink || currentReel.yt_permalink || (finalYtVideoId ? `https://youtube.com/shorts/${finalYtVideoId}` : null);
+    const finalYtStatus = ytOutcome?.success
+      ? 'published'
+      : (currentReel.yt_status === 'published'
+        ? 'published'
+        : (ytOutcome?.error ? `failed: ${ytOutcome.error.slice(0, 150)}` : (isYtConfigured ? 'idle' : 'unconfigured')));
+
+    const finalTtPublishId = ttOutcome?.id || currentReel.tiktok_publish_id || null;
+    const finalTtStatus = ttOutcome?.success
+      ? 'published'
+      : (currentReel.tiktok_status === 'published'
+        ? 'published'
+        : (ttOutcome?.error ? `failed: ${ttOutcome.error.slice(0, 150)}` : (isTtConfigured ? 'idle' : 'unconfigured')));
+
     db.prepare(`
       UPDATE reels
       SET status = 'published',
@@ -4196,6 +4316,11 @@ async function publishReelInternal(
           fb_account_video_id = ?,
           fb_account_permalink = ?,
           fb_account_status = ?,
+          yt_video_id = ?,
+          yt_permalink = ?,
+          yt_status = ?,
+          tiktok_publish_id = ?,
+          tiktok_status = ?,
           platforms_published_json = ?,
           publish_timestamp = ?,
           updated_at = ?
@@ -4210,6 +4335,11 @@ async function publishReelInternal(
       finalFbAccountVideoId,
       finalFbAccountPermalink,
       finalFbAccountStatus,
+      finalYtVideoId,
+      finalYtPermalink,
+      finalYtStatus,
+      finalTtPublishId,
+      finalTtStatus,
       JSON.stringify(totalPublishedPlatforms),
       publishedAt,
       new Date().toISOString(),
@@ -4247,6 +4377,12 @@ async function publishReelInternal(
     if (needsFbAccount && !fbAccountOutcome?.success && fbAccountOutcome?.error) {
       warnings.push(`Facebook Profile: ${fbAccountOutcome.error}`);
     }
+    if (needsYt && !ytOutcome?.success && ytOutcome?.error) {
+      warnings.push(`YouTube Shorts: ${ytOutcome.error}`);
+    }
+    if (needsTt && !ttOutcome?.success && ttOutcome?.error) {
+      warnings.push(`TikTok: ${ttOutcome.error}`);
+    }
 
     notifyReelPublished({
       title: reel.title,
@@ -4257,6 +4393,9 @@ async function publishReelInternal(
       fbVideoId: finalFbVideoId || undefined,
       fbAccountPermalink: finalFbAccountPermalink || undefined,
       fbAccountVideoId: finalFbAccountVideoId || undefined,
+      ytPermalink: finalYtPermalink || undefined,
+      ytVideoId: finalYtVideoId || undefined,
+      tiktokPublishId: finalTtPublishId || undefined,
       platforms: totalPublishedPlatforms,
       errors: warnings,
       videoUrl: videoUrl || undefined,
@@ -4266,15 +4405,20 @@ async function publishReelInternal(
     return {
       success: true,
       mediaId: finalIgMediaId,
-      permalink: finalPermalink || finalFbPermalink || finalFbAccountPermalink,
+      permalink: finalPermalink || finalYtPermalink || finalFbPermalink || finalFbAccountPermalink,
       containerId: finalIgContainerId,
       fbVideoId: finalFbVideoId,
       fbPermalink: finalFbPermalink,
       fbAccountVideoId: finalFbAccountVideoId,
       fbAccountPermalink: finalFbAccountPermalink,
+      ytVideoId: finalYtVideoId,
+      ytPermalink: finalYtPermalink,
+      tiktokPublishId: finalTtPublishId,
       platformsPublished: totalPublishedPlatforms,
       facebookPage: fbPageOutcome,
       facebookAccount: fbAccountOutcome,
+      youtube: ytOutcome,
+      tiktok: ttOutcome,
       warnings: warnings.length > 0 ? warnings : undefined,
       facebookWarning: (wantsFbPage && !isFbPageConfigured && !currentReel.fb_video_id)
         ? "Facebook Page is not connected. Please connect your Facebook Page in Settings to broadcast to Facebook."
@@ -4512,7 +4656,7 @@ app.post("/api/reels/publish-now", async (req, res) => {
   const reel = db.prepare('SELECT * FROM reels WHERE id = ?').get(reelId) as any;
   if (!reel) return res.status(404).json({ success: false, error: "Reel not found." });
 
-  const targetDestinations = (destination === 'facebook_page' || destination === 'instagram' || destination === 'facebook_account')
+  const targetDestinations = (destination === 'facebook_page' || destination === 'instagram' || destination === 'facebook_account' || destination === 'youtube' || destination === 'tiktok')
     ? [destination]
     : undefined;
 
@@ -4529,6 +4673,9 @@ app.post("/api/reels/publish-now", async (req, res) => {
       fbPermalink: result.fbPermalink,
       fbAccountVideoId: result.fbAccountVideoId,
       fbAccountPermalink: result.fbAccountPermalink,
+      ytVideoId: result.ytVideoId,
+      ytPermalink: result.ytPermalink,
+      tiktokPublishId: result.tiktokPublishId,
       platformsPublished: platforms,
       alreadyPublished: Boolean(result.alreadyPublished),
       warnings: result.warnings,

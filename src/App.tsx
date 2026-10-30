@@ -469,6 +469,11 @@ export default function App() {
         fb_video_id: data.fbVideoId || r.fb_video_id,
         fb_permalink: data.fbPermalink || r.fb_permalink,
         fb_status: data.fbVideoId ? 'published' : r.fb_status,
+        yt_video_id: data.ytVideoId || r.yt_video_id,
+        yt_permalink: data.ytPermalink || r.yt_permalink,
+        yt_status: data.ytVideoId ? 'published' : r.yt_status,
+        tiktok_publish_id: data.tiktokPublishId || r.tiktok_publish_id,
+        tiktok_status: data.tiktokPublishId ? 'published' : r.tiktok_status,
         platforms_published: data.platformsPublished || r.platforms_published,
         publishTimestamp: new Date().toISOString()
       } : r));

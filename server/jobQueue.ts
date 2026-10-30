@@ -178,10 +178,17 @@ export function startJobWorker() {
               const accountQuery = db.prepare('SELECT * FROM account_connections WHERE id = ?');
               const account = accountQuery.get('instagram_primary') as any;
 
-              if (reel && account?.access_token && account?.account_id) {
+              const isIgReady = Boolean(account?.access_token && account?.account_id);
+              const fbPageConn = getFacebookPageConnection();
+              const fbAccountConn = getFacebookAccountConnection();
+              const ytConn = getYouTubeConnection();
+              const ttConn = getTikTokConnection();
+              const hasAnySocialConnected = isIgReady || fbPageConn?.isConnected || fbAccountConn?.isConnected || ytConn?.isConnected || ttConn?.isConnected;
+
+              if (reel && hasAnySocialConnected) {
                 // Idempotency guard: prevent duplicate publishing if reel was already published
-                if (reel.status === 'published' || Boolean(reel.ig_media_id)) {
-                  console.warn(`[Job Queue] ⚠️ Scheduled reel "${reel.title || reel.id}" is ALREADY published (IG Media ID: ${reel.ig_media_id}). Skipping duplicate publish.`);
+                if (reel.status === 'published' || Boolean(reel.ig_media_id) || Boolean(reel.yt_video_id)) {
+                  console.warn(`[Job Queue] ⚠️ Scheduled reel "${reel.title || reel.id}" is ALREADY published (IG Media ID: ${reel.ig_media_id}, YT Video ID: ${reel.yt_video_id}). Skipping duplicate publish.`);
                   break;
                 }
 
@@ -199,11 +206,14 @@ export function startJobWorker() {
                   try { return JSON.parse(reel.audio_json || '{}'); } catch { return {}; }
                 })();
                 const fullCaption = `${reel.caption}${reel.hashtags_json ? `\n\n${JSON.parse(reel.hashtags_json || '[]').join(' ')}` : ''}`;
-                const pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
-                  videoUrl,
-                  caption: fullCaption,
-                  audioName: reelAudio?.title ? String(reelAudio.title) : undefined
-                });
+                let pubResult: any = null;
+                if (isIgReady) {
+                  pubResult = await publishReelToInstagram(account.account_id, decryptSecret(account.access_token), {
+                    videoUrl,
+                    caption: fullCaption,
+                    audioName: reelAudio?.title ? String(reelAudio.title) : undefined
+                  });
+                }
 
                 // Optional simultaneous broadcast to Facebook Page and Profile if configured
                 const fbPageConn = getFacebookPageConnection();
@@ -282,10 +292,10 @@ export function startJobWorker() {
                   }
                 }
 
-                if (pubResult.success || fbPageResult?.success || fbAccountResult?.success || ytResult?.success || ttResult?.success) {
+                if (pubResult?.success || fbPageResult?.success || fbAccountResult?.success || ytResult?.success || ttResult?.success) {
                   const publishedAt = new Date().toISOString();
                   const platformsPublished: string[] = [];
-                  if (pubResult.success) platformsPublished.push('instagram');
+                  if (pubResult?.success) platformsPublished.push('instagram');
                   if (fbPageResult?.success) platformsPublished.push('facebook_page');
                   if (fbAccountResult?.success) platformsPublished.push('facebook_account');
                   if (ytResult?.success) platformsPublished.push('youtube');
@@ -303,9 +313,9 @@ export function startJobWorker() {
                         publish_timestamp = ?, updated_at = ?
                     WHERE id = ?
                   `).run(
-                    pubResult.mediaId || null,
-                    pubResult.containerId || null,
-                    pubResult.permalink || null,
+                    pubResult?.mediaId || null,
+                    pubResult?.containerId || null,
+                    pubResult?.permalink || null,
                     fbPageResult?.videoId || null,
                     fbPageResult?.permalink || null,
                     fbPageResult?.success ? 'published' : (fbPageResult ? 'failed' : null),
@@ -327,9 +337,12 @@ export function startJobWorker() {
                   notifyReelPublished({
                     title: reel.title,
                     niche: reel.niche,
-                    permalink: pubResult.permalink || undefined,
+                    permalink: pubResult?.permalink || ytResult?.permalink || fbPageResult?.permalink || undefined,
                     fbPermalink: fbPageResult?.permalink || undefined,
                     fbAccountPermalink: fbAccountResult?.permalink || undefined,
+                    ytPermalink: ytResult?.permalink || undefined,
+                    ytVideoId: ytResult?.videoId || undefined,
+                    tiktokPublishId: ttResult?.publishId || undefined,
                     platforms: platformsPublished,
                     videoUrl: videoUrl || reel.video_url || undefined
                   }).catch(() => {});

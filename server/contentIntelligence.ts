@@ -2353,7 +2353,7 @@ export async function generateAiReelScript(
   const cleanSubject = (dossier.subject || '').split(/[:\-\—\(]/)[0].trim() || 'This historical event';
 
   const prompt = `You are the Senior Documentary Director and Scriptwriter for "${brandName}" (${brandHandle}).
-Your mission is to produce a cinema-grade, investigative long-form Instagram Reel script (45 to 90 seconds, ~110 to 220 words total).
+Your mission is to produce a high-retention, cinema-grade Instagram Reel & YouTube Short script in the viral 25 to 35 second sweet spot (~65 to 85 words total across exactly 4 chapters).
 Tone: 8th-grade reading level. Conversational, dark, investigative documentary tone. Like an investigative journalist breaking down a declassified case file.
 
 TOPIC RESEARCH DOSSIER:
@@ -2368,9 +2368,9 @@ ${(dossier.uncertaintiesOrLimits || []).map(u => `- ${u}`).join('\n')}
 
 STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
 
-1. DYNAMIC MULTI-CHAPTER PROGRESSION (5 TO 8 CHAPTERS / 45s TO 90s):
+1. HIGH-RETENTION 4-CHAPTER PROGRESSION (25s TO 35s TOTAL / ~65 TO 85 WORDS TOTAL):
    - Never repeat the same claim or fact twice. Every chapter must advance the story with fresh narrative developments.
-   - Total length: 110 to 220 words (approx. 18 to 28 words per chapter).
+   - Total length: 65 to 85 words (approx. 16 to 22 words per chapter).
    - ADAPT TO THE REAL HISTORICAL GENRE (NEVER INVENT FAKE LAB/CHEMICAL ANOMALIES):
      * For Espionage, Sabotage, Heists & Military Operations (e.g. Operation Pastorius, Antwerp Heist, Lufthansa 649):
        Focus on human motives, tactical plans, blunders, unexpected betrayals, confidential confessions, and intelligence cover-ups. (e.g., in Operation Pastorius, how an 8-man German sabotage team collapsed when their leader George Dasch voluntarily walked into FBI headquarters, and how Hoover hid the betrayal to make the FBI look infallible). NEVER force fake lab tests, corrosion, or chemical anomalies onto non-scientific stories!
@@ -2378,13 +2378,11 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
        Focus on real physical materials, undeciphered scripts, carbon dating, and craftsmanship mysteries.
      * For Geography, Bunkers & Disappearances:
        Focus on covert engineering, declassified blueprints, strategic choke points, and emergency protocols.
-   - Structure into 5 to 8 progressive chapters with DYNAMIC, STORY-SPECIFIC bottom HUD chapter labels:
-     * CHAPTER 1 — THE PATTERN-INTERRUPT HOOK (0-4s): The VERY FIRST SENTENCE MUST explicitly state the subject/event name "${cleanSubject}". Open with the shocking contradiction, blunder, or impossibility. HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".
-     * CHAPTER 2 — THE ORIGIN / THE MISSION: The background setup, original mission, or mainstream situation. HUD label: e.g. "HISTORICAL ORIGIN" or "THE OPERATION".
-     * CHAPTER 3 — THE TURNING POINT: The first unexpected shift, mistake, or key investigation beat. HUD label: e.g. "TURNING POINT" or "PRIMARY INQUIRY".
-     * CHAPTER 4 — THE TWIST / BETRAYAL / REVELATION: The central narrative twist that breaks standard expectations. HUD label: e.g. "THE BETRAYAL", "CRITICAL EVIDENCE", or "COVERT TWIST".
-     * CHAPTER 5 — THE COVERUP / AFTERMATH: How authorities responded, what was concealed, or the lasting consequence. HUD label: e.g. "CLASSIFIED COVERUP" or "OFFICIAL AFTERMATH".
-     * FINAL CHAPTER — THE LOOP CLIMAX: Connect the ending back to the opening hook and drive viewers to debate the theories in the comments. HUD label: e.g. "HISTORICAL VERDICT" or "FINAL RESOLUTION".
+   - Structure into EXACTLY 4 progressive chapters with DYNAMIC, STORY-SPECIFIC bottom HUD chapter labels:
+     * CHAPTER 1 — THE CURIOSITY-GAP HOOK (0-4s / ~16-20 words): DO NOT START WITH GENERIC INTRODUCTIONS ("In this video", "Today we look at", "Archival records show"). Open immediately with high-tension conflict or impossible paradox that names "${cleanSubject}" and stops thumbs dead in their tracks (e.g., "In 1942, Hitler sent 8 covert saboteurs into New York—and within 48 hours, their own leader walked into the FBI."). HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".
+     * CHAPTER 2 — THE CORE CONFLICT / THE MISSION (5-12s / ~16-20 words): Reveal the stakes, what the secret objective was, or the official version told to the public. HUD label: e.g. "HISTORICAL ORIGIN" or "THE OPERATION".
+     * CHAPTER 3 — THE CRITICAL TWIST / BREAKDOWN (13-22s / ~16-20 words): The central shock, blunder, contradiction, or confidential confession that breaks standard expectations. HUD label: e.g. "TURNING POINT", "CRITICAL EVIDENCE", or "COVERT TWIST".
+     * CHAPTER 4 — THE LOOP CLIMAX / VERDICT (23-30s / ~16-20 words): The declassified aftermath, coverup, or unsolved mystery that connects seamlessly back to the opening hook and sparks debate in the comments. HUD label: e.g. "CLASSIFIED COVERUP" or "HISTORICAL VERDICT".
 
 2. STRICT VOCABULARY & STYLE RULES (NO ACADEMIC JARGON):
    - 8th-grade reading level. Natural, spoken cadence.
@@ -2632,7 +2630,7 @@ export async function constructDocumentaryReelPackage(
   const brandTag = brandHandle.replace(/^@/, '#');
 
   // Helper to dynamically calibrate duration for 1.0x human speech pacing (~2.2 words per sec + 1.2s buffer)
-  const calcDuration = (script: string, minSec = 8.0): number => {
+  const calcDuration = (script: string, minSec = 6.0): number => {
     const wordCount = (script || '').trim().split(/\s+/).filter(Boolean).length;
     return Math.max(minSec, Number(((wordCount / 2.2) + 1.2).toFixed(1)));
   };
@@ -2660,21 +2658,17 @@ export async function constructDocumentaryReelPackage(
     ? [
         'ARCHIVAL DOSSIER',
         'THE OPERATION',
-        'TURNING POINT',
-        'THE BETRAYAL',
-        'CLASSIFIED COVERUP',
+        'CRITICAL TWIST',
         'HISTORICAL VERDICT'
       ]
     : [
         'ARCHIVAL RECORD',
-        'HISTORICAL ORIGIN',
         'PRIMARY INQUIRY',
         'CRITICAL EVIDENCE',
-        'CLASSIFIED DOSSIER',
         'HISTORICAL VERDICT'
       ];
 
-  if (aiScript && Array.isArray(aiScript.scenes) && aiScript.scenes.length >= 4) {
+  if (aiScript && Array.isArray(aiScript.scenes) && aiScript.scenes.length >= 3) {
     reelTitle = aiScript.title || reelTitle;
     reelCaption = aiScript.caption || '';
     if (Array.isArray(aiScript.hashtags) && aiScript.hashtags.length > 0) {
@@ -2710,7 +2704,7 @@ export async function constructDocumentaryReelPackage(
       const headline = (s.headline || '').trim().toUpperCase() || fallbackCtx.headline;
       const highlight = (s.highlight || '').trim().toUpperCase() || headline;
       const subline = (s.subline || '').trim() || s.voiceScript.slice(0, 60);
-      const sceneDur = calcDuration(s.voiceScript, 7.5);
+      const sceneDur = calcDuration(s.voiceScript, 6.0);
       const numCuts = Math.max(2, Math.ceil(sceneDur / 3.0));
       const chapterLabel = s.chapterLabel || defaultChapterLabels[idx] || 'CLASSIFIED ANOMALY';
       const historicalEra = (s as any).historicalEra || detectHistoricalEra(cleanSubject, `${dossier.subject} ${s.voiceScript || ''}`);
@@ -2743,8 +2737,8 @@ export async function constructDocumentaryReelPackage(
       };
     });
   } else {
-    // 2. Resilient Organic Fallback (5-6 Chapter Deep-Dive with 3-Second Visual Cuts)
-    console.warn(`[Content Intelligence] AI script generation offline; assembling 6-chapter investigative documentary for "${dossier.subject}"...`);
+    // 2. Resilient Organic Fallback (4-Chapter High-Retention Documentary in 25-30s)
+    console.warn(`[Content Intelligence] AI script generation offline; assembling 4-chapter high-retention documentary for "${dossier.subject}"...`);
 
     const cleanSubject = dossier.subject
       .replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '')
@@ -2762,38 +2756,28 @@ export async function constructDocumentaryReelPackage(
     const sc1Context = extractContextualSceneKeywords(cleanSubject, fact1, 1);
     const sc2Context = extractContextualSceneKeywords(cleanSubject, fact2, 2);
     const sc3Context = extractContextualSceneKeywords(cleanSubject, aftermath, 3);
-    const sc4Context = extractContextualSceneKeywords(cleanSubject, fact1, 4);
-    const sc5Context = extractContextualSceneKeywords(cleanSubject, aftermath, 5);
 
     // Build plain, conversational storytelling sentences in 8th-grade English without academic filler
     const premiseText = dossier.centralPremise ? dossier.centralPremise.trim().replace(/\.+$/, '') : fact0;
 
-    const scene1Script = `Have you ever heard the true story of ${cleanSubject}? In official records, ${premiseText}.`;
+    const scene1Script = `In the declassified case of ${cleanSubject}, what officials announced in public hid a shocking reality: ${premiseText}.`;
     const scene2Script = isOperationGenre
-      ? `Here is how the covert mission was organized. ${fact0}. Operatives were deployed under strict wartime secrecy.`
-      : `Here is where the investigation began. ${fact0}. Historians originally assumed it was standard documentation.`;
+      ? `Operatives were deployed under extreme secrecy. ${fact0}. But behind closed doors, the plan was already breaking down.`
+      : `Here is what primary records reveal. ${fact0}. Mainstream history dismissed it as an ordinary record.`;
     const scene3Script = isOperationGenre
-      ? `Then the operation hit an unexpected turning point. Key operatives made critical mistakes that compromised their cover.`
-      : `Then archival investigators uncovered a major contradiction in the timeline and primary documentation.`;
-    const scene4Script = isOperationGenre
-      ? `That was when the entire plan unraveled. ${fact1 || fact0}. A confidential confession broke the mission wide open.`
-      : `That was when the first major anomaly surfaced. ${fact1 || fact0}. The historical evidence broke mainstream assumptions.`;
-    const scene5Script = isOperationGenre
-      ? `Then authorities moved swiftly to control the narrative. ${fact2 || 'Classified records reveal how the true breakdown was kept from the public for decades.'}`
-      : `Then things got even stranger. ${fact2 || 'Further analysis revealed details that could not be explained by existing records.'}.`;
-    const scene6Script = `So what really happened during ${cleanSubject}? ${aftermath || 'The records prove this happened, but the full implications remain debated.'}. Which theory do you believe?`;
+      ? `Then came the catastrophic twist: ${fact1 || fact0}. A confidential confession dismantled the entire operation from inside.`
+      : `Then archival investigators uncovered a shocking contradiction: ${fact1 || fact0}. The physical evidence broke standard theories.`;
+    const scene4Script = `So how did ${cleanSubject} really end? ${aftermath || 'The file was stamped classified for decades.'} Which theory do you believe: coverup or coincidence?`;
 
     const rawSceneScripts = [
       { script: scene1Script, label: defaultChapterLabels[0], ctx: sc0Context, format: 'full-bleed-cinematic' as const, accent: BRAND_PALETTE.antiqueGold },
       { script: scene2Script, label: defaultChapterLabels[1], ctx: sc1Context, format: 'classified-dossier' as const, accent: BRAND_PALETTE.slateSteel },
       { script: scene3Script, label: defaultChapterLabels[2], ctx: sc2Context, format: 'satellite-telemetry' as const, accent: BRAND_PALETTE.deepTelemetryCyan },
-      { script: scene4Script, label: defaultChapterLabels[3], ctx: sc3Context, format: 'classified-dossier' as const, accent: BRAND_PALETTE.warningRust },
-      { script: scene5Script, label: defaultChapterLabels[4], ctx: sc4Context, format: 'full-bleed-cinematic' as const, accent: BRAND_PALETTE.antiqueGold },
-      { script: scene6Script, label: defaultChapterLabels[5], ctx: sc5Context, format: 'satellite-telemetry' as const, accent: BRAND_PALETTE.deepTelemetryCyan }
+      { script: scene4Script, label: defaultChapterLabels[3], ctx: sc3Context, format: 'classified-dossier' as const, accent: BRAND_PALETTE.warningRust }
     ];
 
     scenes = rawSceneScripts.map((item, idx) => {
-      const dur = calcDuration(item.script, 8.0);
+      const dur = calcDuration(item.script, 6.0);
       const numCuts = Math.max(2, Math.ceil(dur / 3.0));
       const historicalEra = detectHistoricalEra(cleanSubject, `${dossier.subject} ${item.script}`);
       const visualBeats = splitNarrationIntoVisualBeats(item.script || cleanSubject, numCuts);
