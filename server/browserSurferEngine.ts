@@ -15,6 +15,27 @@ const SCREENSHOTS_DIR = path.resolve(process.cwd(), 'data', 'media', 'browser_sc
 if (!fs.existsSync(BROWSER_USER_DATA_DIR)) fs.mkdirSync(BROWSER_USER_DATA_DIR, { recursive: true });
 if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
+export function cleanStaleBrowserLocks(dir: string = BROWSER_USER_DATA_DIR): void {
+  if (!fs.existsSync(dir)) return;
+  try {
+    const files = fs.readdirSync(dir);
+    for (const f of files) {
+      if (f.startsWith('Singleton') || f === 'lockfile') {
+        try {
+          fs.unlinkSync(path.join(dir, f));
+          console.info(`[Browser Surfer] Purged stale Chromium lock file: ${f}`);
+        } catch (err: any) {
+          console.warn(`[Browser Surfer] Could not remove lock file ${f}:`, err?.message || err);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Browser Surfer] Error checking lock files:', err?.message || err);
+  }
+}
+
+cleanStaleBrowserLocks();
+
 function resolveChromePath(): string {
   if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
     return process.env.CHROME_PATH;
@@ -295,7 +316,22 @@ class BrowserSurferManager extends EventEmitter {
       launchOptions.executablePath = CHROME_PATH;
     }
 
-    const context = await chromium.launchPersistentContext(BROWSER_USER_DATA_DIR, launchOptions);
+    cleanStaleBrowserLocks(BROWSER_USER_DATA_DIR);
+
+    let context: BrowserContext;
+    try {
+      context = await chromium.launchPersistentContext(BROWSER_USER_DATA_DIR, launchOptions);
+    } catch (launchErr: any) {
+      const errMsg = String(launchErr?.message || launchErr);
+      if (errMsg.includes('Singleton') || errMsg.includes('Target page, context or browser has been closed') || errMsg.includes('locked the profile')) {
+        console.warn('[Browser Surfer] Chromium launch blocked by stale profile lock. Purging locks and retrying...', launchErr);
+        cleanStaleBrowserLocks(BROWSER_USER_DATA_DIR);
+        await new Promise(r => setTimeout(r, 800));
+        context = await chromium.launchPersistentContext(BROWSER_USER_DATA_DIR, launchOptions);
+      } else {
+        throw launchErr;
+      }
+    }
 
     // If storage state file exists with cookies, inject them immediately into context
     if (fs.existsSync(STORAGE_STATE_PATH)) {
@@ -333,6 +369,7 @@ class BrowserSurferManager extends EventEmitter {
       } catch {}
       this.activeContext = null;
     }
+    cleanStaleBrowserLocks(BROWSER_USER_DATA_DIR);
   }
 
   /**
