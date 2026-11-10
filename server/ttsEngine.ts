@@ -697,164 +697,106 @@ export async function generateCohesiveReelSpeech(
       }
 
       if (nonEmptyTexts.length > 0) {
-        const fullScriptWithPauses = nonEmptyTexts.join(' <long pause> ');
-        const masterRawWav = path.join(activeTtsDir, `gemini-master-${Date.now()}-${crypto.randomBytes(2).toString('hex')}.wav`);
-        const masterMp3 = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
-
+        // Per-scene Gemini synthesis: synthesize each scene separately to get exact timings.
+        // This eliminates the stitched-silencedetect split approach which caused subtitle desync.
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash-tts',
-          contents: [{
-            role: 'user',
-            parts: [{
-              text: fullScriptWithPauses,
-              speechMetadata: {
-                style: 'documentary narrator, mature adult male, deep authoritative baritone, natural steady human cadence, articulate and captivating storytelling'
-              }
-            }]
-          }],
-          config: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: geminiVoice
+        const broadcastFilter = 'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+
+        const paths: (string | null)[] = new Array(cleanedTexts.length).fill(null);
+        const durations: number[] = new Array(cleanedTexts.length).fill(0);
+        const sceneWords: TimedWord[][] = Array.from({ length: cleanedTexts.length }, () => []);
+        let totalDur = 0;
+        let masterMp3 = '';
+        let allSucceeded = true;
+
+        for (let k = 0; k < nonEmptyTexts.length; k++) {
+          const originalIdx = nonEmptyIndices[k];
+          const sceneText = nonEmptyTexts[k];
+          const sceneRawWav = path.join(activeTtsDir, `gemini-scene-raw-${Date.now()}-${originalIdx}-${crypto.randomBytes(2).toString('hex')}.wav`);
+          const sceneMp3 = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${originalIdx}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+
+          const sceneResponse = await ai.models.generateContent({
+            model: 'gemini-3.8-flash-tts',
+            contents: [{
+              role: 'user',
+              parts: [{
+                text: sceneText,
+                speechMetadata: {
+                  style: 'documentary narrator, mature adult male, deep authoritative baritone, natural steady human cadence, articulate and captivating storytelling'
+                }
+              }]
+            }],
+            config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: geminiVoice
+                  }
                 }
               }
-            }
-          } as any
-        });
+            } as any
+          });
 
-        const candidate = response.candidates?.[0];
-        const part = candidate?.content?.parts?.[0];
-        const inlineData = (part as any)?.inlineData;
+          const sceneCandidate = sceneResponse.candidates?.[0];
+          const scenePart = sceneCandidate?.content?.parts?.[0];
+          const sceneInlineData = (scenePart as any)?.inlineData;
 
-        if (inlineData?.data) {
-          await fs.writeFile(masterRawWav, Buffer.from(inlineData.data, 'base64'));
+          if (!sceneInlineData?.data) {
+            allSucceeded = false;
+            break;
+          }
 
-          // Convert master raw audio to broadcast 44.1kHz stereo MP3 with warmth EQ and comfortable 130-135 WPM human tempo
-          const broadcastFilter = 'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+          await fs.writeFile(sceneRawWav, Buffer.from(sceneInlineData.data, 'base64'));
           try {
             await execFileAsync('ffmpeg', [
               '-y',
-              '-i', masterRawWav,
+              '-i', sceneRawWav,
               '-af', broadcastFilter,
               '-c:a', 'libmp3lame',
               '-ar', '44100',
               '-ac', '2',
               '-b:a', '192k',
-              masterMp3
+              sceneMp3
             ]);
           } catch {
             await execFileAsync('ffmpeg', [
               '-y',
-              '-i', masterRawWav,
+              '-i', sceneRawWav,
               '-af', 'atempo=1.25,volume=1.2',
               '-c:a', 'libmp3lame',
               '-ar', '44100',
               '-ac', '2',
               '-b:a', '192k',
-              masterMp3
+              sceneMp3
             ]);
           } finally {
-            try { await fs.unlink(masterRawWav); } catch {}
+            try { await fs.unlink(sceneRawWav); } catch {}
           }
 
-          const totalDur = await getAudioDuration(masterMp3);
+          const sceneDur = await getAudioDuration(sceneMp3);
+          paths[originalIdx] = sceneMp3;
+          durations[originalIdx] = sceneDur;
+          sceneWords[originalIdx] = estimateWordTimings(sceneText, sceneDur);
+          totalDur += sceneDur;
+          if (k === 0) masterMp3 = sceneMp3; // first scene used as master reference
+        }
 
-          // Initialize result arrays preserving 1-to-1 scene mapping
-          const paths: (string | null)[] = new Array(cleanedTexts.length).fill(null);
-          const durations: number[] = new Array(cleanedTexts.length).fill(0);
-          const sceneWords: TimedWord[][] = Array.from({ length: cleanedTexts.length }, () => []);
-
-          if (nonEmptyTexts.length === 1) {
-            const singleIdx = nonEmptyIndices[0];
-            const segPath = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${singleIdx}.mp3`);
-            await fs.copyFile(masterMp3, segPath);
-            paths[singleIdx] = segPath;
-            durations[singleIdx] = totalDur;
-            sceneWords[singleIdx] = estimateWordTimings(nonEmptyTexts[0], totalDur);
-          } else {
-            // Multiple scenes: detect pauses to split
-            const { stderr: silenceLog } = await execFileAsync('ffmpeg', [
-              '-i', masterMp3,
-              '-af', 'silencedetect=noise=-28dB:d=0.35',
-              '-f', 'null',
-              '-'
-            ]);
-
-            const silenceStarts: number[] = [];
-            const silenceEnds: number[] = [];
-            const startRegex = /silence_start:\s+([\d.]+)/g;
-            const endRegex = /silence_end:\s+([\d.]+)/g;
-
-            let m;
-            while ((m = startRegex.exec(silenceLog)) !== null) silenceStarts.push(parseFloat(m[1]));
-            while ((m = endRegex.exec(silenceLog)) !== null) silenceEnds.push(parseFloat(m[1]));
-
-            // Pair up silences excluding trailing silence at the very end
-            const silences: { start: number; end: number; duration: number }[] = [];
-            for (let s = 0; s < silenceStarts.length; s++) {
-              const start = silenceStarts[s];
-              const end = silenceEnds[s] !== undefined ? silenceEnds[s] : totalDur;
-              if (start < totalDur - 0.6) {
-                silences.push({ start, end, duration: end - start });
-              }
-            }
-
-            const neededSplits = nonEmptyTexts.length - 1;
-            let splitPoints: number[] = [];
-
-            if (silences.length >= neededSplits) {
-              // Pick the neededSplits longest silences (the <long pause> scene markers)
-              const selectedSplits = silences
-                .sort((a, b) => b.duration - a.duration)
-                .slice(0, neededSplits)
-                .sort((a, b) => a.start - b.start)
-                .map(s => (s.start + s.end) / 2);
-
-              splitPoints = [0, ...selectedSplits, totalDur];
-            } else {
-              // Fallback proportional split if silence detection didn't find enough pauses
-              console.warn(`[TTS Engine] Silence detection found ${silences.length} pauses (needed ${neededSplits}), using word-proportional split points.`);
-              const wordCounts = nonEmptyTexts.map(t => Math.max(1, t.split(/\s+/).length));
-              const totalWords = wordCounts.reduce((acc, c) => acc + c, 0);
-              let cumTime = 0;
-              splitPoints = [0];
-              for (let k = 0; k < wordCounts.length - 1; k++) {
-                cumTime += (wordCounts[k] / totalWords) * totalDur;
-                splitPoints.push(cumTime);
-              }
-              splitPoints.push(totalDur);
-            }
-
-            // Slice out each segment
-            for (let k = 0; k < nonEmptyTexts.length; k++) {
-              const originalIdx = nonEmptyIndices[k];
-              const start = splitPoints[k];
-              const end = splitPoints[k + 1];
-              const segPath = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${originalIdx}-${crypto.randomBytes(2).toString('hex')}.mp3`);
-
-              await execFileAsync('ffmpeg', [
-                '-y',
-                '-ss', start.toFixed(3),
-                '-to', end.toFixed(3),
-                '-i', masterMp3,
-                '-c:a', 'libmp3lame',
-                '-ar', '44100',
-                '-ac', '2',
-                '-b:a', '192k',
-                segPath
-              ]);
-
-              const dur = await getAudioDuration(segPath);
-              paths[originalIdx] = segPath;
-              durations[originalIdx] = dur;
-              sceneWords[originalIdx] = estimateWordTimings(nonEmptyTexts[k], dur);
-            }
+        if (allSucceeded && paths.some(p => p !== null)) {
+          // Build concatenated master from scene files
+          const concatList = nonEmptyIndices.map(idx => paths[idx]).filter(Boolean) as string[];
+          if (concatList.length > 1) {
+            const concatMasterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+            const listFile = path.join(activeTtsDir, `concat-list-${Date.now()}.txt`);
+            await fs.writeFile(listFile, concatList.map(p => `file '${p.replace(/\\/g, '/')}'`).join('\n'));
+            try {
+              await execFileAsync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', concatMasterPath]);
+              masterMp3 = concatMasterPath;
+            } catch { /* keep first scene as master */ }
+            try { await fs.unlink(listFile); } catch {}
           }
 
-          console.log(`[TTS Engine] 🌟 Cohesive studio neural voiceover complete via Gemini 3.8 Flash (${geminiVoice}): ${totalDur.toFixed(1)}s across ${nonEmptyTexts.length} scene(s).`);
+          console.log(`[TTS Engine] 🌟 Per-scene Gemini studio synthesis complete (${geminiVoice}): ${totalDur.toFixed(1)}s across ${nonEmptyTexts.length} scene(s).`);
           return {
             sceneAudioPaths: paths,
             sceneDurations: durations,
@@ -864,6 +806,9 @@ export async function generateCohesiveReelSpeech(
             sceneWords
           };
         }
+
+        // Legacy silencedetect split path removed — was causing subtitle desync.
+        // Per-scene synthesis above is the only Gemini path now.
       }
     } catch (geminiErr: any) {
       console.warn(`[TTS Engine] Tier 1 Gemini cohesive reel synthesis failed (${geminiErr?.message || geminiErr}). Rolling over to Node MsEdgeTTS...`);

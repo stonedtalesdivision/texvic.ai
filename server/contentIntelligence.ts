@@ -469,11 +469,8 @@ GLOBAL AUDIENCE & WORLDWIDE RESEARCH MANDATES (CRITICAL):
 1. WORLDWIDE CONTINENTAL SCOPE (TARGETING THE ENTIRE GLOBAL INSTAGRAM AUDIENCE):
    - Do NOT focus narrowly on American domestic politics, U.S. federal agencies, or local American crimes.
    - The audience is global: curious minds across Europe, Asia, Latin America, Africa, the Middle East, and Oceania.
-   - Actively choose captivating international subjects across the globe:
-     * Europe & Arctic (e.g. Dresden Green Vault diamond heist in Germany, Svalbard Global Seed Vault in Norway, Kola Superdeep Borehole)
-     * Asia & Middle East (e.g. Derinkuyu subterranean city in Turkey, Terracotta Army in China, Mount Kailash airspace anomaly in Tibet, Petra in Jordan)
-     * Africa & Mediterranean (e.g. Great Pyramid hidden chambers discovered via cosmic-ray muons, Eye of the Sahara / Richat Structure in Mauritania, Roman self-healing maritime concrete)
-     * Latin America & Oceans (e.g. Nazca Lines in Peru, Point Nemo spacecraft graveyard in South Pacific, underwater sandfalls of Mauritius)
+   - Actively choose captivating international subjects from EVERY continent — do NOT repeat subjects already in the avoid list above.
+   - Prioritize lesser-known events that most viewers worldwide have never heard of.
 2. UNIVERSAL INTERNATIONAL FRAMING (NO US DOMESTIC AGENCY TROPES):
    - Avoid framing stories around domestic American agencies ("the FBI", "the CIA", "U.S. Congress", "Hoover").
    - Frame through universal, internationally recognized authorities: "international archaeological teams", "satellite telemetry networks", "declassified naval hydrophone archives", "geological research expeditions", "forensic investigators".
@@ -571,7 +568,7 @@ Pillars: ${vertical.pillars.join("; ")}.
 
 Select ONE completely unique, documented historical event, classified operation, mysterious infrastructure, or scientific anomaly.
 ABSOLUTELY NEVER REPEAT ANY of these previously covered subjects:
-${avoidTopics.slice(0, 200).map(t => `- ${t}`).join('\n')}
+${avoidTopics.map(t => `- ${t}`).join('\n')}
 
 RESEARCH & FACT-CHECKING MANDATES (CRITICAL):
 1. THOROUGH FACTUAL RESEARCH: Choose an authentic real-world event with documented records (NARA, Smithsonian, declassified records, Nature/Science).
@@ -2416,7 +2413,7 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
      * Theory B: The alternative historical / operational motive
      * Theory C: The unresolved / anomalous perspective
    - Conclude with a debate question: "Which theory do you believe: A, B, or C? Drop your thoughts below."
-   - Must include international viral hashtags: #worldmysteries #ancienthistory #unsolvedmysteries #earthphenomena #lostcivilizations #globalhistory #documentary #declassified
+   - Do NOT include any hashtags inside the caption body — hashtags go in the separate \"hashtags\" array field only.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -2500,7 +2497,9 @@ Return ONLY valid JSON matching this schema:
           ? subjectWords.some(w => scriptLower.includes(w))
           : scriptLower.includes(cleanSubject.toLowerCase());
         if (!hasSubject) {
-          script = `${cleanSubject}: ${script}`;
+          // Do NOT prepend "Subject: script" — that created unnatural pauses corrupting TTS silence detection.
+          // Instead just leave the script as-is; the subject is already in the reel title/headline.
+          // script = `${cleanSubject}: ${script}`;
         }
       }
 
@@ -2655,12 +2654,8 @@ export async function constructDocumentaryReelPackage(
     brandTag,
     '#theuntoldarchive',
     '#worldmysteries',
-    '#ancienthistory',
     '#unsolvedmysteries',
-    '#earthphenomena',
-    '#lostcivilizations',
-    '#globalhistory',
-    '#historicalfacts',
+    '#historicalmysteries',
     '#documentary'
   ];
   let structure: NarrativeStructureType = 'chronological_reconstruction';

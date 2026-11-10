@@ -130,9 +130,9 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
           dwellText,
           accentColor: accentHex,
           hideProgressBar: true,
-          headline: '',
-          highlight: '',
-          subline: ''
+          headline: (scene as any).headline || cleanSubject || '',
+          highlight: (scene as any).highlight || '',
+          subline: (scene as any).subline || ''
         }, hudPng);
         hudPngs.push(hudPng);
       } catch (hudErr) {
@@ -263,7 +263,7 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
 
     // 5. Studio-Grade HyperFrames Composition Engine (optimized for short clips <= 25s)
     const outputPath = input.outputPath || path.join(COMPOSER_DIR, `${input.reelId}-${Date.now()}.mp4`);
-    const skipHyperframes = totalDuration > 25 || process.env.SKIP_HYPERFRAMES === '1';
+    const skipHyperframes = totalDuration > 90 || process.env.SKIP_HYPERFRAMES === '1';
 
     if (!skipHyperframes) {
       try {

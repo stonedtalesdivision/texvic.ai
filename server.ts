@@ -4010,7 +4010,12 @@ async function publishReelInternal(
       hashtags = JSON.parse(reel.hashtags_json || '[]');
     } catch {}
     const hashtagStr = Array.isArray(hashtags) ? hashtags.join(' ') : '';
-    const fullCaption = `${reel.caption || reel.title}${hashtagStr ? `\n\n${hashtagStr}` : ''}`;
+    // Deduplicate: strip any hashtags already embedded in the caption body, then merge + cap at 8 unique tags
+    const captionBody = (reel.caption || reel.title || '').replace(/#\w+/g, '').trim();
+    const captionEmbeddedTags = [...(reel.caption || '').matchAll(/#\w+/g)].map((m: RegExpMatchArray) => m[0].toLowerCase());
+    const extraTags = hashtags.map((t: string) => t.toLowerCase());
+    const allUniqueTags = Array.from(new Set([...captionEmbeddedTags, ...extraTags])).slice(0, 8);
+    const fullCaption = `${captionBody}${allUniqueTags.length > 0 ? `\n\n${allUniqueTags.join(' ')}` : ''}`.trim();
 
     console.log(`[Reel Multi-Publish] 🚀 Broadcasting for "${reel.title}"...`);
     console.log(`[Reel Multi-Publish] Channels: Instagram (${needsInstagram ? 'PUBLISHING' : (currentReel.ig_media_id ? 'ALREADY_LIVE' : 'NO')}), Facebook Page (${needsFbPage ? 'PUBLISHING' : (currentReel.fb_video_id ? 'ALREADY_LIVE' : 'NO')}), Facebook Profile (${needsFbAccount ? 'PUBLISHING' : (currentReel.fb_account_video_id ? 'ALREADY_LIVE' : 'NO')})`);
@@ -6232,6 +6237,23 @@ const CURATED_ARCHIVE_FALLBACKS = [
   }
 ];
 
+/**
+ * Peak-hour scheduler: Returns the next UTC datetime that falls on one of the
+ * target hours. Snaps every post to 06:00 or 14:00 UTC (11:30 IST / 19:30 IST)
+ * regardless of execution drift — the two best-performing windows from analytics.
+ */
+function getNextScheduledRunTime(scheduledHoursUtc: number[] = [6, 14]): Date {
+  const now = new Date();
+  const candidates = scheduledHoursUtc.map(h => {
+    const d = new Date();
+    d.setUTCHours(h, 0, 0, 0);
+    // If this hour already passed today, schedule for tomorrow
+    if (d <= now) d.setUTCDate(d.getUTCDate() + 1);
+    return d;
+  });
+  return candidates.reduce((a, b) => a < b ? a : b);
+}
+
 function getAllHistoricalTopics(limit = 1000): string[] {
   const topics: string[] = [];
   const seen = new Set<string>();
@@ -6300,12 +6322,33 @@ function getCuratedArchivalFallback(recentTopics: string[], activeVertical?: Con
   }
 
   // If ALL static catalog items are already in history, dynamically synthesize a unique archival dossier
+  // Try multiple random pillar candidates and pick the first non-duplicate
   const timestamp = Date.now();
-  const rawPillar = activeVertical?.pillars[Math.floor(Math.random() * (activeVertical.pillars.length || 1))] || 'Documented Historical Discoveries';
+  const availablePillars = activeVertical?.pillars && activeVertical.pillars.length > 0
+    ? activeVertical.pillars
+    : ['Documented Historical Discoveries', 'Cold War Infrastructure', 'Classified Operations', 'Earth Mysteries', 'Lost Civilizations'];
+
+  for (let attempt = 0; attempt < availablePillars.length * 2; attempt++) {
+    const rawPillar = availablePillars[Math.floor(Math.random() * availablePillars.length)];
+    const cleanPillarTitle = rawPillar.split(':')[0].trim();
+    const candidateTopic = `${cleanPillarTitle}: Declassified Archive Record ${timestamp.toString().slice(-5)}`;
+    if (!recentTopics.some(t => isTopicDuplicate(candidateTopic, t))) {
+      return {
+        topic: cleanPillarTitle,
+        hook: `Declassified government records and verified archival logs confirm an unusual physical anomaly within ${cleanPillarTitle}.`,
+        facts: [
+          `Recorded in contemporaneous historical dispatches and official records.`,
+          `Validated across multi-agency post-incident reviews and museum preservation files.`,
+          `The operational timeline was declassified under public transparency directives.`
+        ]
+      };
+    }
+  }
+  // Ultimate fallback
+  const rawPillar = availablePillars[0] || 'Documented Historical Discoveries';
   const cleanPillarTitle = rawPillar.split(':')[0].trim();
-  const dynamicTopic = cleanPillarTitle;
   return {
-    topic: dynamicTopic,
+    topic: cleanPillarTitle,
     hook: `Declassified government records and verified archival logs confirm an unusual physical anomaly within ${cleanPillarTitle}.`,
     facts: [
       `Recorded in contemporaneous historical dispatches and official records.`,
@@ -6806,7 +6849,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       );
 
       const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
-      const nextRun = new Date(Date.now() + intervalMinutes * 60000).toISOString();
+      const nextRun = getNextScheduledRunTime([6, 14]).toISOString();
 
       db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
         .run(publishedAt, nextRun, publishedAt);
@@ -7138,7 +7181,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     );
 
     const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
-    const nextRun = new Date(Date.now() + intervalMinutes * 60000).toISOString();
+    const nextRun = getNextScheduledRunTime([6, 14]).toISOString();
 
     db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
       .run(publishedAt, nextRun, publishedAt);
@@ -7209,6 +7252,61 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
 let autonomousDaemonTimer: NodeJS.Timeout | null = null;
 let lastStorageSweepMs = 0;
 
+/**
+ * Fetches the last 50 published Instagram media captions and seeds autonomous_logs
+ * with any topics not already tracked. Ensures topic deduplication survives VPS DB resets.
+ */
+async function bootstrapTopicsFromInstagram(): Promise<void> {
+  try {
+    const account = db.prepare('SELECT * FROM account_connections WHERE platform = ? AND is_connected = 1 LIMIT 1').get('instagram') as any;
+    if (!account?.access_token || !account?.platform_user_id) return;
+
+    const token = decryptSecret(account.access_token);
+    const igVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || 'v26.0';
+    const url = `https://graph.facebook.com/${igVersion}/${account.platform_user_id}/media?fields=id,caption,timestamp&limit=50&access_token=${token}`;
+
+    const response = await fetch(url);
+    if (!response.ok) return;
+
+    const data = await response.json() as any;
+    const mediaItems: any[] = data?.data || [];
+
+    let seeded = 0;
+    for (const item of mediaItems) {
+      if (!item.caption) continue;
+      // Extract first line as topic (strip trailing hashtags)
+      const firstLine = item.caption.split('\n')[0]
+        .replace(/#\w+/g, '')
+        .replace(/^The documented story behind\s*/i, '')
+        .trim();
+      if (firstLine.length < 10) continue;
+
+      // Only insert if not already tracked
+      const existing = db.prepare('SELECT id FROM autonomous_logs WHERE topic_researched = ? LIMIT 1').get(firstLine);
+      if (!existing) {
+        try {
+          db.prepare(`
+            INSERT INTO autonomous_logs (timestamp, topic_researched, idea_hook, status, details_json)
+            VALUES (?, ?, ?, 'published', ?)
+          `).run(
+            item.timestamp || new Date().toISOString(),
+            firstLine,
+            firstLine,
+            JSON.stringify({ bootstrapped_from_ig: true, ig_media_id: item.id })
+          );
+          seeded++;
+        } catch { /* ignore duplicate key */ }
+      }
+    }
+
+    if (seeded > 0) {
+      console.log(`[Autonomous Daemon] 📚 Bootstrapped ${seeded} historical topics from Instagram media captions for deduplication.`);
+    }
+  } catch (err: any) {
+    console.warn('[Autonomous Daemon] Instagram topic bootstrap skipped:', err?.message?.slice(0, 80));
+  }
+}
+
 function initAutonomousDaemon() {
   if (autonomousDaemonTimer) {
     clearInterval(autonomousDaemonTimer);
@@ -7273,6 +7371,10 @@ function initAutonomousDaemon() {
 
   // Run immediate storage retention sweep on startup (prunes published reels older than 24h)
   runStorageSweep().catch(e => console.warn('[Storage Retention] Initial storage sweep failed:', e));
+
+  // Bootstrap topic deduplication from live Instagram media captions.
+  // This ensures VPS DB resets never lose history — seeds autonomous_logs from real IG data.
+  bootstrapTopicsFromInstagram().catch(e => console.warn('[Autonomous Daemon] Instagram topic bootstrap warning:', e));
 
   const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
   const reelCount = Number((db.prepare('SELECT COUNT(*) as count FROM reels').get() as any)?.count || 0);
@@ -7435,7 +7537,7 @@ app.post("/api/autonomous/toggle", (req, res) => {
   const { enabled } = req.body;
   const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
   const intervalMins = configRow?.interval_minutes || 180;
-  const nextRun = enabled ? new Date(Date.now() + intervalMins * 60000).toISOString() : null;
+  const nextRun = enabled ? getNextScheduledRunTime([6, 14]).toISOString() : null;
 
   db.prepare(`
     UPDATE autonomous_config 
@@ -7451,7 +7553,7 @@ app.post("/api/autonomous/config", (req, res) => {
   const { intervalMinutes, targetNiche, formatPreference } = req.body;
 
   if (typeof intervalMinutes === "number" && intervalMinutes > 0) {
-    const nextRun = new Date(Date.now() + intervalMinutes * 60000).toISOString();
+    const nextRun = getNextScheduledRunTime([6, 14]).toISOString();
     db.prepare(`UPDATE autonomous_config SET interval_minutes = ?, next_run = ?, updated_at = ? WHERE id = 'default_config'`).run(intervalMinutes, nextRun, new Date().toISOString());
   }
 

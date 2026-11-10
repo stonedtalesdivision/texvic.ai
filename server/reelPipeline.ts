@@ -234,7 +234,7 @@ export async function prepareReelSceneAssets(rawReel: any): Promise<{ scenes: an
     // Calibrate scene duration to speech plus breathing buffer and pad audio precisely
     if (segPath && audioDur > 0) {
       realSpeechCount++;
-      const sceneDur = Math.max(audioDur + 0.35, 3.5);
+      const sceneDur = Math.max(audioDur + 0.08, 3.0);
       const paddedSeg = await padAudioSegment(segPath, sceneDur);
       voiceSegments.push(paddedSeg);
       sceneDurations.push(sceneDur);
