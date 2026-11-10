@@ -423,26 +423,26 @@ export function auditReelPackage(pkg: Partial<CuratedReelPackage>): EditorialAud
   // Realistic model potential prediction based on factual grounding & pacing
   const predictedScore = Math.max(50, Math.min(88, Math.round(editorialQualityScore * 0.85 + (passed ? 10 : -10))));
 
-    const avgSimplicity = simplicityScores.length > 0 
-      ? Math.round(simplicityScores.reduce((a, b) => a + b, 0) / simplicityScores.length) 
-      : 80;
+  const avgSimplicity = simplicityScores.length > 0
+    ? Math.round(simplicityScores.reduce((a, b) => a + b, 0) / simplicityScores.length)
+    : 80;
 
-    return {
-      passed,
-      editorialQualityScore,
-      predictedPotential: {
-        score: predictedScore,
-        label: 'model_estimate',
-        rationale: passed 
-          ? 'High factual specificity, verified evidence citations, and balanced word pacing.' 
-          : 'Quality criteria not satisfied; requires editorial refinement.'
-      },
-      simplicityScore: avgSimplicity,
-      hasProperClosure,
-      flags,
-      rejectionReasons
-    };
-  }
+  return {
+    passed,
+    editorialQualityScore,
+    predictedPotential: {
+      score: predictedScore,
+      label: 'model_estimate',
+      rationale: passed
+        ? 'High factual specificity, verified evidence citations, and balanced word pacing.'
+        : 'Quality criteria not satisfied; requires editorial refinement.'
+    },
+    simplicityScore: avgSimplicity,
+    hasProperClosure,
+    flags,
+    rejectionReasons
+  };
+}
 
 /**
  * Conducts structured research on a vertical subject using Gemini Search Grounding
@@ -1473,13 +1473,13 @@ function selectCuratedHistoricalDossier(vertical: ContentVertical, avoidTopics: 
   ];
 
   // Filter candidates that are NOT similar to ANY topic in avoidTopics
-  const candidates = curatedDatabase.filter(d => 
+  const candidates = curatedDatabase.filter(d =>
     !avoidTopics.some(avoid => isSubjectDuplicate(d.subject, avoid))
   );
 
   if (candidates.length > 0) {
     // If possible, match vertical niche/pillar
-    const verticalMatches = candidates.filter(c => 
+    const verticalMatches = candidates.filter(c =>
       c.pillar.toLowerCase().includes(vertical.niche.toLowerCase()) ||
       vertical.niche.toLowerCase().includes(c.pillar.toLowerCase())
     );
@@ -2089,21 +2089,21 @@ export function extractContextualSceneKeywords(
 
   const defaultHeadlines = isOperation
     ? [
-        cleanSubject.toUpperCase().slice(0, 24),
-        'THE OPERATION',
-        'TURNING POINT',
-        'THE BETRAYAL',
-        'CLASSIFIED COVERUP',
-        'HISTORICAL VERDICT'
-      ]
+      cleanSubject.toUpperCase().slice(0, 24),
+      'THE OPERATION',
+      'TURNING POINT',
+      'THE BETRAYAL',
+      'CLASSIFIED COVERUP',
+      'HISTORICAL VERDICT'
+    ]
     : [
-        cleanSubject.toUpperCase().slice(0, 24),
-        'HISTORICAL ORIGIN',
-        'PRIMARY INQUIRY',
-        'CRITICAL EVIDENCE',
-        'CLASSIFIED DOSSIER',
-        'HISTORICAL VERDICT'
-      ];
+      cleanSubject.toUpperCase().slice(0, 24),
+      'HISTORICAL ORIGIN',
+      'PRIMARY INQUIRY',
+      'CRITICAL EVIDENCE',
+      'CLASSIFIED DOSSIER',
+      'HISTORICAL VERDICT'
+    ];
 
   return {
     keywords: [kwPrimary, kwSecondary, kwTertiary].filter(Boolean),
@@ -2463,21 +2463,21 @@ Return ONLY valid JSON matching this schema:
 
   const defaultLabels = isEspionageOrOperation
     ? [
-        'ARCHIVAL DOSSIER',
-        'THE OPERATION',
-        'TURNING POINT',
-        'THE BETRAYAL',
-        'CLASSIFIED COVERUP',
-        'HISTORICAL VERDICT'
-      ]
+      'ARCHIVAL DOSSIER',
+      'THE OPERATION',
+      'TURNING POINT',
+      'THE BETRAYAL',
+      'CLASSIFIED COVERUP',
+      'HISTORICAL VERDICT'
+    ]
     : [
-        'ARCHIVAL RECORD',
-        'HISTORICAL ORIGIN',
-        'KEY EVIDENCE',
-        'CRITICAL TWIST',
-        'UNRESOLVED RECORD',
-        'FINAL VERDICT'
-      ];
+      'ARCHIVAL RECORD',
+      'HISTORICAL ORIGIN',
+      'KEY EVIDENCE',
+      'CRITICAL TWIST',
+      'UNRESOLVED RECORD',
+      'FINAL VERDICT'
+    ];
 
   const sanitizeParsedScenes = (parsed: any): boolean => {
     if (!parsed || !Array.isArray(parsed.scenes) || parsed.scenes.length < 4) return false;
@@ -2670,17 +2670,17 @@ export async function constructDocumentaryReelPackage(
 
   const defaultChapterLabels = isOperationGenre
     ? [
-        'ARCHIVAL DOSSIER',
-        'THE OPERATION',
-        'CRITICAL TWIST',
-        'HISTORICAL VERDICT'
-      ]
+      'ARCHIVAL DOSSIER',
+      'THE OPERATION',
+      'CRITICAL TWIST',
+      'HISTORICAL VERDICT'
+    ]
     : [
-        'ARCHIVAL RECORD',
-        'PRIMARY INQUIRY',
-        'CRITICAL EVIDENCE',
-        'HISTORICAL VERDICT'
-      ];
+      'ARCHIVAL RECORD',
+      'PRIMARY INQUIRY',
+      'CRITICAL EVIDENCE',
+      'HISTORICAL VERDICT'
+    ];
 
   if (aiScript && Array.isArray(aiScript.scenes) && aiScript.scenes.length >= 3) {
     reelTitle = aiScript.title || reelTitle;

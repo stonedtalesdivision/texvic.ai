@@ -191,11 +191,13 @@ export const AutonomousEngine24x7: React.FC<AutonomousEngine24x7Props> = ({
   };
 
   const intervalPresets = [
-    { label: 'Every 15 Min (Fast Demo)', value: 15 },
+    { label: '1 Reel / Day (Every 24 Hours)', value: 1440 },
+    { label: '2 Reels / Day (Every 12 Hours)', value: 720 },
+    { label: '3 Reels / Day (Every 8 Hours)', value: 480 },
+    { label: '4 Reels / Day (Every 6 Hours)', value: 360 },
+    { label: '8 Reels / Day (Every 3 Hours)', value: 180 },
     { label: 'Every 1 Hour (Aggressive)', value: 60 },
-    { label: 'Every 3 Hours (Recommended)', value: 180 },
-    { label: 'Every 6 Hours (Balanced)', value: 360 },
-    { label: 'Every 12 Hours (Daily)', value: 720 }
+    { label: 'Every 15 Min (Fast Demo)', value: 15 }
   ];
 
   const nichePresets = [
