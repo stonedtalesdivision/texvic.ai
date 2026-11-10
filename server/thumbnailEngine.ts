@@ -76,18 +76,20 @@ export async function generateReelCover(
     }
   }
 
-  // 2. Format title lines for maximum mobile readability (clean curiosity-gap uppercase)
+  // 2. Format title lines for maximum mobile readability (clean curiosity-gap uppercase <= 5 words)
   const cleanTitle = String(options.title || 'THE DECLASSIFIED DOSSIER')
     .replace(/^(documented archival anomaly|declassified dossier|archival anomaly|case file|investigation file)[\s\:\-]+/i, '')
     .split(/[:\-\—\(]/)[0]
     .trim()
     .toUpperCase();
 
-  const titleLines = wrapSvgText(cleanTitle, 18).slice(0, 4);
+  const rawWords = cleanTitle.split(/\s+/).filter(Boolean);
+  const punchyTitle = rawWords.length > 5 ? rawWords.slice(0, 5).join(' ') : cleanTitle;
+  const titleLines = wrapSvgText(punchyTitle, 16).slice(0, 3);
 
   // Identify high-impact focus words in title lines
   const formattedTitleSvg = titleLines.map((line, idx) => {
-    const yPos = 920 + (idx * 84);
+    const yPos = 920 + (idx * 88);
     const words = line.split(/\s+/);
     // Highlight the most significant word in gold accent
     const longestWord = [...words].sort((a, b) => b.length - a.length)[0] || '';
@@ -98,7 +100,7 @@ export async function generateReelCover(
       return `<tspan fill="${fill}">${escapeXml(w)} </tspan>`;
     }).join('');
 
-    return `<text x="540" y="${yPos}" text-anchor="middle" font-family="'Segoe UI', 'DejaVu Sans', Arial, sans-serif" font-weight="900" font-size="70" letter-spacing="1.5">${lineTspans}</text>`;
+    return `<text x="540" y="${yPos}" text-anchor="middle" font-family="'Segoe UI', 'DejaVu Sans', Arial, sans-serif" font-weight="900" font-size="74" letter-spacing="1.5">${lineTspans}</text>`;
   }).join('\n');
 
   // 3. Construct Sharp SVG cover overlay

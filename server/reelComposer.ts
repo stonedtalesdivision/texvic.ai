@@ -156,9 +156,9 @@ export async function composeReel(input: ReelComposition): Promise<{ outputPath:
 
       // For non-autonomous footage, apply unified Dark Archive grade (autonomous clips already graded before HUD)
       if (!isFullVertical) {
-        vf.push('eq=saturation=0.45:contrast=1.25:brightness=-0.12');
-        vf.push('vignette=PI/4');
-        vf.push('noise=alls=6:allf=t');
+        vf.push('eq=saturation=0.72:contrast=1.08:brightness=-0.02');
+        vf.push('vignette=PI/5');
+        vf.push('noise=alls=4:allf=t');
       }
 
       const filters = [

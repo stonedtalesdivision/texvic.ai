@@ -6239,10 +6239,10 @@ const CURATED_ARCHIVE_FALLBACKS = [
 
 /**
  * Peak-hour scheduler: Returns the next UTC datetime that falls on one of the
- * target hours. Snaps every post to 06:00 or 14:00 UTC (11:30 IST / 19:30 IST)
- * regardless of execution drift — the two best-performing windows from analytics.
+ * target hours. Snaps every post to 06:00 UTC (11:30 IST) — the single best-performing
+ * window from historical analytics (1 reel/day allows algorithm distribution without self-cannibalization).
  */
-function getNextScheduledRunTime(scheduledHoursUtc: number[] = [6, 14]): Date {
+function getNextScheduledRunTime(scheduledHoursUtc: number[] = [6]): Date {
   const now = new Date();
   const candidates = scheduledHoursUtc.map(h => {
     const d = new Date();
@@ -6849,7 +6849,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       );
 
       const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
-      const nextRun = getNextScheduledRunTime([6, 14]).toISOString();
+      const nextRun = getNextScheduledRunTime([6]).toISOString();
 
       db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
         .run(publishedAt, nextRun, publishedAt);
@@ -7181,7 +7181,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     );
 
     const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
-    const nextRun = getNextScheduledRunTime([6, 14]).toISOString();
+    const nextRun = getNextScheduledRunTime([6]).toISOString();
 
     db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
       .run(publishedAt, nextRun, publishedAt);
@@ -7537,7 +7537,7 @@ app.post("/api/autonomous/toggle", (req, res) => {
   const { enabled } = req.body;
   const configRow = db.prepare('SELECT * FROM autonomous_config WHERE id = ?').get('default_config') as any;
   const intervalMins = configRow?.interval_minutes || 180;
-  const nextRun = enabled ? getNextScheduledRunTime([6, 14]).toISOString() : null;
+  const nextRun = enabled ? getNextScheduledRunTime([6]).toISOString() : null;
 
   db.prepare(`
     UPDATE autonomous_config 
@@ -7553,7 +7553,7 @@ app.post("/api/autonomous/config", (req, res) => {
   const { intervalMinutes, targetNiche, formatPreference } = req.body;
 
   if (typeof intervalMinutes === "number" && intervalMinutes > 0) {
-    const nextRun = getNextScheduledRunTime([6, 14]).toISOString();
+    const nextRun = getNextScheduledRunTime([6]).toISOString();
     db.prepare(`UPDATE autonomous_config SET interval_minutes = ?, next_run = ?, updated_at = ? WHERE id = 'default_config'`).run(intervalMinutes, nextRun, new Date().toISOString());
   }
 

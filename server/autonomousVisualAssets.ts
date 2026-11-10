@@ -213,37 +213,14 @@ async function renderGeneratedScene(
     }
   }
 
-  const motionQuery = [
-    voiceScript.slice(0, 80),
-    rawHeadline,
-    cleanSubject || topic
-  ].filter(Boolean).join(' ');
+  // Determine if this scene prioritizes an authentic archival record first (Scene 1 hook or archival cut)
+  const cutsFirstType = Array.isArray(scene?.cuts) && scene.cuts[0]?.type;
+  const isArchivalPriority = index === 0 || cutsFirstType === 'archival_image' || Boolean(scene?.archivalQuery);
 
-  console.info(`[Autonomous Visual Producer] 🎬 Resolving script-connected motion video (scene ${index + 1}): "${rawHeadline.slice(0, 45)}"...`);
-  try {
-    const motionResult = await fetchBestMotionVideo(motionQuery, motionVideoPath, {
-      targetDuration: duration,
-      customKeywords,
-      voiceScript,
-      topic: cleanSubject || topic,
-      sceneIndex: index,
-      usedUrls: extraOpts?.usedVideoUrls
-    });
-    if (motionResult?.source !== 'fallback' && fsSync.existsSync(motionVideoPath)) {
-      const vStats = await fs.stat(motionVideoPath);
-      if (vStats.size > 50000) {
-        hasMotionVideo = true;
-        console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Real motion B-roll video ready via ${motionResult.source} (${vStats.size} bytes).`);
-      }
-    }
-  } catch (err: any) {
-    console.info(`[Autonomous Visual Producer] Motion video fetch skipped: ${err?.message?.slice(0, 100) || String(err)}`);
-  }
-
-  // 2. SECONDARY: Authentic Verified Archival Media (Wikimedia Commons)
-  if (!hasMotionVideo && !hasCustomImage) {
+  const tryArchivalLookup = async () => {
+    if (hasCustomImage || hasMotionVideo) return;
     const archivalQuery = String(scene?.archivalQuery || '').trim();
-    const shouldTryArchival = Boolean(archivalQuery) || (
+    const shouldTryArchival = isArchivalPriority || Boolean(archivalQuery) || (
       /history|heist|mystery|incident|disaster|ancient|classified|expedition|bunker|island|vault|war|treaty|monument|manuscript|borehole|ocean|event|conspiracy|discovery|archive/i.test(topicContext)
     );
 
@@ -270,6 +247,45 @@ async function renderGeneratedScene(
         console.info(`[Autonomous Visual Producer] Archival lookup skipped: ${archErr?.message?.slice(0, 80) || String(archErr)}`);
       }
     }
+  };
+
+  const tryMotionVideoLookup = async () => {
+    if (hasMotionVideo || hasCustomImage) return;
+    const motionQuery = [
+      voiceScript.slice(0, 80),
+      rawHeadline,
+      cleanSubject || topic
+    ].filter(Boolean).join(' ');
+
+    console.info(`[Autonomous Visual Producer] 🎬 Resolving script-connected motion video (scene ${index + 1}): "${rawHeadline.slice(0, 45)}"...`);
+    try {
+      const motionResult = await fetchBestMotionVideo(motionQuery, motionVideoPath, {
+        targetDuration: duration,
+        customKeywords,
+        voiceScript,
+        topic: cleanSubject || topic,
+        sceneIndex: index,
+        usedUrls: extraOpts?.usedVideoUrls
+      });
+      if (motionResult?.source !== 'fallback' && fsSync.existsSync(motionVideoPath)) {
+        const vStats = await fs.stat(motionVideoPath);
+        if (vStats.size > 50000) {
+          hasMotionVideo = true;
+          console.info(`[Autonomous Visual Producer] Scene ${index + 1}: Real motion B-roll video ready via ${motionResult.source} (${vStats.size} bytes).`);
+        }
+      }
+    } catch (err: any) {
+      console.info(`[Autonomous Visual Producer] Motion video fetch skipped: ${err?.message?.slice(0, 100) || String(err)}`);
+    }
+  };
+
+  // If archival is prioritized (Scene 1 hook or archival cut), fetch Wikimedia Commons FIRST
+  if (isArchivalPriority) {
+    await tryArchivalLookup();
+    await tryMotionVideoLookup();
+  } else {
+    await tryMotionVideoLookup();
+    await tryArchivalLookup();
   }
 
   // 3. User-Uploaded VPS Background Video Priority Check

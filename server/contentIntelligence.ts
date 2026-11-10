@@ -2413,6 +2413,7 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
      * Theory B: The alternative historical / operational motive
      * Theory C: The unresolved / anomalous perspective
    - Conclude with a debate question: "Which theory do you believe: A, B, or C? Drop your thoughts below."
+   - Follow with an explicit viral save/share CTA line: "💾 Save this file for your investigation | 📤 Share with someone who loves mysteries"
    - Do NOT include any hashtags inside the caption body — hashtags go in the separate \"hashtags\" array field only.
 
 Return ONLY valid JSON matching this schema:
@@ -2516,7 +2517,7 @@ Return ONLY valid JSON matching this schema:
       s.cuts = ensureChapterCuts(s, idx, numCuts, cleanSubject);
     });
 
-    // Ensure caption has 3 theories and debate CTA
+    // Ensure caption has 3 theories, debate CTA, and Save/Share CTA
     if (!parsed.caption || parsed.caption.length < 80 || !/Theory A/i.test(parsed.caption) || !/Which theory do you believe/i.test(parsed.caption)) {
       parsed.caption = [
         `ARCHIVAL CASE FILE // ${cleanSubject.toUpperCase()}`,
@@ -2530,8 +2531,13 @@ Return ONLY valid JSON matching this schema:
         '',
         `DEBATE: Which theory do you believe: A, B, or C? Drop your thoughts below.`,
         '',
+        `💾 Save this file for your investigation | 📤 Share with someone who loves mysteries`,
+        '',
         `Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜`
       ].filter(Boolean).join('\n');
+    } else if (!/Save this file|💾/i.test(parsed.caption)) {
+      // Append high-converting save/share CTA if missing from AI caption
+      parsed.caption = parsed.caption.trim() + '\n\n💾 Save this file for your investigation | 📤 Share with someone who loves mysteries';
     }
 
     return true;
