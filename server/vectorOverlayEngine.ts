@@ -112,12 +112,11 @@ export function formatKaraokeWords(line: string, accentColor: string, explicitHi
     const isFocusWord = (idx === bestIdx);
     const cleanDisplay = w.replace(/\*\*/g, '');
     const escaped = escapeXml(cleanDisplay);
-    const trailingSpace = idx < words.length - 1 ? ' ' : '';
     if (isFocusWord) {
-      return `<tspan fill="${accentColor}" font-weight="900">${escaped}${trailingSpace}</tspan>`;
+      return `<tspan fill="${accentColor}" font-weight="900">${escaped}</tspan>`;
     }
-    return `<tspan fill="#ffffff" font-weight="800">${escaped}${trailingSpace}</tspan>`;
-  }).join('');
+    return `<tspan fill="#ffffff" font-weight="800">${escaped}</tspan>`;
+  }).join('&#160;');
 }
 
 /**
@@ -164,34 +163,52 @@ export function buildSceneSvg(opts: OverlayOptions): string {
     `}
   `;
 
-  // Minimalist Archival Framing: Leaves 100% of the video center clear for 4K B-roll and kinetic subtitles
+  // Minimalist Archival Framing: Keeps center imagery clear while surfacing crisp upper headline context
   const cornerColor = accent || '#d4af37';
+  const cleanHeadline = rawHeadline.replace(/\s+/g, ' ').trim();
+  const headlineLines = cleanHeadline.length >= 3 ? wrapSvgText(cleanHeadline.toUpperCase(), 24).slice(0, 2) : [];
+  const headlineBoxH = headlineLines.length === 1 ? 74 : 116;
+  const headlineFontSize = headlineLines.length === 1 ? 35 : 31;
+  const reticleTopY = headlineLines.length === 0 ? 240 : headlineLines.length === 1 ? 314 : 356;
+
+  const headlineBannerSvg = headlineLines.length > 0 ? `
+      <g transform="translate(100, 214)">
+        <rect width="880" height="${headlineBoxH}" rx="16" fill="rgba(3, 7, 18, 0.78)" stroke="rgba(212, 175, 55, 0.38)" stroke-width="1.5" filter="url(#shadow)" />
+        <rect x="0" y="14" width="6" height="${headlineBoxH - 28}" rx="3" fill="${cornerColor}" filter="url(#glow)" />
+        ${headlineLines.map((line, idx) => `
+          <text x="440" y="${headlineLines.length === 1 ? 49 : 47 + idx * 42}" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', 'Segoe UI', Arial, sans-serif" font-size="${headlineFontSize}" letter-spacing="1.2">${formatKaraokeWords(line, cornerColor, rawHighlight)}</text>
+        `).join('')}
+      </g>
+  ` : '';
+
   const mainContentSvg = `
     <g>
       <!-- Sleek Glassmorphic Archival Header Capsule (Safe zone y=140) -->
       <g transform="translate(100, 140)">
         <rect width="880" height="52" rx="26" fill="rgba(8, 12, 22, 0.72)" stroke="rgba(255, 255, 255, 0.18)" stroke-width="1.2" filter="url(#shadow)" />
         <circle cx="36" cy="26" r="6" fill="${cornerColor}" filter="url(#glow)" />
-        <text x="56" y="33" font-family="'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="800" fill="${cornerColor}" letter-spacing="1.5">
+        <text x="56" y="33" font-family="'Liberation Sans', 'DejaVu Sans', 'Segoe UI', Arial, sans-serif" font-size="17" font-weight="800" fill="${cornerColor}" letter-spacing="1.5">
           [ ${badge} ]
         </text>
-        <text x="844" y="33" text-anchor="end" font-family="'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700" fill="#f1f5f9" letter-spacing="0.8">
+        <text x="844" y="33" text-anchor="end" font-family="'Liberation Sans', 'DejaVu Sans', 'Segoe UI', Arial, sans-serif" font-size="15" font-weight="700" fill="#f1f5f9" letter-spacing="0.8">
           ${branding}
         </text>
       </g>
 
+      ${headlineBannerSvg}
+
       <!-- Minimalist Documentary Camera Framing Reticles (Authentic Film Archive Feel) -->
       <g stroke="${cornerColor}" stroke-width="2" fill="none" opacity="0.45">
-        <path d="M 100 240 L 140 240 M 100 240 L 100 280" />
-        <path d="M 980 240 L 940 240 M 980 240 L 980 280" />
+        <path d="M 100 ${reticleTopY} L 140 ${reticleTopY} M 100 ${reticleTopY} L 100 ${reticleTopY + 40}" />
+        <path d="M 980 ${reticleTopY} L 940 ${reticleTopY} M 980 ${reticleTopY} L 980 ${reticleTopY + 40}" />
         <path d="M 100 1480 L 140 1480 M 100 1480 L 100 1440" />
         <path d="M 980 1480 L 940 1480 M 980 1480 L 980 1440" />
       </g>
 
-      <!-- Subtle Bottom Dwell Pill (Safe zone y=1680) -->
+      <!-- Subtle Bottom Dwell Pill (Safe zone y=1660) -->
       <g transform="translate(140, 1660)">
         <rect width="800" height="46" rx="23" fill="rgba(3, 7, 18, 0.70)" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" />
-        <text x="400" y="29" text-anchor="middle" font-family="'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="1">
+        <text x="400" y="29" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', 'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="1">
           ${dwellText}
         </text>
       </g>

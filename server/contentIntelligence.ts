@@ -2009,7 +2009,7 @@ export function extractContextualSceneKeywords(
       },
       {
         keywords: ['ancient rolling stone door', 'carved rock tunnel', 'subterranean shaft'],
-        archivalQuery: 'Derinkuyu stone door',
+        archivalQuery: 'Derinkuyu underground city stone door',
         headline: '1,000-POUND STONE DOORS',
         imagePrompt: 'Massive circular millstone security door sealing a narrow volcanic tuff tunnel from inside, ancient defense engineering. NO text.'
       },
@@ -2382,7 +2382,7 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
        Focus on human motives, tactical blueprints, blind spots in high-tech sensors, unexpected betrayals, and international police manhunts.
      * For Ancient Enigmas & Relics (e.g. Great Pyramid hidden chambers, Antikythera Mechanism, Nazca Lines, Terracotta Army):
        Focus on real physical materials, cosmic-ray muon scans, carbon dating, subterranean engineering, and craftsmanship mysteries.
-     * For Forbidden Geography & Deep Earth Phenomena (e.g. Derinkuyu underground city, Kola Superdeep Borehole, Point Nemo, Lake Vostok):
+     * For Forbidden Geography & Deep Earth Phenomena (e.g. Svalbard Seed Vault, Nazca geoglyphs, Mariana Trench, Socotra Island):
        Focus on extreme physics, banned sovereign airspace, oceanic isolation, and deep geological discoveries.
    - Structure into EXACTLY 4 progressive chapters with DYNAMIC, STORY-SPECIFIC bottom HUD chapter labels:
      * CHAPTER 1 — THE CURIOSITY-GAP HOOK (0-4s / ~16-20 words): DO NOT START WITH GENERIC INTRODUCTIONS ("In this video", "Today we look at", "Archival records show"). Open immediately with high-tension conflict or impossible paradox that names "${cleanSubject}" and stops thumbs dead in their tracks across the globe (e.g., "In 2003, thieves cracked an Antwerp vault protected by 10 layers of seismic sensors—without tripping a single alarm."). HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".

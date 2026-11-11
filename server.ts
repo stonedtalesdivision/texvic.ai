@@ -136,12 +136,11 @@ process.on("uncaughtException", (err: Error) => {
   console.error("[CRITICAL PROCESS GUARD] Uncaught Exception:", err?.stack || err);
   // Send Telegram alert for critical errors (best-effort, non-blocking)
   try {
-    const { sendTelegramAlert } = require("./server/telegramBot.js");
     sendTelegramAlert(`🚨 *CRITICAL* Uncaught Exception on TEXVIC.Ai server:\n\`${String(err?.message || err).slice(0, 300)}\``).catch(() => {});
   } catch {}
-  // For truly unrecoverable errors (e.g. EADDRINUSE, out of memory), exit cleanly
-  if (err?.message?.includes('EADDRINUSE') || err?.message?.includes('Cannot read properties of null')) {
-    console.error("[CRITICAL PROCESS GUARD] Unrecoverable error — shutting down gracefully.");
+  // Only exit cleanly on unrecoverable port-binding conflict
+  if (err?.message?.includes('EADDRINUSE')) {
+    console.error("[CRITICAL PROCESS GUARD] Port conflict (EADDRINUSE) — shutting down gracefully.");
     process.exit(1);
   }
 });
@@ -236,8 +235,8 @@ app.use((_req, res, next) => {
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: blob: https:; connect-src 'self' https:; media-src 'self' blob:; font-src 'self' data:;"
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "img-src 'self' data: blob: https:; connect-src 'self' https:; media-src 'self' blob: https:; font-src 'self' data: https://fonts.gstatic.com;"
   );
   next();
 });
@@ -891,7 +890,7 @@ app.post("/api/assets/upload", assetUploader.array("files", 10), async (req: any
     const tags = rawTags.split(',').map((t: string) => t.trim()).filter(Boolean);
     const mood = req.body.mood ? String(req.body.mood) : undefined;
 
-    const savedAssets = [];
+    const savedAssets: any[] = [];
     for (const file of files) {
       const asset = await saveUploadedAsset(file, { category, tags, mood });
       if (asset) savedAssets.push(asset);
@@ -7282,39 +7281,55 @@ let lastStorageSweepMs = 0;
 async function bootstrapTopicsFromInstagram(): Promise<void> {
   try {
     const account = db.prepare('SELECT * FROM account_connections WHERE platform = ? AND is_connected = 1 LIMIT 1').get('instagram') as any;
-    if (!account?.access_token || !account?.platform_user_id) return;
+    const igAccountId = account?.account_id || account?.platform_user_id;
+    if (!account?.access_token || !igAccountId) return;
 
     const token = decryptSecret(account.access_token);
+    if (!token) return;
     const igVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || 'v26.0';
-    const url = `https://graph.facebook.com/${igVersion}/${account.platform_user_id}/media?fields=id,caption,timestamp&limit=50&access_token=${token}`;
+    const graphHost = token.startsWith('EA') ? 'https://graph.facebook.com' : 'https://graph.instagram.com';
+    const url = `${graphHost}/${igVersion}/${igAccountId}/media?fields=id,caption,timestamp&limit=100&access_token=${encodeURIComponent(token)}`;
 
-    const response = await fetch(url);
-    if (!response.ok) return;
+    const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!response.ok) {
+      console.warn(`[Autonomous Daemon] Instagram topic bootstrap returned HTTP ${response.status}.`);
+      return;
+    }
 
     const data = await response.json() as any;
-    const mediaItems: any[] = data?.data || [];
+    const mediaItems: any[] = Array.isArray(data?.data) ? data.data : [];
 
     let seeded = 0;
     for (const item of mediaItems) {
       if (!item.caption) continue;
-      // Extract first line as topic (strip trailing hashtags)
-      const firstLine = item.caption.split('\n')[0]
+      // Extract clean first line / case title as topic (strip prefixes & hashtags)
+      const rawFirstLine = String(item.caption).split('\n')[0]
         .replace(/#\w+/g, '')
-        .replace(/^The documented story behind\s*/i, '')
+        .replace(/^(?:the documented story behind|documented archival anomaly|declassified dossier|archival anomaly|investigation file|case file(?:\s*#?\d+)?)\s*[:\-—]*\s*/i, '')
         .trim();
-      if (firstLine.length < 10) continue;
+      if (rawFirstLine.length < 10) continue;
 
-      // Only insert if not already tracked
-      const existing = db.prepare('SELECT id FROM autonomous_logs WHERE topic_researched = ? LIMIT 1').get(firstLine);
+      const beforeDash = rawFirstLine.split(/\s*[—–]\s*/)[0].trim();
+      const topicTitle = (beforeDash.length >= 10 && beforeDash.length <= 120)
+        ? beforeDash
+        : rawFirstLine.slice(0, 120).trim();
+
+      // Only insert if not already tracked by IG media ID or topic title
+      const existing = db.prepare(
+        'SELECT id FROM autonomous_logs WHERE ig_media_id = ? OR topic_researched = ? LIMIT 1'
+      ).get(item.id || '', topicTitle);
       if (!existing) {
         try {
+          const bootId = `boot-ig-${item.id || seeded}-${Date.now()}`;
           db.prepare(`
-            INSERT INTO autonomous_logs (timestamp, topic_researched, idea_hook, status, details_json)
-            VALUES (?, ?, ?, 'published', ?)
+            INSERT INTO autonomous_logs (id, timestamp, topic_researched, idea_hook, ig_media_id, status, details_json)
+            VALUES (?, ?, ?, ?, ?, 'published', ?)
           `).run(
+            bootId,
             item.timestamp || new Date().toISOString(),
-            firstLine,
-            firstLine,
+            topicTitle,
+            rawFirstLine.slice(0, 240),
+            item.id || null,
             JSON.stringify({ bootstrapped_from_ig: true, ig_media_id: item.id })
           );
           seeded++;

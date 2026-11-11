@@ -110,9 +110,18 @@ export async function fetchWikimediaArchivalImage(
         .filter(img => {
           if (!img.url) return false;
           if (!img.mime.startsWith('image/')) return false;
-          // Skip tiny icons, flags, or logos
+          // Skip tiny icons, flags, logos, collages, postcards, ads, or irrelevant diagrams
           if (img.width < 400 && img.height < 400) return false;
-          if (/flag|icon|symbol|logo|insignia|emblem|coat_of_arms/i.test(img.title)) return false;
+          if (img.width > 0 && img.height > 0) {
+            const ratio = img.width / img.height;
+            if (ratio < 0.45 || ratio > 2.35) return false;
+          }
+          if (/flag|icon|symbol|logo|insignia|emblem|coat_of_arms|collage|diptych|triptych|montage|multi[-_]?panel|souvenir|postcard[-_]?rack|gift[-_]?shop|qr[-_]?code|barcode|locator[-_]?map|blank[-_]?map|wikimedia|commons[-_]?logo/i.test(img.title)) {
+            return false;
+          }
+          if (/voltohm|r[oö]ntgen|x[-_]?ray|reklame|advertisement/i.test(img.title) && !/x[-_]?ray|roentgen|radiograph/i.test(targetQuery)) {
+            return false;
+          }
           // Avoid duplicate images in the same reel
           if (options.usedUrls && options.usedUrls.has(img.url)) return false;
           if (options.usedTitles && options.usedTitles.has(img.title)) return false;
@@ -128,15 +137,43 @@ export async function fetchWikimediaArchivalImage(
         .split(/\s+/)
         .filter(w => w.length >= 3 && !/^(file|photo|image|bitmap|the|and|for|from|with|documented|archival|anomaly|declassified|index)$/i.test(w));
 
+      const genericVisualModifiers = new Set([
+        'photo', 'photograph', 'image', 'bitmap', 'document', 'diagram', 'map', 'chart',
+        'archive', 'file', 'picture', 'illustration', 'drawing', 'sketch', 'plate',
+        'stone', 'door', 'tunnel', 'cave', 'wall', 'room', 'hall', 'chamber', 'building',
+        'water', 'ice', 'ocean', 'forest', 'mountain', 'valley', 'dark', 'vintage',
+        'historic', 'historical', 'ancient', 'secret', 'mystery', 'underground',
+        'subterranean', 'inside', 'exterior', 'interior', 'view', 'city', 'site',
+        'under', 'over', 'into', 'about', 'near'
+      ]);
+      const subjectWords = queryWords.filter(w => !genericVisualModifiers.has(w) && w.length >= 4);
+
       // Filter and score images by title relevance to target query
       const scoredImages = validImages
         .map(img => {
+          const normalizedTitle = img.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
           const lowerTitle = img.title.toLowerCase();
+
+          // If specific subject nouns exist in the query (e.g. "derinkuyu", "catacombs", "vostok"),
+          // require at least one core subject word to appear in the Wikimedia filename.
+          // This blocks generic word traps like "stone door" -> Jerusalem souvenir postcard rack.
+          if (subjectWords.length > 0) {
+            const hasSubjectMatch = subjectWords.some(sw => normalizedTitle.includes(sw));
+            if (!hasSubjectMatch) {
+              return { img, matchScore: -20 };
+            }
+          }
+
           let matchScore = 0;
           for (const qw of queryWords) {
-            if (lowerTitle.includes(qw)) {
-              matchScore += (qw.length >= 5 ? 3 : 1);
+            if (normalizedTitle.includes(qw)) {
+              const isSubject = subjectWords.includes(qw);
+              matchScore += isSubject ? 6 : (qw.length >= 5 ? 2 : 1);
             }
+          }
+          // Prefer high-resolution archival photographs over small thumbnails
+          if (Math.max(img.width, img.height) >= 900) {
+            matchScore += 2;
           }
           // Reject completely unrelated domain topics
           if (/tennis|football|soccer|baseball|wrestling|wedding|celebrity|model|actor|actress|pop_singer/i.test(lowerTitle) && !/tennis|sport/i.test(targetQuery)) {
