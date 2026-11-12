@@ -61,30 +61,151 @@ export const CREATOR_VOICES = {
 };
 
 /**
- * Automatically resolves the most human, atmospheric voice based on post topic and mood
- * Defaults to refined British documentary baritone (en-GB-RyanNeural) for universal global appeal (BBC / NatGeo style)
+ * Automatically resolves the most human, atmospheric Edge neural voice fallback.
+ * Defaults to a deep, authoritative US baritone (en-US-ChristopherNeural) matching our
+ * flagship Gemini Charon voice so Tier 2 fallback stays tonally consistent across reels.
  */
 export function resolveBestVoiceForTopic(topicOrNiche = '', mood = ''): string {
   const text = `${topicOrNiche} ${mood}`.toLowerCase();
-  if (/tech|infrastructure|satellite|subsea|power|cyber|internet/i.test(text)) {
-    return CREATOR_VOICES.cinematicStorytellerMale; // Calm, deep cinematic storytelling tone
+  if (/\b(?:tech|infrastructure|satellite|subsea|cyber|internet)\b/i.test(text)) {
+    return CREATOR_VOICES.cinematicStorytellerMale; // Deep US storytelling baritone
   }
-  // Universal global authority for mysteries, history, heists, ancient ruins, and earth phenomena
-  return CREATOR_VOICES.britishNarratorMale; // en-GB-RyanNeural (Sophisticated BBC/NatGeo documentary baritone)
+  return CREATOR_VOICES.deepDocumentaryMale; // en-US-ChristopherNeural (deep authoritative US baritone)
 }
 
 /**
- * Resolves mature, studio-grade prebuilt voice for Gemini 3.8 Flash TTS
+ * Resolves mature, studio-grade prebuilt voice for Gemini TTS.
+ * Locks The Untold Archive channel to Charon (deepest authoritative documentary baritone)
+ * so recurring viewers always hear the same signature voice.
  */
-export function resolveGeminiVoiceForTopic(topicOrNiche = '', mood = ''): string {
-  const text = `${topicOrNiche} ${mood}`.toLowerCase();
-  if (/tech|ai|software|future|breakthrough|productivity/i.test(text)) {
-    return 'Puck'; // Confident, sharp modern creator voice
+export function resolveGeminiVoiceForTopic(_topicOrNiche = '', _mood = ''): string {
+  return 'Charon';
+}
+
+interface GeminiTtsModelSpec {
+  model: string;
+  supportsSpeechMetadata: boolean;
+}
+
+// Ordered Gemini TTS model pool with separate free-tier RPD/RPM quota buckets.
+// Verified empirically: 3.8-flash-tts & 3.8-flash-lite-tts support speechMetadata + audio/wav;
+// 3.1-flash-tts-preview & 2.5-flash-preview-tts return headerless 24kHz audio/l16 PCM and reject speechMetadata.
+const GEMINI_TTS_MODELS: ReadonlyArray<GeminiTtsModelSpec> = [
+  { model: 'gemini-3.8-flash-tts', supportsSpeechMetadata: true },
+  { model: 'gemini-3.1-flash-tts-preview', supportsSpeechMetadata: false },
+  { model: 'gemini-2.5-flash-preview-tts', supportsSpeechMetadata: false },
+  { model: 'gemini-3.8-flash-lite-tts', supportsSpeechMetadata: true }
+];
+
+const GEMINI_BROADCAST_FILTER =
+  'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+
+function getEdgeCandidateVoices(primaryVoice?: string): string[] {
+  return [
+    primaryVoice || CREATOR_VOICES.deepDocumentaryMale,
+    CREATOR_VOICES.deepDocumentaryMale,       // en-US-ChristopherNeural (deep authoritative US baritone)
+    CREATOR_VOICES.authorityMale,             // en-US-GuyNeural (crisp US broadcast anchor)
+    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (calm US storytelling baritone)
+    CREATOR_VOICES.naturalCreatorMale,        // en-US-AndrewMultilingualNeural
+    CREATOR_VOICES.casualPodcastMale,         // en-US-BrianMultilingualNeural
+    CREATOR_VOICES.britishNarratorMale        // en-GB-RyanNeural (last resort UK baritone)
+  ].filter((v, i, arr) => Boolean(v) && arr.indexOf(v) === i);
+}
+
+async function convertGeminiInlineAudioToMp3(
+  inlineData: { data: string; mimeType?: string },
+  outputMp3Path: string,
+  workDir: string
+): Promise<void> {
+  const mime = String(inlineData.mimeType || 'audio/wav').toLowerCase();
+  const isRawPcm = (mime.includes('l16') || mime.includes('pcm')) && !mime.includes('wav');
+  const rawExt = isRawPcm ? 'pcm' : 'wav';
+  const rawPath = path.join(workDir, `gemini-raw-${Date.now()}-${crypto.randomBytes(3).toString('hex')}.${rawExt}`);
+  await fs.writeFile(rawPath, Buffer.from(inlineData.data, 'base64'));
+
+  const inputArgs: string[] = [];
+  if (isRawPcm) {
+    const rate = mime.match(/rate=(\d+)/)?.[1] || '24000';
+    const channels = mime.match(/channels=(\d+)/)?.[1] || '1';
+    inputArgs.push('-f', 's16le', '-ar', rate, '-ac', channels);
   }
-  if (/crime|heist|dossier|classified|nuclear|cold war|war|secret|danger|dark|mystery/i.test(text)) {
-    return 'Charon'; // Deepest, gravest narrator
+  inputArgs.push('-i', rawPath);
+
+  try {
+    await execFileAsync('ffmpeg', [
+      '-y',
+      ...inputArgs,
+      '-af', GEMINI_BROADCAST_FILTER,
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-ac', '2',
+      '-b:a', '192k',
+      outputMp3Path
+    ]);
+  } catch {
+    await execFileAsync('ffmpeg', [
+      '-y',
+      ...inputArgs,
+      '-af', 'atempo=1.25,volume=1.2',
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-ac', '2',
+      '-b:a', '192k',
+      outputMp3Path
+    ]);
+  } finally {
+    try { await fs.unlink(rawPath); } catch {}
   }
-  return 'Charon'; // Default to Charon (deepest authoritative documentary baritone)
+}
+
+async function requestGeminiTtsAudio(
+  ai: GoogleGenAI,
+  spec: GeminiTtsModelSpec,
+  text: string,
+  voiceName: string
+): Promise<{ data: string; mimeType?: string }> {
+  const partPayload: any = spec.supportsSpeechMetadata
+    ? {
+        text,
+        speechMetadata: {
+          style: 'documentary narrator, mature adult male, deep authoritative baritone, natural steady human cadence, articulate and captivating storytelling'
+        }
+      }
+    : { text };
+
+  let lastErr: any = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: spec.model,
+        contents: [{ role: 'user', parts: [partPayload] }],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName }
+            }
+          }
+        } as any
+      });
+      const inlineData = (response.candidates?.[0]?.content?.parts?.[0] as any)?.inlineData;
+      if (!inlineData?.data) {
+        throw new Error(`Gemini TTS model ${spec.model} returned no audio data`);
+      }
+      return inlineData;
+    } catch (err: any) {
+      lastErr = err;
+      const msg = String(err?.message || err);
+      const isDailyQuota = /PerDay|GenerateRequestsPerDay/i.test(msg);
+      const isTransientRpm = !isDailyQuota && (/429|RESOURCE_EXHAUSTED|500|503|UNAVAILABLE/i.test(msg));
+      if (isTransientRpm && attempt === 0) {
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -445,16 +566,8 @@ export async function generateSpeech(
     }
   }
 
-  // Multi-candidate male neural voices (all high-fidelity adult male narrators)
-  const candidateVoices = [
-    primaryVoice,
-    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
-    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
-    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
-    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
-    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
-    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
-  ].filter((v, i, arr) => arr.indexOf(v) === i);
+  // Multi-candidate male neural voices (deep authoritative US documentary tones first)
+  const candidateVoices = getEdgeCandidateVoices(primaryVoice);
 
   // =========================================================================
   // Tier 2: Direct Node.js MsEdgeTTS (Auto Clock Sync, Deep Adult Male Voices)
@@ -673,9 +786,10 @@ export async function generateCohesiveReelSpeech(
   }
 
   // =========================================================================
-  // Tier 1: Gemini 3.8 Flash Studio Neural Voice (Charon / Fenrir Documentary Baritone)
-  // Synthesizes the ENTIRE reel in ONE single cohesive AI request with silence markers (<long pause>).
-  // Zero 429 quota exhaustion (1 request vs N requests), authentic human nuance, zero robotic DSP.
+  // Tier 1: Gemini Studio Neural Voice Pool (Locked Charon Baritone per reel)
+  // Synthesizes each scene separately for exact timing while locking a single
+  // Gemini TTS model across all scenes of the reel, failing over cleanly across
+  // separate RPD quota pools when a model hits daily limits.
   // =========================================================================
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     const rawVoice = options.voice ? options.voice.replace(/^Gemini-/, '') : undefined;
@@ -683,135 +797,91 @@ export async function generateCohesiveReelSpeech(
       ? rawVoice
       : resolveGeminiVoiceForTopic(options.topic || '', options.mood || '');
 
-    try {
-      console.log(`[TTS Engine] 🌟 Attempting Tier 1 Gemini 3.8 Flash Studio Neural Voice (${geminiVoice}) via single-batch cohesive reel request...`);
-
-      const nonEmptyIndices: number[] = [];
-      const nonEmptyTexts: string[] = [];
-      for (let i = 0; i < cleanedTexts.length; i++) {
-        const t = cleanedTexts[i];
-        if (t && t.trim().length > 0) {
-          nonEmptyIndices.push(i);
-          nonEmptyTexts.push(t.trim());
-        }
+    const nonEmptyIndices: number[] = [];
+    const nonEmptyTexts: string[] = [];
+    for (let i = 0; i < cleanedTexts.length; i++) {
+      const t = cleanedTexts[i];
+      if (t && t.trim().length > 0) {
+        nonEmptyIndices.push(i);
+        nonEmptyTexts.push(t.trim());
       }
+    }
 
-      if (nonEmptyTexts.length > 0) {
-        // Per-scene Gemini synthesis: synthesize each scene separately to get exact timings.
-        // This eliminates the stitched-silencedetect split approach which caused subtitle desync.
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const broadcastFilter = 'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
+    if (nonEmptyTexts.length > 0) {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+      for (const modelSpec of GEMINI_TTS_MODELS) {
         const paths: (string | null)[] = new Array(cleanedTexts.length).fill(null);
         const durations: number[] = new Array(cleanedTexts.length).fill(0);
         const sceneWords: TimedWord[][] = Array.from({ length: cleanedTexts.length }, () => []);
+        const createdTempFiles: string[] = [];
         let totalDur = 0;
         let masterMp3 = '';
-        let allSucceeded = true;
+        let modelFailed = false;
 
-        for (let k = 0; k < nonEmptyTexts.length; k++) {
-          const originalIdx = nonEmptyIndices[k];
-          const sceneText = nonEmptyTexts[k];
-          const sceneRawWav = path.join(activeTtsDir, `gemini-scene-raw-${Date.now()}-${originalIdx}-${crypto.randomBytes(2).toString('hex')}.wav`);
-          const sceneMp3 = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${originalIdx}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+        try {
+          console.log(`[TTS Engine] 🌟 Attempting Tier 1 Gemini Studio Voice (${geminiVoice}) with model ${modelSpec.model} across ${nonEmptyTexts.length} scene(s)...`);
 
-          const sceneResponse = await ai.models.generateContent({
-            model: 'gemini-3.8-flash-tts',
-            contents: [{
-              role: 'user',
-              parts: [{
-                text: sceneText,
-                speechMetadata: {
-                  style: 'documentary narrator, mature adult male, deep authoritative baritone, natural steady human cadence, articulate and captivating storytelling'
+          for (let k = 0; k < nonEmptyTexts.length; k++) {
+            const originalIdx = nonEmptyIndices[k];
+            const sceneText = nonEmptyTexts[k];
+            const cacheKey = crypto.createHash('md5').update(`${modelSpec.model}__${geminiVoice}__${sceneText}`).digest('hex');
+            const cachedSceneMp3 = path.join(activeTtsDir, `cache-gem-${cacheKey}.mp3`);
+            const sceneMp3 = path.join(activeTtsDir, `gemini-scene-${Date.now()}-${originalIdx}-${crypto.randomBytes(2).toString('hex')}.mp3`);
+
+            if (fsSync.existsSync(cachedSceneMp3) && (await fs.stat(cachedSceneMp3)).size >= 500) {
+              await fs.copyFile(cachedSceneMp3, sceneMp3);
+            } else {
+              const inlineData = await requestGeminiTtsAudio(ai, modelSpec, sceneText, geminiVoice);
+              await convertGeminiInlineAudioToMp3(inlineData, sceneMp3, activeTtsDir);
+              try {
+                if (fsSync.existsSync(sceneMp3) && (await fs.stat(sceneMp3)).size >= 500) {
+                  await fs.copyFile(sceneMp3, cachedSceneMp3);
                 }
-              }]
-            }],
-            config: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName: geminiVoice
-                  }
-                }
+              } catch {}
+              // Small pause between scenes avoids RPM burst throttling on free tier
+              if (k < nonEmptyTexts.length - 1) {
+                await new Promise(r => setTimeout(r, 350));
               }
-            } as any
-          });
+            }
 
-          const sceneCandidate = sceneResponse.candidates?.[0];
-          const scenePart = sceneCandidate?.content?.parts?.[0];
-          const sceneInlineData = (scenePart as any)?.inlineData;
-
-          if (!sceneInlineData?.data) {
-            allSucceeded = false;
-            break;
+            createdTempFiles.push(sceneMp3);
+            const sceneDur = await getAudioDuration(sceneMp3);
+            paths[originalIdx] = sceneMp3;
+            durations[originalIdx] = sceneDur;
+            sceneWords[originalIdx] = estimateWordTimings(sceneText, sceneDur);
+            totalDur += sceneDur;
+            if (k === 0) masterMp3 = sceneMp3;
           }
 
-          await fs.writeFile(sceneRawWav, Buffer.from(sceneInlineData.data, 'base64'));
-          try {
-            await execFileAsync('ffmpeg', [
-              '-y',
-              '-i', sceneRawWav,
-              '-af', broadcastFilter,
-              '-c:a', 'libmp3lame',
-              '-ar', '44100',
-              '-ac', '2',
-              '-b:a', '192k',
-              sceneMp3
-            ]);
-          } catch {
-            await execFileAsync('ffmpeg', [
-              '-y',
-              '-i', sceneRawWav,
-              '-af', 'atempo=1.25,volume=1.2',
-              '-c:a', 'libmp3lame',
-              '-ar', '44100',
-              '-ac', '2',
-              '-b:a', '192k',
-              sceneMp3
-            ]);
-          } finally {
-            try { await fs.unlink(sceneRawWav); } catch {}
-          }
-
-          const sceneDur = await getAudioDuration(sceneMp3);
-          paths[originalIdx] = sceneMp3;
-          durations[originalIdx] = sceneDur;
-          sceneWords[originalIdx] = estimateWordTimings(sceneText, sceneDur);
-          totalDur += sceneDur;
-          if (k === 0) masterMp3 = sceneMp3; // first scene used as master reference
-        }
-
-        if (allSucceeded && paths.some(p => p !== null)) {
-          // Build concatenated master from scene files
-          const concatList = nonEmptyIndices.map(idx => paths[idx]).filter(Boolean) as string[];
-          if (concatList.length > 1) {
-            const concatMasterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
-            const listFile = path.join(activeTtsDir, `concat-list-${Date.now()}.txt`);
-            await fs.writeFile(listFile, concatList.map(p => `file '${p.replace(/\\/g, '/')}'`).join('\n'));
-            try {
-              await execFileAsync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', concatMasterPath]);
+          if (!modelFailed && paths.some(p => p !== null)) {
+            const concatList = nonEmptyIndices.map(idx => paths[idx]).filter(Boolean) as string[];
+            if (concatList.length > 1) {
+              const concatMasterPath = path.join(activeTtsDir, `master-reel-${Date.now()}.mp3`);
+              await concatenateAudioTracks(concatList, concatMasterPath);
               masterMp3 = concatMasterPath;
-            } catch { /* keep first scene as master */ }
-            try { await fs.unlink(listFile); } catch {}
+            }
+
+            console.log(`[TTS Engine] 🌟 Per-scene Gemini studio synthesis complete via ${modelSpec.model} (${geminiVoice}): ${totalDur.toFixed(1)}s across ${nonEmptyTexts.length} scene(s).`);
+            return {
+              sceneAudioPaths: paths,
+              sceneDurations: durations,
+              masterAudioPath: masterMp3,
+              totalDuration: totalDur,
+              voiceUsed: `Gemini-${geminiVoice}`,
+              sceneWords
+            };
           }
-
-          console.log(`[TTS Engine] 🌟 Per-scene Gemini studio synthesis complete (${geminiVoice}): ${totalDur.toFixed(1)}s across ${nonEmptyTexts.length} scene(s).`);
-          return {
-            sceneAudioPaths: paths,
-            sceneDurations: durations,
-            masterAudioPath: masterMp3,
-            totalDuration: totalDur,
-            voiceUsed: `Gemini-${geminiVoice}`,
-            sceneWords
-          };
+        } catch (geminiErr: any) {
+          modelFailed = true;
+          for (const f of createdTempFiles) {
+            try { await fs.unlink(f); } catch {}
+          }
+          console.warn(`[TTS Engine] Gemini TTS model ${modelSpec.model} failed (${String(geminiErr?.message || geminiErr).slice(0, 180)}). Trying next Gemini TTS model...`);
         }
-
-        // Legacy silencedetect split path removed — was causing subtitle desync.
-        // Per-scene synthesis above is the only Gemini path now.
       }
-    } catch (geminiErr: any) {
-      console.warn(`[TTS Engine] Tier 1 Gemini cohesive reel synthesis failed (${geminiErr?.message || geminiErr}). Rolling over to Node MsEdgeTTS...`);
+
+      console.warn('[TTS Engine] All Gemini TTS models exhausted for cohesive reel synthesis. Rolling over to Node MsEdgeTTS...');
     }
   }
 
@@ -823,15 +893,7 @@ export async function generateCohesiveReelSpeech(
   const primaryEdgeVoice = (rawEdgeVoice && !rawEdgeVoice.startsWith('Piper-'))
     ? rawEdgeVoice
     : resolveBestVoiceForTopic(options.topic || '', options.mood || '');
-  const candidateVoices = [
-    primaryEdgeVoice,
-    CREATOR_VOICES.deepDocumentaryMale,      // en-US-ChristopherNeural (Mature authoritative documentary baritone)
-    'en-US-GuyNeural',                       // en-US-GuyNeural (Crisp broadcast anchor)
-    CREATOR_VOICES.cinematicStorytellerMale,  // en-US-EricNeural (Calm, rich storytelling baritone)
-    CREATOR_VOICES.naturalCreatorMale,       // en-US-AndrewMultilingualNeural (Warm natural conversational tone)
-    CREATOR_VOICES.casualPodcastMale,        // en-US-BrianMultilingualNeural (Dynamic, human creator delivery)
-    CREATOR_VOICES.britishNarratorMale       // en-GB-RyanNeural (Refined British documentary baritone)
-  ].filter((v, i, arr) => arr.indexOf(v) === i);
+  const candidateVoices = getEdgeCandidateVoices(primaryEdgeVoice);
 
   for (const edgeVoice of candidateVoices) {
     try {
@@ -1039,77 +1101,26 @@ export async function generateSpeechWithGemini(
   outputPath: string,
   voiceName = 'Charon'
 ): Promise<string> {
-  await ensureTtsDir();
+  const activeTtsDir = await ensureTtsDir();
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash-tts',
-    contents: [{
-      role: 'user',
-      parts: [{
-        text,
-        speechMetadata: {
-          style: 'documentary narrator, mature adult male, deep baritone, authoritative, natural steady human cadence, articulate and captivating storytelling'
-        }
-      }],
-    }],
-    config: {
-      responseModalities: ['AUDIO'],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName // 'Fenrir' is deep, dramatic documentary voice
-          }
-        }
-      }
-    } as any
-  });
+  let lastError: any = null;
 
-  const candidate = response.candidates?.[0];
-  const part = candidate?.content?.parts?.[0];
-  const inlineData = (part as any)?.inlineData;
-
-  if (!inlineData?.data) {
-    throw new Error('Gemini TTS returned no audio data');
+  for (const modelSpec of GEMINI_TTS_MODELS) {
+    try {
+      const inlineData = await requestGeminiTtsAudio(ai, modelSpec, text, voiceName);
+      await convertGeminiInlineAudioToMp3(inlineData, outputPath, activeTtsDir);
+      return outputPath;
+    } catch (err: any) {
+      lastError = err;
+    }
   }
 
-  const rawWav = outputPath.replace(/\.mp3$/, `-gemini-${Date.now()}.wav`);
-  const buffer = Buffer.from(inlineData.data, 'base64');
-  await fs.writeFile(rawWav, buffer);
-
-  try {
-    // Convert to broadcast 44.1kHz stereo MP3 with warmth EQ and comfortable 130-135 WPM human cadence
-    const broadcastFilter = 'atempo=1.25,volume=1.2,equalizer=f=100:width_type=o:width=1.2:g=2.0,equalizer=f=3200:width_type=o:width=1.2:g=1.0,compand=attacks=0.02:decays=0.2:points=-80/-80|-45/-30|-20/-10|0/-2:soft-knee=6';
-    await execFileAsync('ffmpeg', [
-      '-y',
-      '-i', rawWav,
-      '-af', broadcastFilter,
-      '-c:a', 'libmp3lame',
-      '-ar', '44100',
-      '-ac', '2',
-      '-b:a', '192k',
-      outputPath
-    ]);
-  } catch {
-    await execFileAsync('ffmpeg', [
-      '-y',
-      '-i', rawWav,
-      '-af', 'atempo=1.25,volume=1.2',
-      '-c:a', 'libmp3lame',
-      '-ar', '44100',
-      '-ac', '2',
-      '-b:a', '192k',
-      outputPath
-    ]);
-  } finally {
-    try { await fs.unlink(rawWav); } catch {}
-  }
-
-  return outputPath;
+  throw lastError || new Error('All Gemini TTS models failed');
 }
 
 /**
