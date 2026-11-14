@@ -445,6 +445,13 @@ export async function renderReelVideo(rawReel: any, options: { forceReRender?: b
     throw new Error('Rendered video could not be registered to media store.');
   }
 
+  // Delete composed duplicate video immediately to prevent wasting VPS disk storage
+  try {
+    if (fs.existsSync(composed.outputPath)) {
+      await fs.promises.unlink(composed.outputPath);
+    }
+  } catch {}
+
   const finalUrl = savedJob.output_url;
   const totalReelDuration = prepared.scenes.reduce((sum: number, s: any) => sum + s.duration, 0);
   db.prepare(`

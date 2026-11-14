@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { db } from './database.js';
+import { getDirSizeBytes } from './storageManager.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -430,6 +431,22 @@ export async function getStorageStats() {
   const publishedRow = db.prepare("SELECT count(*) as c FROM reels WHERE status = 'published'").get() as any;
   const publishedReelsCount = publishedRow?.c || 0;
 
+  // Calculate auxiliary media and ephemeral cache folders
+  const stockVideosBytes = await getDirSizeBytes(path.join(process.cwd(), 'data', 'media', 'stock-videos'));
+  const ttsBytes = await getDirSizeBytes(path.join(process.cwd(), 'data', 'media', 'tts'));
+  const composedBytes = await getDirSizeBytes(path.join(process.cwd(), 'data', 'media', 'composed'));
+  const browserProfileBytes = await getDirSizeBytes(path.join(process.cwd(), 'data', 'browser_profile'));
+  const archivalCacheBytes = await getDirSizeBytes(path.join(process.cwd(), 'data', 'media', 'archival-cache'));
+
+  const totalStorageBytes =
+    totalAssetBytes +
+    totalReelsBytes +
+    stockVideosBytes +
+    ttsBytes +
+    composedBytes +
+    browserProfileBytes +
+    archivalCacheBytes;
+
   return {
     totalAssetCount: assets.length,
     totalAssetBytes,
@@ -439,7 +456,12 @@ export async function getStorageStats() {
     totalReelsBytes,
     reelsFileCount,
     publishedReelsCount,
-    totalStorageBytes: totalAssetBytes + totalReelsBytes
+    stockVideosBytes,
+    ttsBytes,
+    composedBytes,
+    browserProfileBytes,
+    archivalCacheBytes,
+    totalStorageBytes
   };
 }
 

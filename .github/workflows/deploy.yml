@@ -53,6 +53,8 @@ jobs:
 
             echo "🔍 Verifying running container:"
             sudo docker ps
-            echo "🧹 Cleaning unused Docker cache..."
-            sudo docker system prune -f
+            echo "🧹 Cleaning unused Docker cache & build layers..."
+            sudo docker system prune -af --volumes=false
+            echo "📊 VPS Storage Status:"
+            df -h /
             echo "✅ Deployment completed successfully!"

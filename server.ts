@@ -4410,6 +4410,7 @@ async function publishReelInternal(
     enqueueJob('ANALYTICS_STRATEGY_FEEDBACK', { reelId: reel.id });
 
     console.log(`[Reel Multi-Publish] ✅ Published successfully. Live platforms: [${totalPublishedPlatforms.join(', ')}]`);
+    runStorageSweep().catch(e => console.warn('[Storage Retention] Post-publish storage sweep warning:', e));
 
     const warnings: string[] = [];
     if (wantsFbPage && !isFbPageConfigured && !currentReel.fb_video_id) {
@@ -7216,6 +7217,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
     }
 
     console.log(`[Autonomous 24x7 Engine] ✅ Reel successfully published to Instagram! Media ID: ${pubResult.mediaId}, permalink: ${pubResult.permalink}`);
+    runStorageSweep().catch(e => console.warn('[Storage Retention] Post-publish storage sweep warning:', e));
 
     const result = {
       success: true,
@@ -7421,6 +7423,11 @@ function initAutonomousDaemon() {
       .run(new Date().toISOString(), new Date().toISOString());
     console.log("[Autonomous 24x7 Daemon] No reels found. Scheduling the first content cycle immediately.");
   }
+
+  // Dedicated background storage retention timer (runs every 30 minutes 24x7 to ensure VPS storage never fills up)
+  setInterval(() => {
+    runStorageSweep().catch(e => console.warn('[Storage Retention] Standalone periodic storage sweep failed:', e));
+  }, 30 * 60 * 1000);
 
   console.log("[Autonomous 24x7 Daemon] Initialized SQLite background worker (checking every 30s)...");
   autonomousDaemonTimer = setInterval(async () => {
