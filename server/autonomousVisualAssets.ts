@@ -129,7 +129,180 @@ async function generateVisibleDocumentarySlate(
 }
 
 /**
+ * Assembles dynamic 2.5-3.5 second cuts into a cohesive scene video.
+ * Keeps short-form retention sky-high by ensuring a visual cut occurs every 2-3 seconds
+ * (alternating between verified archival artifacts, cinematic stock b-roll, and atmospheric macro footage).
+ */
+async function renderSceneMultiCut(
+  scene: any,
+  sceneIndex: number,
+  reel: any,
+  output: string,
+  totalDuration: number,
+  extraOpts?: { usedVideoUrls?: Set<string>; usedArchivalTitles?: Set<string> },
+  ctx?: { cleanSubject: string; topicContext: string; accentHex: string }
+): Promise<boolean> {
+  const cuts: any[] = scene?.cuts;
+  if (!Array.isArray(cuts) || cuts.length < 2) return false;
+
+  const numCuts = Math.min(cuts.length, 4);
+  const cutDuration = Number((totalDuration / numCuts).toFixed(2));
+  const cutFiles: string[] = [];
+  const tempFilesToClean: string[] = [];
+  const DARK_GRADE = 'eq=saturation=0.72:contrast=1.08:brightness=-0.02,vignette=PI/5';
+
+  try {
+    for (let c = 0; c < numCuts; c++) {
+      const cut = cuts[c];
+      const cutQuery = String(cut?.query || cut?.spokenClause || cut?.description || ctx?.cleanSubject || '').trim();
+      const nonce = crypto.randomBytes(3).toString('hex');
+      const cutOut = path.join(GENERATED_DIR, `cut-${reel?.id || 'r'}-${sceneIndex}-${c}-${nonce}.mp4`);
+      tempFilesToClean.push(cutOut);
+
+      let cutRendered = false;
+      const isArchival = cut.type === 'archival_image' || (sceneIndex === 0 && c === 0);
+
+      // 1. Archival Image lookup
+      if (isArchival) {
+        const archImg = path.join(GENERATED_DIR, `arch-${nonce}.jpg`);
+        tempFilesToClean.push(archImg);
+        try {
+          const archResult = await fetchWikimediaArchivalImage(cutQuery || ctx?.cleanSubject || '', {
+            fallbackTerms: [ctx?.cleanSubject, cutQuery].filter(Boolean) as string[],
+            usedUrls: extraOpts?.usedVideoUrls,
+            usedTitles: extraOpts?.usedArchivalTitles,
+            index: c
+          });
+
+          if (archResult?.filePath && fsSync.existsSync(archResult.filePath)) {
+            const aStats = await fs.stat(archResult.filePath);
+            if (aStats.size > 20000) {
+              await fs.copyFile(archResult.filePath, archImg);
+              const cam = (sceneIndex + c) % 3;
+              const zoomFilter = cam === 0
+                ? `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(1.04+0.003*on,1.22)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30`
+                : cam === 1
+                ? `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.22-0.003*on,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30`
+                : `scale=1280:2276:force_original_aspect_ratio=increase,crop=1280:2276,zoompan=z=1.12:x='if(lte(on,1),(iw-iw/zoom)/2,x+1.2)':y='(ih-ih/zoom)/2':d=1:s=1080x1920:fps=30`;
+
+              await execFileAsync('ffmpeg', [
+                '-y', '-loop', '1', '-i', archImg,
+                '-t', String(cutDuration),
+                '-vf', `${zoomFilter},${DARK_GRADE},setsar=1`,
+                '-an', '-r', '30',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21',
+                '-pix_fmt', 'yuv420p',
+                cutOut
+              ], { maxBuffer: 1024 * 1024 * 8 });
+
+              if (fsSync.existsSync(cutOut) && (await fs.stat(cutOut)).size > 10000) {
+                cutRendered = true;
+                cutFiles.push(cutOut);
+              }
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[Autonomous Visual Producer] Cut ${c + 1} archival lookup notice:`, e?.message || e);
+        }
+      }
+
+      // 2. Motion Video lookup (Pixabay / Pexels)
+      if (!cutRendered) {
+        const vidPath = path.join(GENERATED_DIR, `vid-${nonce}.mp4`);
+        tempFilesToClean.push(vidPath);
+        try {
+          const motionResult = await fetchBestMotionVideo(cutQuery, vidPath, {
+            targetDuration: cutDuration,
+            sceneIndex: c,
+            usedUrls: extraOpts?.usedVideoUrls
+          });
+
+          if (motionResult?.source !== 'fallback' && fsSync.existsSync(vidPath)) {
+            await execFileAsync('ffmpeg', [
+              '-y', '-stream_loop', '-1', '-i', vidPath,
+              '-t', String(cutDuration),
+              '-vf', `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,${DARK_GRADE},setsar=1,fps=30`,
+              '-an', '-r', '30',
+              '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21',
+              '-pix_fmt', 'yuv420p',
+              cutOut
+            ], { maxBuffer: 1024 * 1024 * 8 });
+
+            if (fsSync.existsSync(cutOut) && (await fs.stat(cutOut)).size > 10000) {
+              cutRendered = true;
+              cutFiles.push(cutOut);
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[Autonomous Visual Producer] Cut ${c + 1} motion video notice:`, e?.message || e);
+        }
+      }
+
+      // 3. Photographic fallback with active Ken Burns
+      if (!cutRendered) {
+        const photoPath = path.join(GENERATED_DIR, `photo-${nonce}.jpg`);
+        tempFilesToClean.push(photoPath);
+        try {
+          const freeVisual = await fetchBestFreeVisual(cutQuery || ctx?.cleanSubject || 'historical documentary', photoPath, {
+            orientation: 'portrait',
+            preferStock: true
+          });
+
+          if (freeVisual?.path && fsSync.existsSync(photoPath)) {
+            const cam = (sceneIndex + c + 1) % 3;
+            const zoomFilter = cam === 0
+              ? `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(1.04+0.003*on,1.22)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30`
+              : `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.22-0.003*on,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30`;
+
+            await execFileAsync('ffmpeg', [
+              '-y', '-loop', '1', '-i', photoPath,
+              '-t', String(cutDuration),
+              '-vf', `${zoomFilter},${DARK_GRADE},setsar=1`,
+              '-an', '-r', '30',
+              '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '21',
+              '-pix_fmt', 'yuv420p',
+              cutOut
+            ], { maxBuffer: 1024 * 1024 * 8 });
+
+            if (fsSync.existsSync(cutOut) && (await fs.stat(cutOut)).size > 10000) {
+              cutRendered = true;
+              cutFiles.push(cutOut);
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[Autonomous Visual Producer] Cut ${c + 1} photo fallback notice:`, e?.message || e);
+        }
+      }
+    }
+
+    if (cutFiles.length >= 2) {
+      const listFile = path.join(GENERATED_DIR, `concat-list-${crypto.randomBytes(4).toString('hex')}.txt`);
+      tempFilesToClean.push(listFile);
+      const listContent = cutFiles.map(f => `file '${f.replace(/\\/g, '/')}'`).join('\n') + '\n';
+      await fs.writeFile(listFile, listContent);
+
+      await execFileAsync('ffmpeg', [
+        '-y', '-f', 'concat', '-safe', '0', '-i', listFile,
+        '-c', 'copy', output
+      ], { maxBuffer: 1024 * 1024 * 8 });
+
+      if (fsSync.existsSync(output) && (await fs.stat(output)).size > 20000) {
+        console.info(`[Autonomous Visual Producer] 🎬 Scene ${sceneIndex + 1}: Multi-cut assembly successful (${cutFiles.length} dynamic cuts, ${totalDuration.toFixed(1)}s total).`);
+        return true;
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Autonomous Visual Producer] Multi-cut assembly failed, falling back to single asset:`, err?.message || err);
+  } finally {
+    await Promise.allSettled(tempFilesToClean.map(f => fs.rm(f, { force: true })));
+  }
+
+  return false;
+}
+
+/**
  * Renders an authentic documentary scene visual using the resilient multi-tier pipeline:
+ * Tier 0: Dynamic multi-cut assembly (rapid 2.5s cuts alternating B-roll & archival)
  * Tier 1: Real script-connected vertical motion video footage (Pexels / Pixabay)
  * Tier 2: Authentic verified historical records & photography from Wikimedia Commons (Ken Burns zoompan)
  * Tier 3: High-resolution stock photography (Pixabay / Pexels Photo API via fetchBestFreeVisual)
@@ -191,6 +364,19 @@ async function renderGeneratedScene(
       }
     } catch (tutErr: any) {
       console.warn(`[Autonomous Visual Producer] Software studio render notice, falling back to documentary visual engine:`, tutErr?.message || tutErr);
+    }
+  }
+
+  // 0c. DYNAMIC MULTI-CUT ASSEMBLY (2.5 - 3.5s rapid cuts)
+  // Keeps retention sky-high by alternating B-roll & authentic archival shots every ~2.5 seconds
+  if (duration >= 4.0 && Array.isArray(scene?.cuts) && scene.cuts.length >= 2 && !hasCustomImage) {
+    const multiCutSuccess = await renderSceneMultiCut(scene, index, reel, output, duration, extraOpts, {
+      cleanSubject,
+      topicContext,
+      accentHex
+    });
+    if (multiCutSuccess && fsSync.existsSync(output) && (await fs.stat(output)).size > 20000) {
+      return output;
     }
   }
 
@@ -365,11 +551,11 @@ async function renderGeneratedScene(
       const cameraType = index % 3;
       let zoomFilter = '';
       if (cameraType === 0) {
-        zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(zoom+0.0015,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
+        zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='min(1.04+0.003*on,1.25)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
       } else if (cameraType === 1) {
-        zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.25-0.0015*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
+        zoomFilter = `scale=1200:2133:force_original_aspect_ratio=increase,crop=1200:2133,zoompan=z='max(1.22-0.003*on,1.04)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
       } else {
-        zoomFilter = `scale=1280:2276:force_original_aspect_ratio=increase,crop=1280:2276,zoompan=z=1.12:x='if(lte(on,1),(iw-iw/zoom)/2,x+0.8)':y='(ih-ih/zoom)/2':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
+        zoomFilter = `scale=1280:2276:force_original_aspect_ratio=increase,crop=1280:2276,zoompan=z=1.12:x='if(lte(on,1),(iw-iw/zoom)/2,x+1.5)':y='(ih-ih/zoom)/2':d=1:s=1080x1920:fps=30,${DARK_GRADE},setsar=1`;
       }
 
       await execFileAsync('ffmpeg', [

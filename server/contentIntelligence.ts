@@ -2388,7 +2388,7 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
      * CHAPTER 1 — THE CURIOSITY-GAP HOOK (0-4s / ~16-20 words): DO NOT START WITH GENERIC INTRODUCTIONS ("In this video", "Today we look at", "Archival records show"). Open immediately with high-tension conflict or impossible paradox that names "${cleanSubject}" and stops thumbs dead in their tracks across the globe (e.g., "In 2003, thieves cracked an Antwerp vault protected by 10 layers of seismic sensors—without tripping a single alarm."). HUD label: "ARCHIVAL DOSSIER" or "ARCHIVAL RECORD".
      * CHAPTER 2 — THE CORE CONFLICT / THE MISSION (5-12s / ~16-20 words): Reveal the stakes, what the secret objective was, or the official version told to the public. HUD label: e.g. "HISTORICAL ORIGIN" or "THE OPERATION".
      * CHAPTER 3 — THE CRITICAL TWIST / BREAKDOWN (13-22s / ~16-20 words): The central shock, blunder, contradiction, or confidential confession that breaks standard expectations. HUD label: e.g. "TURNING POINT", "CRITICAL EVIDENCE", or "COVERT TWIST".
-     * CHAPTER 4 — THE LOOP CLIMAX / VERDICT (23-30s / ~16-20 words): The declassified aftermath, coverup, or unsolved mystery that connects seamlessly back to the opening hook and sparks debate in the comments. HUD label: e.g. "CLASSIFIED COVERUP" or "HISTORICAL VERDICT".
+     * CHAPTER 4 — THE LOOP CLIMAX / VERDICT (23-30s / ~14-18 words): The final resolution, aftermath, or compelling debate verdict. CRITICAL: MUST BE A COMPLETE, FINISHED SENTENCE. NEVER end on a trailing clause (e.g., NEVER "which explains why...", NEVER "as the secret of..."). Deliver the punchline, then ask a punchy closing question (e.g., "Did officials cover it up? Share your theory below."). HUD label: e.g. "HISTORICAL VERDICT".
 
 2. STRICT VOCABULARY & STYLE RULES (NO ACADEMIC JARGON):
    - 8th-grade reading level. Natural, spoken cadence.
@@ -2428,7 +2428,7 @@ Return ONLY valid JSON matching this schema:
       "headline": "SHORT HEADLINE",
       "highlight": "CORE PHRASE",
       "subline": "Brief supporting context",
-      "voiceScript": "Exact spoken narration for this chapter (20-30 words, 8th grade English, zero academic filler).",
+      "voiceScript": "Exact spoken narration for this chapter (14-18 words, spoken documentary cadence, zero academic or bureaucratic filler). Total reel must stay under 35 seconds.",
       "visualDescription": "Physical description of the chapter scene.",
       "onScreenText": "SHORT PUNCHY HUD TEXT",
       "transition": "cut",
@@ -2841,7 +2841,7 @@ export async function constructDocumentaryReelPackage(
 
   const pkg: CuratedReelPackage = {
     title: reelTitle,
-    verticalBadge: vertical.badge,
+    verticalBadge: (vertical.badge || "DECLASSIFIED").replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, "").replace(/[\[\]]/g, "").trim().slice(0, 22),
     niche: vertical.niche,
     narrativeStructure: structure,
     researchDossier: dossier,

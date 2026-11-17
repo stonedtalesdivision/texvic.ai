@@ -125,10 +125,21 @@ export function formatKaraokeWords(line: string, accentColor: string, explicitHi
  * 2. classified-dossier: Authentic declassified government archive file with red "TOP SECRET" stamp and highlighter
  * 3. satellite-telemetry: Military satellite reconnaissance HUD with glowing coordinates and target crosshairs
  */
+function formatHeaderBadge(rawBadge?: string): string {
+  if (!rawBadge) return 'ARCHIVAL RECORD';
+  const stripped = rawBadge
+    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+    .replace(/[\[\]]/g, '')
+    .trim();
+  const primaryPart = stripped.split(/[,&|\/—–-]/)[0].trim() || stripped;
+  const upper = primaryPart.toUpperCase();
+  return upper.length > 22 ? upper.slice(0, 20).trim() + '…' : upper;
+}
+
 export function buildSceneSvg(opts: OverlayOptions): string {
   const activePersona = getActivePersona();
   const accent = (opts.accentColor || '#fbbf24').replace(/^#?([0-9a-fA-F]{6})$/, '#$1');
-  const badge = escapeXml(opts.badge || 'UNTOLD MYSTERY');
+  const badge = escapeXml(formatHeaderBadge(opts.badge));
   const dwellText = escapeXml(opts.dwellText || `${activePersona.brand || 'THE UNTOLD ARCHIVE'} • HISTORICAL DOSSIER`);
   const branding = escapeXml(opts.branding || activePersona.brand || 'THE UNTOLD ARCHIVE');
   const progressPercent = Math.max(0, Math.min(100, opts.progressPercent ?? 50));
@@ -205,10 +216,10 @@ export function buildSceneSvg(opts: OverlayOptions): string {
         <path d="M 980 1480 L 940 1480 M 980 1480 L 980 1440" />
       </g>
 
-      <!-- Subtle Bottom Dwell Pill (Safe zone y=1660) -->
-      <g transform="translate(140, 1660)">
-        <rect width="800" height="46" rx="23" fill="rgba(3, 7, 18, 0.70)" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" />
-        <text x="400" y="29" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', 'Segoe UI', Arial, sans-serif" font-size="16" font-weight="700" fill="#94a3b8" letter-spacing="1">
+      <!-- Subtle Bottom Dwell Pill (Safe zone y=1400, cleanly above native Instagram UI) -->
+      <g transform="translate(140, 1400)">
+        <rect width="800" height="42" rx="21" fill="rgba(3, 7, 18, 0.70)" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" />
+        <text x="400" y="27" text-anchor="middle" font-family="'Liberation Sans', 'DejaVu Sans', 'Segoe UI', Arial, sans-serif" font-size="15" font-weight="700" fill="#94a3b8" letter-spacing="1">
           ${dwellText}
         </text>
       </g>
