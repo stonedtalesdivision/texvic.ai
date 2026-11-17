@@ -107,6 +107,20 @@ db.exec(`
     used_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS visual_usage_history (
+    id TEXT PRIMARY KEY,
+    asset_type TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    identifier TEXT NOT NULL,
+    query TEXT,
+    reel_id TEXT,
+    used_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_visual_usage_url ON visual_usage_history (source_url);
+  CREATE INDEX IF NOT EXISTS idx_visual_usage_identifier ON visual_usage_history (identifier);
+  CREATE INDEX IF NOT EXISTS idx_visual_usage_used_at ON visual_usage_history (used_at);
+
   CREATE TABLE IF NOT EXISTS autonomous_config (
     id TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, interval_minutes INTEGER DEFAULT 180,
     target_niche TEXT DEFAULT 'AI Tech & Breakthroughs', current_stage TEXT DEFAULT 'idle',
@@ -1208,6 +1222,55 @@ export function incrementLeadMagnetTrigger(id: string): void {
   try {
     db.prepare('UPDATE lead_magnet_triggers SET trigger_count = trigger_count + 1 WHERE id = ?').run(id);
   } catch {}
+}
+
+export function recordVisualUsage(data: {
+  assetType: 'stock_video' | 'stock_photo' | 'archival_image';
+  source: string;
+  sourceUrl: string;
+  identifier: string;
+  query?: string;
+  reelId?: string;
+}): void {
+  try {
+    const id = `vu-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const usedAt = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO visual_usage_history (id, asset_type, source, source_url, identifier, query, reel_id, used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      data.assetType,
+      data.source,
+      data.sourceUrl,
+      data.identifier,
+      data.query || null,
+      data.reelId || null,
+      usedAt
+    );
+  } catch (err) {
+    console.warn('[Database] recordVisualUsage notice:', err);
+  }
+}
+
+export function getRecentlyUsedVisualUrls(cooldownDays = 14): Set<string> {
+  try {
+    const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000).toISOString();
+    const rows = db.prepare('SELECT source_url FROM visual_usage_history WHERE used_at >= ?').all(cutoff) as any[];
+    return new Set(rows.map(r => r.source_url).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+export function getRecentlyUsedVisualIdentifiers(cooldownDays = 14): Set<string> {
+  try {
+    const cutoff = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000).toISOString();
+    const rows = db.prepare('SELECT identifier FROM visual_usage_history WHERE used_at >= ?').all(cutoff) as any[];
+    return new Set(rows.map(r => r.identifier).filter(Boolean));
+  } catch {
+    return new Set();
+  }
 }
 
 export { db };

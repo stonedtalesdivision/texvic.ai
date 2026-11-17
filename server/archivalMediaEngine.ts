@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { recordVisualUsage } from './database.js';
 
 const execFileAsync = promisify(execFile);
 const ARCHIVAL_CACHE_DIR = path.join(process.cwd(), 'data', 'media', 'archival-cache');
@@ -22,6 +23,7 @@ export interface ArchivalFetchOptions {
   usedUrls?: Set<string>;
   usedTitles?: Set<string>;
   index?: number;
+  reelId?: string;
 }
 
 function hashKey(str: string): string {
@@ -191,9 +193,11 @@ export async function fetchWikimediaArchivalImage(
 
       scoredImages.sort((a, b) => b.matchScore - a.matchScore);
 
-      // Select image (with offset support if index passed)
-      const selectIdx = Math.min((options.index || 0), scoredImages.length - 1);
-      const chosen = scoredImages[selectIdx].img;
+      // Select image: sample among top scored candidates to avoid repeating the exact same photo across reels
+      const topPool = scoredImages.slice(0, Math.min(scoredImages.length, 3));
+      const chosen = (options.index !== undefined && options.index < scoredImages.length)
+        ? scoredImages[options.index].img
+        : topPool[Math.floor(Math.random() * topPool.length)].img;
 
       const cacheKey = hashKey(chosen.url);
       const cachePattern = path.join(ARCHIVAL_CACHE_DIR, `wiki-${cacheKey}.jpg`);
@@ -201,6 +205,14 @@ export async function fetchWikimediaArchivalImage(
       if (fsSync.existsSync(cachePattern) && (await fs.stat(cachePattern)).size > 20000) {
         if (options.usedUrls) options.usedUrls.add(chosen.url);
         if (options.usedTitles) options.usedTitles.add(chosen.title);
+        recordVisualUsage({
+          assetType: 'archival_image',
+          source: 'wikimedia',
+          sourceUrl: chosen.url,
+          identifier: chosen.title,
+          query: targetQuery,
+          reelId: options.reelId
+        });
         return {
           source: 'wikimedia-commons',
           filePath: cachePattern,
@@ -227,6 +239,14 @@ export async function fetchWikimediaArchivalImage(
       await fs.writeFile(cachePattern, Buffer.from(arrayBuf));
       if (options.usedUrls) options.usedUrls.add(chosen.url);
       if (options.usedTitles) options.usedTitles.add(chosen.title);
+      recordVisualUsage({
+        assetType: 'archival_image',
+        source: 'wikimedia',
+        sourceUrl: chosen.url,
+        identifier: chosen.title,
+        query: targetQuery,
+        reelId: options.reelId
+      });
       console.info(`[Archival Engine] ✅ Saved authentic archival document (${arrayBuf.byteLength} bytes) -> ${path.basename(cachePattern)}`);
 
       return {

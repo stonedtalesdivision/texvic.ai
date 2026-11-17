@@ -2047,16 +2047,20 @@ export function extractContextualSceneKeywords(
     return configs[sceneIndex] || configs[0];
   }
 
-  // 2. Dynamic high-specificity keyword extraction for any other historical topic
+  // 2. Dynamic high-specificity keyword extraction for any historical topic
   const physicalQueries: string[] = [];
-  if (/airplane|aircraft|flight|aviation|pilot|cockpit|sky/i.test(combined)) physicalQueries.push('airplane flying', 'aircraft flight');
-  if (/desert|dunes|sand|sahara|yemen|arid/i.test(combined)) physicalQueries.push('desert dunes', 'sand storm');
-  if (/cash|money|ransom|million|bank|vault|gold/i.test(combined)) physicalQueries.push('money cash', 'bank vault');
-  if (/ocean|sea|underwater|deep sea|shipwreck|water|waves/i.test(combined)) physicalQueries.push('deep ocean', 'ocean waves');
-  if (/bunker|blast door|underground|tunnel|subterranean/i.test(combined)) physicalQueries.push('underground bunker', 'dark tunnel');
-  if (/radar|satellite|antenna|telemetry|signal/i.test(combined)) physicalQueries.push('radar screen', 'satellite space');
-  if (/ancient|pyramid|temple|ruins|archaeology|roman/i.test(combined)) physicalQueries.push('ancient ruins', 'pyramid');
-  if (/arctic|snow|permafrost|ice|svalbard|glacier/i.test(combined)) physicalQueries.push('arctic mountain', 'snow mountain');
+  if (/airplane|aircraft|flight|aviation|pilot|cockpit|sky|runway/i.test(combined)) physicalQueries.push('airplane flying', 'airplane cockpit dials', 'runway lights fog');
+  if (/desert|dunes|sand|sahara|yemen|arid/i.test(combined)) physicalQueries.push('desert dunes night', 'sand storm wind', 'desert aerial dusk');
+  if (/cash|money|ransom|million|bank|vault|gold|diamond|heist|jewelry|safe|bullion|antwerp/i.test(combined)) physicalQueries.push('bank vault heavy', 'gold bars dark', 'safe dial combination');
+  if (/ocean|sea|underwater|deep sea|shipwreck|water|waves|submarine|naval|sonar|abyss|mariana|bloop/i.test(combined)) physicalQueries.push('deep ocean dark', 'underwater dark ocean', 'shipwreck underwater');
+  if (/bunker|blast door|underground|tunnel|subterranean|cave|catacomb|derinkuyu|silo/i.test(combined)) physicalQueries.push('underground bunker concrete', 'dark tunnel lantern', 'heavy blast door gears');
+  if (/radar|satellite|antenna|telemetry|signal|radio|observatory|space|cosmic/i.test(combined)) physicalQueries.push('radar screen dark', 'satellite earth orbit', 'radio antenna night');
+  if (/ancient|pyramid|temple|ruins|archaeology|roman|greek|egypt|monolith|tomb|pharaoh|giza|gobekli/i.test(combined)) physicalQueries.push('ancient stone ruins', 'pyramid dark night', 'torchlight stone chamber');
+  if (/arctic|antarctic|antarctica|snow|permafrost|ice|svalbard|glacier|polar|byrd|highjump/i.test(combined)) physicalQueries.push('arctic blizzard snow', 'glacier ice aerial', 'frozen compass ice');
+  if (/forensic|chemical|laboratory|lab|microscope|analysis|carbon|dating|fiber|ultraviolet|dna|poison/i.test(combined)) physicalQueries.push('vintage microscope optical', 'chemical beaker bubbles', 'laboratory glassware dark');
+  if (/manuscript|parchment|cipher|scroll|vellum|scribe|quill|codex|alchemy/i.test(combined)) physicalQueries.push('aged vellum parchment', 'quill ink calligraphy', 'leather bound tome');
+  if (/borehole|kola|drilling|drill|mantle|mine|factory|machinery|industrial|iron|foundry/i.test(combined)) physicalQueries.push('industrial machinery heavy', 'drill bit rotating', 'deep mine shaft');
+  if (/volcano|eruption|lava|magma|explosion|meteor|tunguska/i.test(combined)) physicalQueries.push('volcano eruption night', 'crater landscape dark', 'smoke dark mountain');
 
   const bannedAbstract = new Set([
     'isotopic', 'spectral', 'anomaly', 'discrepancy', 'endures', 'aerospace',
@@ -2083,9 +2087,18 @@ export function extractContextualSceneKeywords(
 
   const isOperation = /operation|espionage|spy|sabotage|heist|military|covert|fbi|cia|pastorius/i.test(`${cleanSubject} ${combined}`);
 
-  const kwPrimary = physicalQueries[0] || (uniqueNouns.slice(0, 2).join(' ') || subjectWords || (isOperation ? 'classified stamped folder' : 'ancient book candlelight'));
-  const kwSecondary = physicalQueries[1] || (uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || (isOperation ? 'vintage telephone dark' : 'dark museum archive'));
-  const kwTertiary = physicalQueries[2] || (uniqueNouns.slice(4, 6).join(' ') || (isOperation ? 'microfilm reader archive' : 'old map compass'));
+  const dynamicAtmosphericTerms = [
+    'foggy street lamp night', 'dark forest fog', 'storm clouds thunder',
+    'vintage clock ticking', 'rain window dark night', 'shadowy figure night',
+    'old tape recorder reels', 'compass needle spinning', 'dark water ripples',
+    'iron gate opening', 'dust motes light beam', 'vintage radio dials'
+  ];
+  const randTerm1 = dynamicAtmosphericTerms[(sceneIndex * 3) % dynamicAtmosphericTerms.length];
+  const randTerm2 = dynamicAtmosphericTerms[(sceneIndex * 3 + 4) % dynamicAtmosphericTerms.length];
+
+  const kwPrimary = physicalQueries[0] || (uniqueNouns.slice(0, 2).join(' ') || subjectWords || (isOperation ? 'classified paper folder' : randTerm1));
+  const kwSecondary = physicalQueries[1] || (uniqueNouns.slice(2, 4).join(' ') || uniqueNouns[0] || (isOperation ? 'vintage typewriter ribbon' : randTerm2));
+  const kwTertiary = physicalQueries[2] || (uniqueNouns.slice(4, 6).join(' ') || (isOperation ? 'microfilm viewer dark' : 'dark museum archive'));
 
   const defaultHeadlines = isOperation
     ? [

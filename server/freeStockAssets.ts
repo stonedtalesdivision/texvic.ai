@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import { recordVisualUsage } from './database.js';
 
 const CACHE_DIR = path.join(process.cwd(), 'data', 'media', 'stock-cache');
 
@@ -11,12 +12,14 @@ export interface VisualFetchOptions {
   preferStock?: boolean;
   customKeywords?: string[];
   fallbackTopic?: string;
+  usedUrls?: Set<string>;
+  reelId?: string;
 }
 
 /**
  * High-speed, 100% free visual asset engine.
  * Combines Pixabay Photo API (free key), Pexels API,
- * and topic-grounded archival fallbacks.
+ * and topic-grounded archival fallbacks with cross-reel deduplication.
  */
 export async function fetchBestFreeVisual(
   query: string,
@@ -60,7 +63,7 @@ export async function fetchBestFreeVisual(
     for (const term of uniqueCandidates.slice(0, 4)) {
       try {
         const orientationParam = isPortrait ? 'vertical' : 'horizontal';
-        const searchUrl = `https://pixabay.com/api/?key=${encodeURIComponent(pixabayKey)}&q=${encodeURIComponent(term)}&image_type=photo&orientation=${orientationParam}&per_page=6&safesearch=true`;
+        const searchUrl = `https://pixabay.com/api/?key=${encodeURIComponent(pixabayKey)}&q=${encodeURIComponent(term)}&image_type=photo&orientation=${orientationParam}&per_page=15&safesearch=true`;
         console.info(`[Free Stock Engine] 📸 Searching Pixabay Photo API for "${term}" (${orientationParam})...`);
         const resp = await fetch(searchUrl, { signal: AbortSignal.timeout(8000) });
         if (!resp.ok) continue;
@@ -69,7 +72,17 @@ export async function fetchBestFreeVisual(
         const hits = data?.hits || [];
         if (!hits.length) continue;
 
-        const chosen = hits[Math.floor(Math.random() * Math.min(hits.length, 4))];
+        // Exclude previously used photos across recent reels
+        const validHits = hits.filter((h: any) => {
+          const imgUrl = h?.largeImageURL || h?.webformatURL || h?.imageURL;
+          if (!imgUrl) return false;
+          if (options.usedUrls?.has(imgUrl)) return false;
+          if (h.id && options.usedUrls?.has(String(h.id))) return false;
+          return true;
+        });
+
+        const pool = validHits.length > 0 ? validHits : hits;
+        const chosen = pool[Math.floor(Math.random() * pool.length)];
         const imgUrl = chosen?.largeImageURL || chosen?.webformatURL || chosen?.imageURL;
         if (!imgUrl) continue;
 
@@ -80,6 +93,18 @@ export async function fetchBestFreeVisual(
         const buf = await imgResp.arrayBuffer();
         if (buf.byteLength > 20000) {
           await fs.writeFile(outputPath, Buffer.from(buf));
+          if (options.usedUrls) {
+            options.usedUrls.add(imgUrl);
+            if (chosen.id) options.usedUrls.add(String(chosen.id));
+          }
+          recordVisualUsage({
+            assetType: 'stock_photo',
+            source: 'pixabay',
+            sourceUrl: imgUrl,
+            identifier: chosen.id ? String(chosen.id) : term,
+            query: term,
+            reelId: options.reelId
+          });
           console.info(`[Free Stock Engine] ✅ Pixabay photo locked (${buf.byteLength} bytes) for "${term}".`);
           return { source: 'pixabay-stock-photo', path: outputPath };
         }
@@ -93,7 +118,7 @@ export async function fetchBestFreeVisual(
   const pexelsKey = process.env.PEXELS_API_KEY;
   if (pexelsKey && options.preferStock) {
     try {
-      const searchUrl = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&orientation=${isPortrait ? 'portrait' : 'landscape'}&per_page=5`;
+      const searchUrl = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&orientation=${isPortrait ? 'portrait' : 'landscape'}&per_page=15`;
       const resp = await fetch(searchUrl, {
         headers: { Authorization: pexelsKey },
         signal: AbortSignal.timeout(8000)
@@ -102,7 +127,17 @@ export async function fetchBestFreeVisual(
         const data: any = await resp.json();
         const photos = data?.photos || [];
         if (photos.length > 0) {
-          const selected = photos[Math.floor(Math.random() * photos.length)];
+          const availablePhotos = photos.filter((p: any) => {
+            const imgUrl = p?.src?.large2x || p?.src?.large || p?.src?.original;
+            if (!imgUrl) return false;
+            if (options.usedUrls?.has(imgUrl)) return false;
+            if (p.id && options.usedUrls?.has(String(p.id))) return false;
+            if (p.url && options.usedUrls?.has(p.url)) return false;
+            return true;
+          });
+
+          const pool = availablePhotos.length > 0 ? availablePhotos : photos;
+          const selected = pool[Math.floor(Math.random() * pool.length)];
           const imgUrl = selected?.src?.large2x || selected?.src?.large || selected?.src?.original;
           if (imgUrl) {
             const imgResp = await fetch(imgUrl, { signal: AbortSignal.timeout(12000) });
@@ -110,6 +145,19 @@ export async function fetchBestFreeVisual(
               const buf = await imgResp.arrayBuffer();
               if (buf.byteLength > 15000) {
                 await fs.writeFile(outputPath, Buffer.from(buf));
+                if (options.usedUrls) {
+                  options.usedUrls.add(imgUrl);
+                  if (selected.id) options.usedUrls.add(String(selected.id));
+                  if (selected.url) options.usedUrls.add(selected.url);
+                }
+                recordVisualUsage({
+                  assetType: 'stock_photo',
+                  source: 'pexels',
+                  sourceUrl: imgUrl,
+                  identifier: selected.id ? String(selected.id) : query,
+                  query,
+                  reelId: options.reelId
+                });
                 return { source: 'pexels-stock', path: outputPath };
               }
             }

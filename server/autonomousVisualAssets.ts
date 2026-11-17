@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { registerAsset, selectAssets, resolveAssetDiskPath, markAssetUsed, type MediaAsset } from './assetLibrary.js';
+import { getRecentlyUsedVisualUrls, getRecentlyUsedVisualIdentifiers } from './database.js';
 import { renderSoftwareTutorialVideo } from './softwareScreenEngine.js';
 import { getActivePersona } from './themePage.js';
 import { fetchBestMotionVideo } from './motionVideoEngine.js';
@@ -171,7 +172,8 @@ async function renderSceneMultiCut(
             fallbackTerms: [ctx?.cleanSubject, cutQuery].filter(Boolean) as string[],
             usedUrls: extraOpts?.usedVideoUrls,
             usedTitles: extraOpts?.usedArchivalTitles,
-            index: c
+            index: c,
+            reelId: reel?.id
           });
 
           if (archResult?.filePath && fsSync.existsSync(archResult.filePath)) {
@@ -214,7 +216,11 @@ async function renderSceneMultiCut(
           const motionResult = await fetchBestMotionVideo(cutQuery, vidPath, {
             targetDuration: cutDuration,
             sceneIndex: c,
-            usedUrls: extraOpts?.usedVideoUrls
+            topic: ctx?.cleanSubject || reel?.title,
+            voiceScript: cut?.spokenClause || cutQuery,
+            customKeywords: [ctx?.cleanSubject, cut?.description, ...(reel?.niche ? [reel.niche] : [])].filter(Boolean),
+            usedUrls: extraOpts?.usedVideoUrls,
+            reelId: reel?.id
           });
 
           if (motionResult?.source !== 'fallback' && fsSync.existsSync(vidPath)) {
@@ -245,7 +251,11 @@ async function renderSceneMultiCut(
         try {
           const freeVisual = await fetchBestFreeVisual(cutQuery || ctx?.cleanSubject || 'historical documentary', photoPath, {
             orientation: 'portrait',
-            preferStock: true
+            preferStock: true,
+            usedUrls: extraOpts?.usedVideoUrls,
+            customKeywords: [ctx?.cleanSubject, cut?.description].filter(Boolean),
+            fallbackTopic: ctx?.cleanSubject,
+            reelId: reel?.id
           });
 
           if (freeVisual?.path && fsSync.existsSync(photoPath)) {
@@ -419,7 +429,8 @@ async function renderGeneratedScene(
           fallbackTerms: fallbackList,
           usedUrls: extraOpts?.usedVideoUrls,
           usedTitles: extraOpts?.usedArchivalTitles,
-          index
+          index,
+          reelId: reel?.id
         });
         if (archivalResult?.filePath && fsSync.existsSync(archivalResult.filePath)) {
           const aStats = await fs.stat(archivalResult.filePath);
@@ -451,7 +462,8 @@ async function renderGeneratedScene(
         voiceScript,
         topic: cleanSubject || topic,
         sceneIndex: index,
-        usedUrls: extraOpts?.usedVideoUrls
+        usedUrls: extraOpts?.usedVideoUrls,
+        reelId: reel?.id
       });
       if (motionResult?.source !== 'fallback' && fsSync.existsSync(motionVideoPath)) {
         const vStats = await fs.stat(motionVideoPath);
@@ -515,7 +527,9 @@ async function renderGeneratedScene(
         orientation: 'portrait',
         preferStock: true,
         customKeywords: scene?.bRollKeywords || scene?.visualBeats,
-        fallbackTopic: cleanSubject || topic
+        fallbackTopic: cleanSubject || topic,
+        usedUrls: extraOpts?.usedVideoUrls,
+        reelId: reel?.id
       });
 
       if (freeVisual?.path && fsSync.existsSync(imagePath)) {
@@ -692,8 +706,12 @@ export async function ensureAutonomousVisualAssets(
 
   const assets: MediaAsset[] = [];
   const used = new Set<string>();
-  const usedVideoUrls = new Set<string>();
-  const usedArchivalTitles = new Set<string>();
+
+  // Pre-seed cross-reel exclusion sets with visual assets used in the past 14 days
+  const recentUrls = getRecentlyUsedVisualUrls(14);
+  const recentTitles = getRecentlyUsedVisualIdentifiers(14);
+  const usedVideoUrls = new Set<string>(recentUrls);
+  const usedArchivalTitles = new Set<string>(recentTitles);
 
   for (let index = 0; index < scenes.length; index++) {
     const scene = scenes[index];

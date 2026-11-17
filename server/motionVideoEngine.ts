@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { recordVisualUsage } from './database.js';
 
 const execFileAsync = promisify(execFile);
 const STOCK_VIDEOS_DIR = path.join(process.cwd(), 'data', 'media', 'stock-videos');
@@ -19,11 +20,6 @@ function hashKey(str: string): string {
   return crypto.createHash('md5').update(str).digest('hex').slice(0, 16);
 }
 
-
-/**
- * Distills arbitrary prompts or headlines into crisp 1-2 word search keywords
- * that stock video APIs (Pixabay/Pexels) have high-volume tags for.
- */
 export interface MotionVideoOptions {
   targetDuration?: number;
   customKeywords?: string[];
@@ -31,29 +27,131 @@ export interface MotionVideoOptions {
   topic?: string;
   sceneIndex?: number;
   usedUrls?: Set<string>;
+  reelId?: string;
 }
 
-/**
- * Distills scene narration, topic context, and custom keywords into crisp 1-2 word search keywords
- * that stock video APIs (Pixabay/Pexels) have high-volume tags for.
- */
 // Strictly banned abstract or textbook words that break stock video search
 const BANNED_ABSTRACT_TERMS = new Set([
   'isotopic', 'spectral', 'anomaly', 'discrepancy', 'endures', 'aerospace',
   'physics', 'hypothesis', 'boundaries', 'experimentation', 'signature',
   'ratio', 'ratios', 'enduring', 'reconsider', 'telemetry', 'verdict',
-  'implications', 'theoretical', 'paradigm', 'academic', 'perspective'
+  'implications', 'theoretical', 'paradigm', 'academic', 'perspective',
+  'documented', 'investigation', 'verifiable', 'aftermath', 'mechanism'
 ]);
 
-// Curated dark documentary atmospheric fallback queries for The Untold Archive
-export const DARK_ARCHIVE_FALLBACK_QUERIES = [
-  'ancient book candlelight',
-  'dark museum archive',
-  'microscope lab dark',
-  'old map compass',
-  'dusty library candlelight',
-  'ancient manuscripts dark'
+// Curated high-volume visual search terms organized by historical documentary archetype
+const THEMATIC_ARCHETYPE_QUERIES: Record<string, { regex: RegExp; queries: string[] }> = {
+  polar_arctic: {
+    regex: /arctic|antarctic|antarctica|ice|glacier|blizzard|permafrost|snow|polar|expedition|byrd|highjump|svalbard|vostok/i,
+    queries: [
+      'arctic blizzard snow', 'glacier ice aerial', 'snow mountain blizzard',
+      'icebreaker ship arctic', 'frozen compass ice', 'polar ice sheet',
+      'antarctic mountain snow', 'naval ship icy sea', 'snow blizzard night'
+    ]
+  },
+  maritime_ocean: {
+    regex: /ocean|sea|underwater|submarine|shipwreck|sonar|naval|abyss|atlantic|pacific|sailor|vessel|bloop|mariana|torpedo|diver|reef/i,
+    queries: [
+      'deep ocean waves dark', 'underwater dark ocean', 'shipwreck underwater dark',
+      'submarine underwater dark', 'naval radar screen', 'foggy harbor night',
+      'ocean storm night', 'sonar screen green', 'cargo vessel night', 'deep sea submersible'
+    ]
+  },
+  heists_vaults: {
+    regex: /heist|vault|bank|safe|gold|diamond|currency|cash|ransom|robbery|jewelry|bullion|lock|combination|antwerp/i,
+    queries: [
+      'heavy bank vault door', 'vault gears mechanism', 'gold bars dark',
+      'safe dial combination', 'security camera dark', 'counting cash dark',
+      'iron safe lock', 'jewelry vault dark', 'bank safe interior'
+    ]
+  },
+  espionage_cold_war: {
+    regex: /cia|kgb|spy|espionage|intelligence|covert|operation|classified|dossier|telegram|operative|surveillance|defector|interrogation|pastorius/i,
+    queries: [
+      'classified paper folder', 'vintage typewriter ribbon', 'microfilm viewer dark',
+      'teletype tape machine', 'telephone switchboard vintage', 'cipher machine dials',
+      'briefcase dark desk', 'foggy street lamp night', 'vintage reel to reel tape', 'file cabinet dark'
+    ]
+  },
+  aviation_aerospace: {
+    regex: /airplane|aircraft|flight|cockpit|aviation|pilot|hangar|radar|airport|runway|crash|jet|airspace|hijack|boeing|airbus/i,
+    queries: [
+      'airplane cockpit dials', 'runway night fog', 'radar screen dark',
+      'aircraft hangar dark', 'airplane flight night', 'air traffic control screen',
+      'vintage airplane propeller', 'clouds flying dusk'
+    ]
+  },
+  ancient_ruins: {
+    regex: /ancient|archaeology|ruins|temple|pyramid|monolith|tomb|pharaoh|excavation|artifact|sarcophagus|roman|greek|stone|inscription|hieroglyph|giza|gobekli|sumerian|maya/i,
+    queries: [
+      'ancient stone ruins', 'temple ruins night', 'ancient stone monolith',
+      'archaeological excavation dark', 'torchlight stone chamber', 'pyramid dark night',
+      'ancient carved stone', 'dusty artifact excavation', 'ancient stone tomb', 'roman pillars ruins'
+    ]
+  },
+  subterranean_bunkers: {
+    regex: /bunker|tunnel|catacomb|cave|underground|cavern|subterranean|derinkuyu|blast door|silo|shelter|fallout|cheyenne|norad/i,
+    queries: [
+      'underground bunker concrete', 'heavy blast door gears', 'dark tunnel lantern',
+      'catacomb skull dark', 'cave stalactite dark', 'subterranean hallway dark',
+      'mine shaft tunnel', 'iron bunker door'
+    ]
+  },
+  forensic_science: {
+    regex: /forensic|chemical|laboratory|lab|microscope|analysis|carbon|dating|fiber|ultraviolet|x-ray|specimen|test tube|dna|poison/i,
+    queries: [
+      'vintage microscope optical', 'chemical beaker bubbles', 'laboratory glassware dark',
+      'laser light dark lab', 'ultraviolet light dark', 'forensic evidence table',
+      'pipette chemical drop', 'scientific lab dark'
+    ]
+  },
+  manuscripts_ciphers: {
+    regex: /voynich|manuscript|parchment|cipher|vellum|folio|calligraphy|quill|medieval|scroll|scribe|library|codex|alchemy/i,
+    queries: [
+      'aged vellum parchment', 'quill ink calligraphy', 'magnifying glass parchment',
+      'leather bound tome', 'ancient library shelves', 'wax seal document',
+      'vintage brass compass', 'hourglass sand dark'
+    ]
+  },
+  industrial_drilling: {
+    regex: /borehole|kola|drilling|drill|mantle|mine|factory|machinery|industrial|iron|foundry|steam|gears|pipeline/i,
+    queries: [
+      'industrial machinery heavy', 'drill bit rotating', 'steam pipe pressure gauge',
+      'iron foundry spark', 'oil rig night', 'deep mine shaft',
+      'industrial gears rotating', 'factory smokestack night'
+    ]
+  },
+  space_cosmic: {
+    regex: /space|satellite|signal|radio|astronomy|telescope|observatory|telemetry|orbit|pulsar|alien|cosmic/i,
+    queries: [
+      'radio telescope array', 'satellite earth orbit', 'observatory dome night',
+      'starry night sky dark', 'oscilloscope signal screen', 'radar dish rotating',
+      'deep space stars'
+    ]
+  },
+  desert_arid: {
+    regex: /desert|dunes|sand|sahara|yemen|arabian|arid|wasteland/i,
+    queries: [
+      'desert dunes night', 'sand storm wind', 'desert aerial dusk', 'sand ripples dark'
+    ]
+  }
+};
+
+// 40+ diverse dark documentary atmospheric fallback terms rotated dynamically
+export const GENERAL_ATMOSPHERIC_FALLBACKS = [
+  'foggy street lamp night', 'dark forest fog', 'storm clouds thunder',
+  'lantern darkness', 'vintage clock ticking', 'rain window dark night',
+  'shadowy figure night', 'old tape recorder reels', 'compass needle spinning',
+  'dark water ripples', 'iron gate opening', 'dust motes light beam',
+  'vintage radio dials', 'smoke dark background', 'moon clouds dark night',
+  'railroad tracks night fog', 'abandoned hallway dark', 'vintage car headlights night',
+  'dramatic lightning storm', 'dark room silhouette', 'footsteps dark pavement',
+  'heavy wooden door lock', 'foggy city skyline night', 'vintage metal compass',
+  'shadows moving wall', 'vintage binoculars dark', 'neon sign dark alley',
+  'mist rising water night', 'telephone ringing dark room', 'archive boxes dark shelf'
 ];
+
+export const DARK_ARCHIVE_FALLBACK_QUERIES = GENERAL_ATMOSPHERIC_FALLBACKS;
 
 /**
  * Distills scene narration, topic context, and custom keywords into crisp 1-2 word search keywords
@@ -68,13 +166,12 @@ export function extractSearchTerms(
   sceneIndex = 0
 ): string[] {
   const terms: string[] = [];
-
   const speechText = String(voiceScript || '').toLowerCase();
   const topicText = String(topic || '').toLowerCase();
   const rawText = String(rawQuery || '').toLowerCase();
   const combined = `${speechText} ${topicText} ${rawText}`;
 
-  // 1. Prioritize explicit contextual terms from LLM/scene metadata (cleaned of abstract words)
+  // 1. Explicit contextual terms from LLM/scene metadata (cleaned of abstract words)
   if (Array.isArray(customTerms)) {
     for (const ct of customTerms) {
       if (ct && ct.trim().length >= 3) {
@@ -88,93 +185,7 @@ export function extractSearchTerms(
     }
   }
 
-  // 2. Concrete Physical Visual Domain Mappings (derived directly from spoken narration)
-  // Manuscripts, Ciphers, Ancient Inscriptions & Rare Books (e.g. Voynich)
-  if (/voynich|manuscript|cipher|parchment|folio|vellum|undeciphered|cryptanalyst|ancient text|script/i.test(combined)) {
-    if (sceneIndex === 0) terms.push('ancient book candlelight', 'old parchment book', 'ancient manuscript');
-    else if (sceneIndex === 1) terms.push('magnifying glass paper', 'quill pen ink', 'old library archive');
-    else if (sceneIndex === 2) terms.push('microscope lab dark', 'laser light dark', 'laboratory analysis');
-    else terms.push('dusty books dark', 'old book pages', 'candlelight manuscript');
-  }
-
-  // Forensic Science, Laboratory Tests & Chemical Investigation
-  if (/forensic|chemical|laboratory|test|microscope|analysis|carbon|dating|fiber|ultraviolet|x-ray|lens/i.test(combined)) {
-    terms.push('microscope lab dark', 'laser microscope lens', 'ultraviolet light', 'chemical flask dark', 'laboratory glass');
-  }
-
-  // Declassified Files, Archives, Microfilm & Government Folders
-  if (/classified|declassified|dossier|record|archive|intelligence|cia|fbi|kgb|paperwork|files/i.test(combined)) {
-    terms.push('typewriter dark', 'file cabinet dark', 'vintage paper document', 'dark archive room', 'microfilm archive');
-  }
-
-  // Aviation, Aircraft & Sky
-  if (/airplane|aircraft|flight|aviation|airborne|pilot|cockpit|hijack|boeing|airbus|jet|lufthansa/i.test(combined)) {
-    if (sceneIndex === 0) terms.push('airplane night', 'airplane flight', 'aircraft');
-    else if (sceneIndex === 1) terms.push('airplane cockpit', 'runway night', 'airport lights');
-    else terms.push('radar screen', 'airplane night', 'radar');
-  }
-
-  // Desert, Dunes & Wasteland
-  if (/desert|dunes|sand|sahara|yemen|arabian|arid|wasteland/i.test(combined)) {
-    terms.push('desert dunes', 'sand storm', 'desert night', 'desert aerial');
-  }
-
-  // Money, Vaults, Gold & Cash
-  if (/cash|money|ransom|million|bank|vault|gold|currency|dollar|safe deposit/i.test(combined)) {
-    terms.push('gold bars dark', 'bank vault door', 'counting money dark', 'safe vault');
-  }
-
-  // Ocean, Deep Sea & Marine Abyss
-  if (/ocean|sea|underwater|deep sea|shipwreck|atlantic|pacific|water|diver|abyss|hydrophone|bloop/i.test(combined)) {
-    terms.push('deep ocean dark', 'underwater dark', 'ocean waves storm', 'scuba diver deep');
-  }
-
-  // Submarines & Naval Sonar
-  if (/submarine|torpedo|submersible|azorian|glomar|k-129|periscope|sonar/i.test(combined)) {
-    terms.push('submarine underwater', 'sonar radar dark', 'deep ocean dark');
-  }
-
-  // Underground Caves, Catacombs & Tunnels
-  if (/derinkuyu|tunnel|underground|cavern|cave|subterranean|catacomb/i.test(combined)) {
-    terms.push('underground tunnel dark', 'dark cave torch', 'ancient cave rock', 'catacomb dark');
-  }
-
-  // Nuclear Bunkers & Blast Doors
-  if (/bunker|blast door|greenbrier|cheyenne|norad|fallout|shelter|silo/i.test(combined)) {
-    terms.push('underground bunker', 'vault door heavy', 'military tunnel dark');
-  }
-
-  // Radar, Antennas & Satellites
-  if (/radar|satellite|antenna|telemetry|signal|tracking|surveillance|terminal/i.test(combined)) {
-    terms.push('radar screen dark', 'satellite space dark', 'antenna night', 'server room dark');
-  }
-
-  // Ancient Ruins, Roman Concrete, Pyramids & Architecture
-  if (/ancient|pyramid|temple|ruins|archaeology|roman|concrete|monument|tomb|pharaoh/i.test(combined)) {
-    terms.push('ancient ruins dark', 'ancient temple night', 'roman ruins stone', 'pyramid dark');
-  }
-
-  // Arctic, Ice & Permafrost
-  if (/arctic|snow|permafrost|ice|svalbard|glacier|polar|doomsday vault/i.test(combined)) {
-    terms.push('arctic mountain blizzard', 'glacier ice dark', 'snow night mountain');
-  }
-
-  // Drilling, Boreholes & Earth Crust
-  if (/borehole|kola|drilling|mantle|drill rig|deep hole/i.test(combined)) {
-    terms.push('drilling rig night', 'drill machine industrial', 'mine tunnel dark');
-  }
-
-  // Volcanoes & Lava
-  if (/volcano|eruption|lava|magma|crater/i.test(combined)) {
-    terms.push('lava flow night', 'volcano dark', 'smoke mountain');
-  }
-
-  // Ships, Ports & Containers
-  if (/canal|ship|cargo|vessel|panama|harbor|port|container|suez/i.test(combined)) {
-    terms.push('cargo ship night', 'ocean port night', 'shipping vessel dark');
-  }
-
-  // 3. Concrete Physical Noun Extraction from Voice Script (Strictly no abstract words)
+  // 2. Concrete noun extraction from speech & query
   const stopWords = new Set([
     'the', 'this', 'that', 'with', 'from', 'have', 'will', 'your', 'about', 'what', 'when',
     'where', 'into', 'over', 'under', 'between', 'during', 'official', 'record', 'records',
@@ -196,25 +207,36 @@ export function extractSearchTerms(
   if (cleanSpeechWords.length >= 2) {
     terms.push(`${cleanSpeechWords[0]} ${cleanSpeechWords[1]}`);
   }
-  if (cleanSpeechWords.length >= 1) {
-    terms.push(cleanSpeechWords[0]);
+  if (cleanSpeechWords.length >= 3) {
+    terms.push(`${cleanSpeechWords[1]} ${cleanSpeechWords[2]}`);
   }
 
-  // 4. Dark Documentary Atmospheric Fallbacks (NEVER sunny beaches or abstract paint marbles!)
-  for (const fallback of DARK_ARCHIVE_FALLBACK_QUERIES) {
-    terms.push(fallback);
+  // 3. Match topic archetypes
+  for (const arch of Object.values(THEMATIC_ARCHETYPE_QUERIES)) {
+    if (arch.regex.test(combined)) {
+      const qList = arch.queries;
+      const startIdx = (sceneIndex * 2 + Math.floor(Math.random() * qList.length)) % qList.length;
+      for (let i = 0; i < 3; i++) {
+        terms.push(qList[(startIdx + i) % qList.length]);
+      }
+    }
   }
+
+  // 4. Dynamic Atmospheric Fallbacks (NEVER a single static query!)
+  const poolLen = GENERAL_ATMOSPHERIC_FALLBACKS.length;
+  const randOffset = (sceneIndex * 5 + Math.floor(Math.random() * poolLen)) % poolLen;
+  terms.push(GENERAL_ATMOSPHERIC_FALLBACKS[randOffset]);
+  terms.push(GENERAL_ATMOSPHERIC_FALLBACKS[(randOffset + 7) % poolLen]);
 
   return Array.from(new Set(terms.filter(Boolean)));
 }
 
 /**
- * Searches and downloads an authentic video from Pixabay API.
- * Pixabay issues free API keys instantly with zero wait times.
+ * Searches and downloads an authentic video from Pixabay API with deduplication.
  */
 async function fetchPixabayVideo(
   query: string,
-  cachePath: string,
+  outputPath: string,
   options?: MotionVideoOptions
 ): Promise<string | null> {
   const pixabayKey = process.env.PIXABAY_API_KEY;
@@ -230,7 +252,7 @@ async function fetchPixabayVideo(
 
   for (const q of candidateQueries.slice(0, 6)) {
     try {
-      const searchUrl = `https://pixabay.com/api/videos/?key=${encodeURIComponent(pixabayKey)}&q=${encodeURIComponent(q)}&video_type=all&per_page=10`;
+      const searchUrl = `https://pixabay.com/api/videos/?key=${encodeURIComponent(pixabayKey)}&q=${encodeURIComponent(q)}&video_type=all&per_page=20`;
       console.info(`[Motion Video Engine] Querying Pixabay Video API for "${q}"...`);
       const resp = await fetch(searchUrl, { signal: AbortSignal.timeout(10000) });
       if (!resp.ok) continue;
@@ -239,20 +261,44 @@ async function fetchPixabayVideo(
       const hits: any[] = data?.hits || [];
       if (!hits.length) continue;
 
-      // Filter out green-screen, chroma key, or 3D animations
+      // Filter out green-screen, animations, and recently used clips
       const validHits = hits.filter(h => {
         const tags = String(h?.tags || '').toLowerCase();
         if (/green screen|chroma key|3d model|animation render/i.test(tags)) return false;
-        // Avoid reusing the exact same video across scenes in the same reel
         const vidUrl = h?.videos?.medium?.url || h?.videos?.large?.url || h?.videos?.small?.url;
-        if (vidUrl && options?.usedUrls?.has(vidUrl)) return false;
+        if (!vidUrl) return false;
+        if (options?.usedUrls?.has(vidUrl)) return false;
+        if (h.id && options?.usedUrls?.has(String(h.id))) return false;
         return true;
       });
 
-      const pool = validHits.length > 0 ? validHits : hits;
-      const chosen = pool[Math.floor(Math.random() * Math.min(pool.length, 4))];
+      if (!validHits.length) continue;
+
+      // Pick randomly from valid pool to avoid always choosing hit 0
+      const chosen = validHits[Math.floor(Math.random() * validHits.length)];
       const videoUrl = chosen?.videos?.medium?.url || chosen?.videos?.large?.url || chosen?.videos?.small?.url;
       if (!videoUrl) continue;
+
+      const assetCachePath = path.join(STOCK_VIDEOS_DIR, `pixabay-${chosen.id}.mp4`);
+
+      // If already downloaded and not in usedUrls, copy directly
+      if (fsSync.existsSync(assetCachePath) && (await fs.stat(assetCachePath)).size > 50000) {
+        await fs.copyFile(assetCachePath, outputPath);
+        if (options?.usedUrls) {
+          options.usedUrls.add(videoUrl);
+          if (chosen.id) options.usedUrls.add(String(chosen.id));
+        }
+        recordVisualUsage({
+          assetType: 'stock_video',
+          source: 'pixabay',
+          sourceUrl: videoUrl,
+          identifier: String(chosen.id),
+          query: q,
+          reelId: options?.reelId
+        });
+        console.info(`[Motion Video Engine] Locked cached Pixabay video (${chosen.duration || 0}s, tags: "${chosen.tags}") for "${q}".`);
+        return outputPath;
+      }
 
       console.info(`[Motion Video Engine] Downloading Pixabay video clip (${chosen.duration || 0}s, tags: "${chosen.tags}"): ${videoUrl.slice(0, 60)}...`);
       const vidResp = await fetch(videoUrl, { signal: AbortSignal.timeout(30000) });
@@ -261,10 +307,23 @@ async function fetchPixabayVideo(
       const arrayBuf = await vidResp.arrayBuffer();
       if (arrayBuf.byteLength < 50000) continue;
 
-      await fs.writeFile(cachePath, Buffer.from(arrayBuf));
-      if (options?.usedUrls && videoUrl) options.usedUrls.add(videoUrl);
-      console.info(`[Motion Video Engine] Downloaded Pixabay video (${arrayBuf.byteLength} bytes) for "${q}" -> ${path.basename(cachePath)}`);
-      return cachePath;
+      await fs.writeFile(assetCachePath, Buffer.from(arrayBuf));
+      await fs.copyFile(assetCachePath, outputPath);
+
+      if (options?.usedUrls) {
+        options.usedUrls.add(videoUrl);
+        if (chosen.id) options.usedUrls.add(String(chosen.id));
+      }
+      recordVisualUsage({
+        assetType: 'stock_video',
+        source: 'pixabay',
+        sourceUrl: videoUrl,
+        identifier: String(chosen.id),
+        query: q,
+        reelId: options?.reelId
+      });
+      console.info(`[Motion Video Engine] Downloaded Pixabay video (${arrayBuf.byteLength} bytes) for "${q}" -> pixabay-${chosen.id}.mp4`);
+      return outputPath;
     } catch (err: any) {
       console.warn(`[Motion Video Engine] Pixabay fetch for "${q}" failed: ${err?.message || err}`);
     }
@@ -273,12 +332,11 @@ async function fetchPixabayVideo(
 }
 
 /**
- * Searches and downloads an authentic vertical 1080x1920 video from Pexels API.
- * Free tier provides 20,000 video requests/month with zero watermarks.
+ * Searches and downloads an authentic vertical 1080x1920 video from Pexels API with deduplication.
  */
 async function fetchPexelsVideo(
   query: string,
-  cachePath: string,
+  outputPath: string,
   options?: MotionVideoOptions
 ): Promise<string | null> {
   const pexelsKey = process.env.PEXELS_API_KEY;
@@ -292,9 +350,9 @@ async function fetchPexelsVideo(
     options?.sceneIndex
   );
 
-  for (const q of candidateQueries.slice(0, 4)) {
+  for (const q of candidateQueries.slice(0, 5)) {
     try {
-      const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(q)}&orientation=portrait&per_page=6`;
+      const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(q)}&orientation=portrait&per_page=15`;
       console.info(`[Motion Video Engine] Querying Pexels Video API for "${q}"...`);
       
       const resp = await fetch(searchUrl, {
@@ -308,17 +366,22 @@ async function fetchPexelsVideo(
       const videos = data?.videos || [];
       if (!videos.length) continue;
 
-      // Filter out previously used video files
-      const availableVideos = options?.usedUrls
-        ? videos.filter((v: any) => !options.usedUrls?.has(v.url))
-        : videos;
-      const pool = availableVideos.length > 0 ? availableVideos : videos;
+      // Filter out previously used video files across recent reels
+      const availableVideos = videos.filter((v: any) => {
+        if (options?.usedUrls?.has(v.url)) return false;
+        if (v.id && options?.usedUrls?.has(String(v.id))) return false;
+        const mp4Files = (v?.video_files || []).filter((f: any) => f?.file_type === 'video/mp4' && f?.link);
+        if (mp4Files.some((f: any) => options?.usedUrls?.has(f.link))) return false;
+        return true;
+      });
 
-      const chosenVideo = pool[Math.floor(Math.random() * Math.min(pool.length, 4))];
+      if (!availableVideos.length) continue;
+
+      const chosenVideo = availableVideos[Math.floor(Math.random() * availableVideos.length)];
       const files: any[] = chosenVideo?.video_files || [];
 
       // Filter for valid MP4s and sort by proximity to 1080x1920
-      const mp4Files = files.filter(f => f?.file_type === 'video/mp4' && f?.link);
+      const mp4Files = files.filter(f => f?.file_type === 'video/mp4' && f?.link && !options?.usedUrls?.has(f.link));
       if (!mp4Files.length) continue;
 
       const bestFile = mp4Files.find(f => f.width === 1080 && f.height === 1920) ||
@@ -328,6 +391,27 @@ async function fetchPexelsVideo(
 
       if (!bestFile?.link) continue;
 
+      const assetCachePath = path.join(STOCK_VIDEOS_DIR, `pexels-${chosenVideo.id}.mp4`);
+
+      if (fsSync.existsSync(assetCachePath) && (await fs.stat(assetCachePath)).size > 50000) {
+        await fs.copyFile(assetCachePath, outputPath);
+        if (options?.usedUrls) {
+          if (chosenVideo.url) options.usedUrls.add(chosenVideo.url);
+          if (bestFile.link) options.usedUrls.add(bestFile.link);
+          if (chosenVideo.id) options.usedUrls.add(String(chosenVideo.id));
+        }
+        recordVisualUsage({
+          assetType: 'stock_video',
+          source: 'pexels',
+          sourceUrl: bestFile.link,
+          identifier: String(chosenVideo.id),
+          query: q,
+          reelId: options?.reelId
+        });
+        console.info(`[Motion Video Engine] Locked cached Pexels video (${chosenVideo.id}) for "${q}".`);
+        return outputPath;
+      }
+
       console.info(`[Motion Video Engine] Downloading Pexels video (${bestFile.width}x${bestFile.height}): ${bestFile.link.slice(0, 50)}...`);
       const vidResp = await fetch(bestFile.link, { signal: AbortSignal.timeout(25000) });
       if (!vidResp.ok) continue;
@@ -335,10 +419,24 @@ async function fetchPexelsVideo(
       const arrayBuf = await vidResp.arrayBuffer();
       if (arrayBuf.byteLength < 50000) continue;
 
-      await fs.writeFile(cachePath, Buffer.from(arrayBuf));
-      if (options?.usedUrls && chosenVideo.url) options.usedUrls.add(chosenVideo.url);
-      console.info(`[Motion Video Engine] Downloaded Pexels video (${arrayBuf.byteLength} bytes) for "${q}" -> ${path.basename(cachePath)}`);
-      return cachePath;
+      await fs.writeFile(assetCachePath, Buffer.from(arrayBuf));
+      await fs.copyFile(assetCachePath, outputPath);
+
+      if (options?.usedUrls) {
+        if (chosenVideo.url) options.usedUrls.add(chosenVideo.url);
+        if (bestFile.link) options.usedUrls.add(bestFile.link);
+        if (chosenVideo.id) options.usedUrls.add(String(chosenVideo.id));
+      }
+      recordVisualUsage({
+        assetType: 'stock_video',
+        source: 'pexels',
+        sourceUrl: bestFile.link,
+        identifier: String(chosenVideo.id),
+        query: q,
+        reelId: options?.reelId
+      });
+      console.info(`[Motion Video Engine] Downloaded Pexels video (${arrayBuf.byteLength} bytes) for "${q}" -> pexels-${chosenVideo.id}.mp4`);
+      return outputPath;
     } catch (err: any) {
       console.warn(`[Motion Video Engine] Pexels fetch for "${q}" failed: ${err?.message || err}`);
     }
@@ -347,7 +445,6 @@ async function fetchPexelsVideo(
 }
 
 /**
-/**
  * Local stock video vault reuse is disabled to prevent cross-topic clip contamination.
  */
 async function findLocalVaultVideo(keywords: string[]): Promise<string | null> {
@@ -355,15 +452,13 @@ async function findLocalVaultVideo(keywords: string[]): Promise<string | null> {
 }
 
 /**
- * High-speed Motion Video Engine.
+ * High-speed Motion Video Engine with cross-reel deduplication.
  * Resolves authentic moving vertical video footage matching the reel scene's subject.
  * 
  * Order of resolution:
- * 1. Checks local cache for previously fetched video for this query.
- * 2. Queries Pexels Video API (if PEXELS_API_KEY is configured).
- * 3. Queries Pixabay Video API (if PIXABAY_API_KEY is configured).
- * 4. Checks local stock video vault in data/media/stock-videos/.
- * 5. Falls back to graceful indicator if no network video available.
+ * 1. Queries Pexels Video API (if PEXELS_API_KEY is configured).
+ * 2. Queries Pixabay Video API (if PIXABAY_API_KEY is configured).
+ * 3. Falls back to graceful indicator if no network video available.
  */
 export async function fetchBestMotionVideo(
   query: string,
@@ -374,33 +469,20 @@ export async function fetchBestMotionVideo(
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
   const cleanedQuery = query.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  const queryHash = hashKey(cleanedQuery + (options.customKeywords ? options.customKeywords.join('-') : '') + (options.voiceScript ? options.voiceScript.slice(0, 30) : ''));
-  const cachedVideoPath = path.join(STOCK_VIDEOS_DIR, `cache-${queryHash}.mp4`);
 
-  // 1. Check local query cache first
-  if (fsSync.existsSync(cachedVideoPath)) {
-    const stats = await fs.stat(cachedVideoPath);
-    if (stats.size > 50000) {
-      await fs.copyFile(cachedVideoPath, outputPath);
-      return { source: 'vault', videoPath: outputPath };
-    }
-  }
-
-  // 2. Query Pexels Video Search API with custom contextual keywords and voice script
-  const pexelsResult = await fetchPexelsVideo(cleanedQuery, cachedVideoPath, options);
-  if (pexelsResult && fsSync.existsSync(pexelsResult)) {
-    await fs.copyFile(pexelsResult, outputPath);
+  // 1. Query Pexels Video Search API with custom contextual keywords and voice script
+  const pexelsResult = await fetchPexelsVideo(cleanedQuery, outputPath, options);
+  if (pexelsResult && fsSync.existsSync(outputPath)) {
     return { source: 'pexels', videoPath: outputPath };
   }
 
-  // 3. Query Pixabay Video Search API with custom keywords and voice script
-  const pixabayResult = await fetchPixabayVideo(cleanedQuery, cachedVideoPath, options);
-  if (pixabayResult && fsSync.existsSync(pixabayResult)) {
-    await fs.copyFile(pixabayResult, outputPath);
+  // 2. Query Pixabay Video Search API with custom keywords and voice script
+  const pixabayResult = await fetchPixabayVideo(cleanedQuery, outputPath, options);
+  if (pixabayResult && fsSync.existsSync(outputPath)) {
     return { source: 'pixabay', videoPath: outputPath };
   }
 
-  // 4. Query local vault for category matches
+  // 3. Query local vault for category matches
   const keywords = cleanedQuery.split(/\s+/).filter(w => w.length >= 3);
   const vaultMatch = await findLocalVaultVideo(keywords);
   if (vaultMatch && fsSync.existsSync(vaultMatch)) {
@@ -410,4 +492,3 @@ export async function fetchBestMotionVideo(
 
   return { source: 'fallback', videoPath: outputPath };
 }
-
