@@ -168,8 +168,13 @@ async function renderSceneMultiCut(
         const archImg = path.join(GENERATED_DIR, `arch-${nonce}.jpg`);
         tempFilesToClean.push(archImg);
         try {
-          const archResult = await fetchWikimediaArchivalImage(cutQuery || ctx?.cleanSubject || '', {
-            fallbackTerms: [ctx?.cleanSubject, cutQuery].filter(Boolean) as string[],
+          // For the opening hook (scene 0, cut 0), strictly prioritize the primary subject/entity
+          const primaryArchQuery = (sceneIndex === 0 && c === 0)
+            ? (ctx?.cleanSubject || reel?.title || cutQuery)
+            : (cut?.query || cutQuery || ctx?.cleanSubject || '');
+
+          const archResult = await fetchWikimediaArchivalImage(primaryArchQuery, {
+            fallbackTerms: [ctx?.cleanSubject, reel?.title, cut?.query].filter(Boolean) as string[],
             usedUrls: extraOpts?.usedVideoUrls,
             usedTitles: extraOpts?.usedArchivalTitles,
             index: c,
@@ -423,7 +428,7 @@ async function renderGeneratedScene(
     if (shouldTryArchival) {
       try {
         const targetQuery = archivalQuery || cleanSubject || rawHeadline;
-        const fallbackList = [cleanSubject, ...(Array.isArray(scene?.bRollKeywords) ? scene.bRollKeywords : (Array.isArray(scene?.visualBeats) ? scene.visualBeats : []))].filter(Boolean);
+        const fallbackList = [cleanSubject, ...(Array.isArray(scene?.bRollKeywords) ? scene.bRollKeywords : [])].filter(Boolean);
         console.info(`[Autonomous Visual Producer] 🏛️ Resolving verified archival record (scene ${index + 1}): "${targetQuery.slice(0, 50)}"...`);
         const archivalResult = await fetchWikimediaArchivalImage(targetQuery, {
           fallbackTerms: fallbackList,

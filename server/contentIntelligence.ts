@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { ContentVertical, getActivePersona } from './themePage.js';
 import { StrategyFeedback } from './jobQueue.js';
+import { getThematicArchetypeQueries } from './motionVideoEngine.js';
 
 export type VerificationStatus =
   | 'verified_primary'
@@ -2290,8 +2291,146 @@ export function buildContextualCutPrompt(
 }
 
 /**
- * Ensures each chapter has the exact required number of concrete visual cuts (3-second cut rule),
- * with each cut strictly locked to the historical era, subject, and the exact spoken clause.
+ * Dynamically synthesizes 100% bespoke, non-repetitive hashtags tailored specifically
+ * to the reel's unique historical subject, artifact, and theme.
+ * Completely eliminates static 5-hashtag copy-pasting that triggers Instagram's spam filters.
+ */
+export function generateDistinctReelHashtags(
+  cleanSubject: string,
+  dossier: ResearchDossier,
+  aiHashtags?: string[]
+): string[] {
+  const brandTags = ['#theuntoldarchive', '#untoldhistory'];
+
+  // Extract topic-specific entities
+  const topicWords = cleanSubject
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 4 && !/^(this|that|with|from|have|will|case|file|mystery|incident|story|record|records|anomaly|untold|great)$/i.test(w));
+
+  const candidateTags: string[] = [];
+
+  // Subject compound tag (e.g. #sanxingdui, #rarebookrobbery, #derinkuyu)
+  const compoundTag = '#' + cleanSubject.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
+  if (compoundTag.length >= 5) candidateTags.push(compoundTag);
+
+  // Individual topic nouns
+  for (const tw of topicWords) {
+    candidateTags.push(`#${tw}`);
+  }
+
+  // Topic category from dossier
+  const combinedContext = `${cleanSubject} ${dossier.subject || ''} ${dossier.centralPremise || ''}`.toLowerCase();
+  if (/archaeolog|ruin|ancient|bronze|tomb|pyramid|civilization|excavat/i.test(combinedContext)) {
+    candidateTags.push('#ancienthistory', '#archaeology', '#ancientmysteries');
+  } else if (/heist|robbery|theft|stolen|loot|burglar/i.test(combinedContext)) {
+    candidateTags.push('#truecrimehistory', '#historicalheist', '#unsolvedheist');
+  } else if (/vault|bank|gold|diamond/i.test(combinedContext)) {
+    candidateTags.push('#heistfiles', '#vaultheist', '#historicalmysteries');
+  } else if (/spy|cold war|cia|kgb|classified|covert|espionage/i.test(combinedContext)) {
+    candidateTags.push('#coldwarhistory', '#declassifiedfiles', '#espionage');
+  } else if (/nuclear|atomic|radiation|bomb|reactor/i.test(combinedContext)) {
+    candidateTags.push('#atomicage', '#nuclearhistory', '#historicalfacts');
+  } else if (/catacomb|tunnel|underground|cave|bunker/i.test(combinedContext)) {
+    candidateTags.push('#undergroundhistory', '#forgottenplaces', '#subterranean');
+  } else if (/ocean|sea|submarine|shipwreck|abyss/i.test(combinedContext)) {
+    candidateTags.push('#shipwreck', '#maritimehistory', '#oceanmysteries');
+  } else {
+    candidateTags.push('#historicalmysteries', '#archivalrecords');
+  }
+
+  // If AI provided hashtags, filter out generic repeats and include the best specific ones
+  if (Array.isArray(aiHashtags)) {
+    for (const h of aiHashtags) {
+      const cleanH = String(h || '').trim().toLowerCase();
+      if (cleanH.startsWith('#') && cleanH.length >= 4) {
+        if (!/^(#theuntoldarchive|#untoldhistory|#declassified|#historicalmysteries|#archivalrecords)$/i.test(cleanH)) {
+          candidateTags.push(cleanH);
+        }
+      }
+    }
+  }
+
+  // Combine: exactly 3-4 topic-specific tags + 1-2 brand tags (total 5-6 tags max)
+  const uniqueTags = Array.from(new Set(candidateTags)).slice(0, 4);
+  return [...uniqueTags, ...brandTags];
+}
+
+/**
+ * Synthesizes dynamic, bespoke captions that rotate across 3 distinct narrative styles
+ * to avoid repetitive "Theory A / Theory B / Theory C" boilerplate penalties on Instagram.
+ */
+export function generateDynamicBespokeCaption(
+  cleanSubject: string,
+  dossier: ResearchDossier,
+  brandHandle: string = '@theuntoldarch'
+): string {
+  const fact0 = dossier.verifiedFacts[0] ? dossier.verifiedFacts[0].trim().replace(/\.+$/, '') : dossier.centralPremise;
+  const fact1 = dossier.verifiedFacts[1] ? dossier.verifiedFacts[1].trim().replace(/\.+$/, '') : '';
+  const aftermath = dossier.uncertaintiesOrLimits[0] ? dossier.uncertaintiesOrLimits[0].trim().replace(/\.+$/, '') : '';
+
+  const styles = [
+    // Style 1: Investigative Case File
+    () => [
+      `CASE FILE // ${cleanSubject.toUpperCase()}`,
+      '',
+      `Declassified records reveal the documented operation of ${cleanSubject}. Official archives record that ${fact0}, yet secondary forensic audits reveal evidence that breaks standard historical narratives.`,
+      '',
+      fact1 ? `KEY ARCHIVAL FINDING:\nInvestigators documented that ${fact1}.` : '',
+      '',
+      `THE UNRESOLVED QUESTION:\n${aftermath || 'Decades after the event, primary logs remain sealed under national archive classifications.'}`,
+      '',
+      `What is your theory on what really happened? Share your verdict below 👇`,
+      '',
+      `💾 Save this case file for your records | 📤 Share with a history enthusiast`,
+      '',
+      `Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜`
+    ].filter(Boolean).join('\n'),
+
+    // Style 2: Historical Incident Breakdown
+    () => [
+      `ARCHIVAL INCIDENT LOG // ${cleanSubject.toUpperCase()}`,
+      '',
+      `Behind closed doors, the official narrative of ${cleanSubject} told only half the story. Primary documents confirm: ${fact0}.`,
+      '',
+      fact1 ? `THE CRITICAL TURNING POINT:\n${fact1}. This single development challenged conventional accounts from day one.` : '',
+      '',
+      `THE CONTROVERSY:\n${aftermath || 'Scholars remain divided over whether this was an institutional coverup or an inexplicable anomaly.'}`,
+      '',
+      `Coverup or documented coincidence? Drop your thoughts below 👇`,
+      '',
+      `💾 Save to follow this investigation | 📤 Send to someone who loves deep mysteries`,
+      '',
+      `Follow ${brandHandle} for declassified history daily 📜`
+    ].filter(Boolean).join('\n'),
+
+    // Style 3: Forensic Mystery Analysis
+    () => [
+      `DECLASSIFIED DOSSIER // ${cleanSubject.toUpperCase()}`,
+      '',
+      `Official archives record ${cleanSubject} as one of the most enigmatic events of its era. Standard accounts state ${fact0}.`,
+      '',
+      `TWO COMPETING PERSPECTIVES:`,
+      `• The Official Record: Authorities maintained the incident was fully contained through standard procedures.`,
+      `• The Archival Evidence: ${fact1 || aftermath || 'Physical logs show anomalies that contradict public statements.'}`,
+      '',
+      `Which perspective do you find more credible? Let us know below 👇`,
+      '',
+      `💾 Save this dossier for your investigation | 📤 Share with your circle`,
+      '',
+      `Follow ${brandHandle} for daily investigative history 📜`
+    ].filter(Boolean).join('\n')
+  ];
+
+  const chosenStyle = styles[Math.floor(Math.random() * styles.length)];
+  return chosenStyle();
+}
+
+/**
+ * Ensures each chapter has concrete visual search queries (3-second cut rule),
+ * with each cut strictly locked to concrete physical visual keywords,
+ * eliminating spoken narration fragments that cause unrelated stock footage to be selected.
  */
 export function ensureChapterCuts(
   scene: any,
@@ -2307,17 +2446,48 @@ export function ensureChapterCuts(
     : splitNarrationIntoVisualBeats(voiceScript || cleanSubject, requiredCuts);
 
   const cuts: VisualCutBeat[] = [];
+  const aiCuts = Array.isArray(scene?.cuts) ? scene.cuts : [];
+  const bRollKeywords = Array.isArray(scene?.bRollKeywords)
+    ? scene.bRollKeywords.filter((k: any) => typeof k === 'string' && k.trim().length >= 3)
+    : [];
+  const archivalQuery = String(scene?.archivalQuery || '').trim();
+  const archetypeFallbacks = getThematicArchetypeQueries(cleanSubject, topicContext || '', voiceScript);
+
+  // Helper to test if a candidate query looks like a spoken voice sentence fragment rather than visual keyword
+  const isSpokenSentence = (q: string) => {
+    if (!q || q.length > 50) return true;
+    if (/[?.!]$/.test(q.trim())) return true;
+    if (/^(in \d{4}|during \d{4}|according to|to those who|without tripping|priceless volumes|a simple drainage|a farmer digging|yet this advanced|zero written records|did they|below\.?)/i.test(q)) return true;
+    const words = q.trim().split(/\s+/);
+    return words.length > 5;
+  };
 
   for (let c = 0; c < requiredCuts; c++) {
     const clause = visualBeats[c] || visualBeats[0] || cleanSubject;
-    const prompt = buildContextualCutPrompt(cleanSubject, topicContext || '', historicalEra, clause, c);
+    const isOpeningHook = (sceneIndex === 0 && c === 0);
+    const cutType = isOpeningHook ? 'archival_image' : 'motion_video';
 
-    // Authentic documentary cut beats: Archival record hook on opening, motion B-roll / archival footage
+    // Formulate concrete visual query
+    let visualQuery = '';
+    if (isOpeningHook) {
+      visualQuery = archivalQuery || cleanSubject;
+    } else if (aiCuts[c]?.query && !isSpokenSentence(aiCuts[c].query)) {
+      visualQuery = aiCuts[c].query;
+    } else if (bRollKeywords[c] && !isSpokenSentence(bRollKeywords[c])) {
+      visualQuery = bRollKeywords[c];
+    } else if (bRollKeywords.length > 0) {
+      visualQuery = bRollKeywords[c % bRollKeywords.length];
+    } else {
+      visualQuery = archetypeFallbacks[(sceneIndex * 2 + c) % archetypeFallbacks.length] || cleanSubject;
+    }
+
+    const prompt = buildContextualCutPrompt(cleanSubject, topicContext || '', historicalEra, visualQuery, c);
+
     cuts.push({
       cutOrder: c + 1,
-      type: (sceneIndex === 0 && c === 0) ? 'archival_image' : 'motion_video',
-      query: clause,
-      description: `Cinematic scene illustrating: ${clause}`,
+      type: cutType,
+      query: visualQuery,
+      description: `Cinematic documentary scene: ${visualQuery}`,
       historicalEra,
       spokenClause: clause,
       prompt
@@ -2420,14 +2590,11 @@ STRICT SCRIPTING & NARRATIVE ARCHITECTURE RULES:
        - Bad: "ancient botanical anomaly" -> Good: "ancient book candlelight", "strange plant illustration", "parchment folio dark"
        - Bad: "espionage operation betrayal" -> Good: "bank vault lock dark", "vintage telephone dark", "briefcase documents dark"
 
-4. GLOBAL INSTAGRAM CAPTION (150-WORD CASE FILE + 3 COMPETING THEORIES):
-   - The caption must be an international investigative case file (~150 words) detailing 3 competing theories:
-     * Theory A: The mainstream / official explanation
-     * Theory B: The alternative historical / operational motive
-     * Theory C: The unresolved / anomalous perspective
-   - Conclude with a debate question: "Which theory do you believe: A, B, or C? Drop your thoughts below."
-   - Follow with an explicit viral save/share CTA line: "💾 Save this file for your investigation | 📤 Share with someone who loves mysteries"
-   - Do NOT include any hashtags inside the caption body — hashtags go in the separate \"hashtags\" array field only.
+4. BESPOKE INSTAGRAM CAPTION (120-150 WORDS) & NON-REPETITIVE HASHTAGS:
+   - The caption must be an engaging, high-retention investigative case file (~120-150 words). Break down the documented historical event, anomaly, or heist: what officials announced in public vs the physical evidence that challenged it.
+   - DO NOT use generic boilerplate or rigid "Theory A / Theory B / Theory C" templates. Write like an investigative journalist releasing a declassified case file.
+   - Conclude with a varied, provocative discussion question (e.g. "Did officials cover it up, or was it an unexplained technical failure? Share your theory below.") and a clean save/share CTA line.
+   - "hashtags": An array of 5-6 hashtags. EXACTLY 3-4 must be unique topic/subject tags (e.g. #sanxingdui, #ancientchina, #bronzeage; or #rarebooks, #bookheist, #truecrimehistory), plus 1-2 brand tags (#theuntoldarchive, #untoldhistory). DO NOT repeat the same generic hashtags across different subjects.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -2468,8 +2635,8 @@ Return ONLY valid JSON matching this schema:
       ]
     }
   ],
-  "caption": "Full ~150-word investigative case file detailing Theory A, Theory B, Theory C, ending with debate CTA.",
-  "hashtags": ["#theuntoldarchive", "#untoldhistory", "#declassified", "#historicalmysteries", "#archivalrecords"]
+  "caption": "Bespoke ~120-150-word investigative case file detailing the anomaly, evidence, and closing debate question.",
+  "hashtags": ["#<topic_entity>", "#<historical_era_or_region>", "#<topic_category>", "#theuntoldarchive", "#untoldhistory"]
 }`;
 
   const isEspionageOrOperation = /operation|spy|espionage|sabotage|fbi|cia|kgb|heist|bank|theft|robbery|war|nazi|military|bunker|choke point|chokepoint/i.test(`${dossier.subject} ${vertical.niche} ${dossier.centralPremise}`);
@@ -2523,35 +2690,28 @@ Return ONLY valid JSON matching this schema:
           script = script.replace(pattern, 'documented evidence');
         }
       }
+
+      // Enforce fast, punchy documentary pacing: cap each scene at 20 words max (~6-7s)
+      const words = script.split(/\s+/).filter(Boolean);
+      if (words.length > 20) {
+        script = words.slice(0, 20).join(' ').replace(/[,;:\-\s]+$/, '') + '.';
+      }
       s.voiceScript = script;
 
       const estWords = script.split(/\s+/).filter(Boolean).length;
-      const numCuts = Math.max(2, Math.ceil((estWords / 2.2) / 3.0));
-      s.cuts = ensureChapterCuts(s, idx, numCuts, cleanSubject);
+      const numCuts = Math.max(2, Math.ceil((estWords / 2.4) / 3.0));
+      s.cuts = ensureChapterCuts(s, idx, numCuts, cleanSubject, dossier.subject);
     });
 
-    // Ensure caption has 3 theories, debate CTA, and Save/Share CTA
-    if (!parsed.caption || parsed.caption.length < 80 || !/Theory A/i.test(parsed.caption) || !/Which theory do you believe/i.test(parsed.caption)) {
-      parsed.caption = [
-        `ARCHIVAL CASE FILE // ${cleanSubject.toUpperCase()}`,
-        '',
-        `Deep in the historical record lies the documented account of ${cleanSubject}. Official archives verify that ${cleanSubject} presents an anomaly that challenges standard historical explanations.`,
-        '',
-        `THREE COMPETING THEORIES:`,
-        `• Theory A (Mainstream Record): Historians argue it was an elaborate medieval production or cryptographic exercise created using methods of the era.`,
-        `• Theory B (Covert Origin): Forensic examiners suggest an undocumented specialized craft or encrypted system was deliberately concealed from public records.`,
-        `• Theory C (The Unsolved Anomaly): Independent researchers point to physical and structural characteristics that break conventional models entirely.`,
-        '',
-        `DEBATE: Which theory do you believe: A, B, or C? Drop your thoughts below.`,
-        '',
-        `💾 Save this file for your investigation | 📤 Share with someone who loves mysteries`,
-        '',
-        `Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜`
-      ].filter(Boolean).join('\n');
-    } else if (!/Save this file|💾/i.test(parsed.caption)) {
-      // Append high-converting save/share CTA if missing from AI caption
+    // Ensure non-repetitive bespoke caption and viral CTA
+    if (!parsed.caption || String(parsed.caption).trim().length < 80) {
+      parsed.caption = generateDynamicBespokeCaption(cleanSubject, dossier, brandHandle);
+    } else if (!/Save|💾|Share|📤/i.test(parsed.caption)) {
       parsed.caption = parsed.caption.trim() + '\n\n💾 Save this file for your investigation | 📤 Share with someone who loves mysteries';
     }
+
+    // Ensure 100% topic-specific, non-repetitive hashtags
+    parsed.hashtags = generateDistinctReelHashtags(cleanSubject, dossier, parsed.hashtags);
 
     return true;
   };
@@ -2657,10 +2817,10 @@ export async function constructDocumentaryReelPackage(
   const brandHandle = persona.handle || '@theuntoldarch';
   const brandTag = brandHandle.replace(/^@/, '#');
 
-  // Helper to dynamically calibrate duration for 1.0x human speech pacing (~2.2 words per sec + 1.2s buffer)
-  const calcDuration = (script: string, minSec = 6.0): number => {
+  // Helper to dynamically calibrate duration for high-retention pacing (5.0s min, 7.5s max per scene, total 25-32s)
+  const calcDuration = (script: string, minSec = 5.0): number => {
     const wordCount = (script || '').trim().split(/\s+/).filter(Boolean).length;
-    return Math.max(minSec, Number(((wordCount / 2.2) + 1.2).toFixed(1)));
+    return Math.min(7.5, Math.max(minSec, Number(((wordCount / 2.4) + 0.8).toFixed(1))));
   };
 
   // 1. Primary Generation: Bespoke AI Script Generation with Zero Pattern Repetition
@@ -2669,14 +2829,7 @@ export async function constructDocumentaryReelPackage(
   let scenes: CuratedScene[];
   let reelTitle = dossier.subject.slice(0, 50);
   let reelCaption = '';
-  let reelHashtags = [
-    brandTag,
-    '#theuntoldarchive',
-    '#worldmysteries',
-    '#unsolvedmysteries',
-    '#historicalmysteries',
-    '#documentary'
-  ];
+  let reelHashtags = generateDistinctReelHashtags(dossier.subject.split(/[:\-\—\(]/)[0].trim(), dossier);
   let structure: NarrativeStructureType = 'chronological_reconstruction';
 
   const isOperationGenre = /operation|espionage|spy|sabotage|heist|infiltrat|military|covert|fbi|cia|pastorius/i.test(`${dossier.subject} ${dossier.centralPremise || ''}`);
@@ -2697,10 +2850,9 @@ export async function constructDocumentaryReelPackage(
 
   if (aiScript && Array.isArray(aiScript.scenes) && aiScript.scenes.length >= 3) {
     reelTitle = aiScript.title || reelTitle;
-    reelCaption = aiScript.caption || '';
-    if (Array.isArray(aiScript.hashtags) && aiScript.hashtags.length > 0) {
-      reelHashtags = aiScript.hashtags;
-    }
+    const cleanSubject = dossier.subject.split(/[:\-\—\(]/)[0].trim();
+    reelCaption = aiScript.caption || generateDynamicBespokeCaption(cleanSubject, dossier, brandHandle);
+    reelHashtags = generateDistinctReelHashtags(cleanSubject, dossier, aiScript.hashtags);
     if (aiScript.narrativeStructure) {
       structure = aiScript.narrativeStructure;
     }
@@ -2723,8 +2875,6 @@ export async function constructDocumentaryReelPackage(
       BRAND_PALETTE.deepTelemetryCyan,
       BRAND_PALETTE.warningRust
     ];
-
-    const cleanSubject = dossier.subject.split(/[:\-\—\(]/)[0].trim();
 
     scenes = aiScript.scenes.map((s, idx) => {
       const fallbackCtx = extractContextualSceneKeywords(dossier.subject, s.voiceScript || '', idx);
@@ -2834,22 +2984,8 @@ export async function constructDocumentaryReelPackage(
       };
     });
 
-    reelCaption = [
-      `ARCHIVAL CASE FILE // ${cleanSubject.toUpperCase()}`,
-      '',
-      `Deep in the historical record lies the documented account of ${cleanSubject}. Official archives verify that ${fact0}, yet the full physical evidence continues to challenge standard historical explanations.`,
-      '',
-      `THREE COMPETING THEORIES:`,
-      `• Theory A (Mainstream Record): Historians argue ${fact0 ? fact0.slice(0, 100) : 'it was a conventional historical artifact created using standard methods of the era'}.`,
-      `• Theory B (Covert / Lost Technology): Forensic examiners suggest ${fact1 ? fact1.slice(0, 100) : 'an undocumented specialized craft or encrypted system was deliberately concealed'}.`,
-      `• Theory C (The Unsolved Anomaly): Independent researchers point to ${(fact2 || aftermath) ? (fact2 || aftermath).slice(0, 100) : 'unexplained physical characteristics that break conventional models entirely'}.`,
-      '',
-      `DEBATE: Which theory do you believe: A, B, or C? Drop your thoughts below.`,
-      '',
-      dossier.citations[0] ? `Source: ${dossier.citations.map(c => c.sourceName).join(' | ')}` : 'Source: Official Archive & Primary Documentation',
-      '',
-      `Follow ${brandHandle} for daily declassified dossiers & historical mysteries 📜`
-    ].filter(Boolean).join('\n');
+    reelCaption = generateDynamicBespokeCaption(cleanSubject, dossier, brandHandle);
+    reelHashtags = generateDistinctReelHashtags(cleanSubject, dossier);
   }
 
   const pkg: CuratedReelPackage = {

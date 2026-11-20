@@ -122,7 +122,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_visual_usage_used_at ON visual_usage_history (used_at);
 
   CREATE TABLE IF NOT EXISTS autonomous_config (
-    id TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, interval_minutes INTEGER DEFAULT 180,
+    id TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, interval_minutes INTEGER DEFAULT 480,
     target_niche TEXT DEFAULT 'AI Tech & Breakthroughs', current_stage TEXT DEFAULT 'idle',
     last_run TEXT, next_run TEXT, strategy_feedback_json TEXT, format_preference TEXT DEFAULT 'reels_only',
     updated_at TEXT NOT NULL
@@ -478,8 +478,8 @@ if (!existingConfig) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   insertConfig.run(
-    'default_config', 1, 180, 'Documentary Storytelling: Heists, Forbidden Infrastructure & Global Mysteries', 'idle', null,
-    new Date(Date.now() + 180 * 60000).toISOString(),
+    'default_config', 1, 480, 'Documentary Storytelling: Heists, Forbidden Infrastructure & Global Mysteries', 'idle', null,
+    new Date(Date.now() + 480 * 60000).toISOString(),
     JSON.stringify({
       topHookPattern: "3-Second Bold Contrarian Interruption",
       optimalPacing: "Fast Flash-Cut at 1.8s - 2.4s intervals",

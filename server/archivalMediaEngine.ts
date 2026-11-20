@@ -51,23 +51,36 @@ export async function fetchWikimediaArchivalImage(
 
   // Build candidate queries in priority order
   const candidates: string[] = [];
-  const cleanInitial = query.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (cleanInitial) candidates.push(cleanInitial);
 
-  // If query had subtitles or colons, extract the primary subject
-  const coreSubject = query.split(/[:\-\—\(]/)[0].replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (coreSubject && coreSubject.length >= 4 && coreSubject !== cleanInitial) {
-    candidates.push(coreSubject);
-  }
+  // Helper to clean spoken narrative filler from search queries
+  const cleanSpokenFiller = (str: string) => {
+    return str
+      .replace(/^(during the|in the|in \d{4}|during \d{4}|at the|on the|when the|according to|after the|before the|around \d{4}|by \d{4})\s+/i, '')
+      .replace(/^(a farmer digging|a simple drainage ditch in|without tripping any alarms|priceless volumes vanished|to those who exploit|zero written records|migrate or was|share your theory|did they|below\.?)/i, '')
+      .replace(/[^\w\s-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
 
   const fallbacks = options.fallbackTerms || options.fallbackQueries;
+
+  // Prioritize primary subject / entity from fallbacks or query
   if (Array.isArray(fallbacks)) {
     for (const term of fallbacks) {
-      const cleanTerm = term.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+      const cleanTerm = cleanSpokenFiller(term);
       if (cleanTerm && cleanTerm.length >= 3) {
         candidates.push(cleanTerm);
       }
     }
+  }
+
+  const cleanInitial = cleanSpokenFiller(query);
+  if (cleanInitial) candidates.push(cleanInitial);
+
+  // If query had subtitles or colons, extract the primary subject
+  const coreSubject = cleanSpokenFiller(query.split(/[:\-\—\(]/)[0]);
+  if (coreSubject && coreSubject.length >= 4 && coreSubject !== cleanInitial) {
+    candidates.push(coreSubject);
   }
 
   const uniqueCandidates = Array.from(new Set(candidates));
@@ -121,6 +134,11 @@ export async function fetchWikimediaArchivalImage(
           if (/flag|icon|symbol|logo|insignia|emblem|coat_of_arms|collage|diptych|triptych|montage|multi[-_]?panel|souvenir|postcard[-_]?rack|gift[-_]?shop|qr[-_]?code|barcode|locator[-_]?map|blank[-_]?map|wikimedia|commons[-_]?logo/i.test(img.title)) {
             return false;
           }
+          // Reject scientific bulletin scans, malacology/zoology/botany surveys, specimen charts unless explicitly queried
+          if (/bulletin|proceedings|malacolog|mollusc|snail|gastropod|herbarium|taxonom|specimen|botan|entomolog|beetle|fossil_record|census|tax_record|telephone_directory|genealog/i.test(img.title) &&
+              !/mollusc|snail|biology|fossil|specimen|botany|malacolog/i.test(targetQuery)) {
+            return false;
+          }
           if (/voltohm|r[oö]ntgen|x[-_]?ray|reklame|advertisement/i.test(img.title) && !/x[-_]?ray|roentgen|radiograph/i.test(targetQuery)) {
             return false;
           }
@@ -146,9 +164,18 @@ export async function fetchWikimediaArchivalImage(
         'water', 'ice', 'ocean', 'forest', 'mountain', 'valley', 'dark', 'vintage',
         'historic', 'historical', 'ancient', 'secret', 'mystery', 'underground',
         'subterranean', 'inside', 'exterior', 'interior', 'view', 'city', 'site',
-        'under', 'over', 'into', 'about', 'near'
+        'under', 'over', 'into', 'about', 'near', 'farmer', 'digging', 'ditch', 'simple',
+        'during', 'great', 'rare', 'book', 'books', 'room', 'rooms', 'stolen', 'heist',
+        'first', 'second', 'third', 'without', 'behind', 'hidden', 'these', 'those'
       ]);
-      const subjectWords = queryWords.filter(w => !genericVisualModifiers.has(w) && w.length >= 4);
+
+      // CRITICAL: Standalone years (e.g. 1987, 1933, 1945) or numbers must NEVER be treated as a subject match!
+      // This prevents "The Great Rare Book Robbery 1987" from matching 1987 snail bulletins!
+      const subjectWords = queryWords.filter(w =>
+        !genericVisualModifiers.has(w) &&
+        w.length >= 4 &&
+        !/^\d{1,4}$/.test(w)
+      );
 
       // Filter and score images by title relevance to target query
       const scoredImages = validImages

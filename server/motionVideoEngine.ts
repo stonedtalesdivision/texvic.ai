@@ -153,6 +153,27 @@ export const GENERAL_ATMOSPHERIC_FALLBACKS = [
 
 export const DARK_ARCHIVE_FALLBACK_QUERIES = GENERAL_ATMOSPHERIC_FALLBACKS;
 
+// Strict negative filter regex against modern civilian domestic / lifestyle footage
+export const BANNED_STOCK_TAGS = /sofa|couch|bedroom|living[-_]?room|student|homework|school|classroom|studying?|laptop|casual|girl[-_]?reading|woman[-_]?reading|boy[-_]?reading|man[-_]?reading|kid|child|teen|teenager|cute|domestic|home[-_]?interior|coffee[-_]?cup|office[-_]?meeting|corporate|handshake|fitness|workout|gym|dancing|smile|smiling|family|fashion[-_]?model|clothing[-_]?store|shopping/i;
+
+/**
+ * Returns concrete physical visual search queries matched to a topic's historical archetype.
+ */
+export function getThematicArchetypeQueries(
+  subject: string,
+  topicContext?: string,
+  voiceScript?: string
+): string[] {
+  const combined = `${subject} ${topicContext || ''} ${voiceScript || ''}`.toLowerCase();
+  const matches: string[] = [];
+  for (const arch of Object.values(THEMATIC_ARCHETYPE_QUERIES)) {
+    if (arch.regex.test(combined)) {
+      matches.push(...arch.queries);
+    }
+  }
+  return matches.length > 0 ? matches : GENERAL_ATMOSPHERIC_FALLBACKS;
+}
+
 /**
  * Distills scene narration, topic context, and custom keywords into crisp 1-2 word search keywords
  * that stock video APIs (Pixabay/Pexels) have high-volume tags for.
@@ -197,6 +218,13 @@ export function extractSearchTerms(
     'course', 'profound', 'would', 'done', 'position', 'standard', 'textbooks', 'examined',
     'physical', 'copying', 'exact', 'breakthrough', 'know', 'imagine', 'blow', 'mind',
     'nobody', 'talking', 'comment', 'share', 'follow', 'below',
+    'room', 'rooms', 'bedroom', 'living', 'farmer', 'digging', 'ditch', 'simple',
+    'people', 'person', 'woman', 'girl', 'boy', 'man', 'student', 'homework',
+    'sofa', 'couch', 'chair', 'bed', 'desk', 'laptop', 'coffee', 'cup', 'table',
+    'school', 'casual', 'study', 'studying', 'reading', 'read', 'books', 'book',
+    'office', 'meeting', 'class', 'classroom', 'exploit', 'shared', 'trust',
+    'officials', 'cover', 'coverup', 'institutional', 'negligence', 'theory',
+    'without', 'tripping', 'alarms', 'priceless', 'volumes', 'vanished',
     ...Array.from(BANNED_ABSTRACT_TERMS)
   ]);
 
@@ -265,6 +293,8 @@ async function fetchPixabayVideo(
       const validHits = hits.filter(h => {
         const tags = String(h?.tags || '').toLowerCase();
         if (/green screen|chroma key|3d model|animation render/i.test(tags)) return false;
+        // Strictly filter out domestic, casual, modern civilian lifestyle stock footage
+        if (BANNED_STOCK_TAGS.test(tags)) return false;
         const vidUrl = h?.videos?.medium?.url || h?.videos?.large?.url || h?.videos?.small?.url;
         if (!vidUrl) return false;
         if (options?.usedUrls?.has(vidUrl)) return false;
@@ -366,10 +396,12 @@ async function fetchPexelsVideo(
       const videos = data?.videos || [];
       if (!videos.length) continue;
 
-      // Filter out previously used video files across recent reels
+      // Filter out previously used video files across recent reels & banned lifestyle stock
       const availableVideos = videos.filter((v: any) => {
         if (options?.usedUrls?.has(v.url)) return false;
         if (v.id && options?.usedUrls?.has(String(v.id))) return false;
+        const videoSlug = String(v?.url || '').toLowerCase();
+        if (BANNED_STOCK_TAGS.test(videoSlug)) return false;
         const mp4Files = (v?.video_files || []).filter((f: any) => f?.file_type === 'video/mp4' && f?.link);
         if (mp4Files.some((f: any) => options?.usedUrls?.has(f.link))) return false;
         return true;

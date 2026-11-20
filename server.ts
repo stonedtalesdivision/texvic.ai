@@ -6871,7 +6871,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
         })
       );
 
-      const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
+      const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 480));
       const nextRun = new Date(Date.now() + intervalMinutes * 60000).toISOString();
 
       db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)
@@ -7203,7 +7203,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       logId
     );
 
-    const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 180));
+    const intervalMinutes = Math.max(15, Number((db.prepare('SELECT interval_minutes FROM autonomous_config WHERE id = ?').get('default_config') as any)?.interval_minutes || 480));
     const nextRun = new Date(Date.now() + intervalMinutes * 60000).toISOString();
 
     db.prepare(`UPDATE autonomous_config SET last_run = ?, next_run = ?, current_stage = 'idle', updated_at = ? WHERE id = 'default_config'`)

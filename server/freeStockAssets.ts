@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { recordVisualUsage } from './database.js';
+import { BANNED_STOCK_TAGS } from './motionVideoEngine.js';
 
 const CACHE_DIR = path.join(process.cwd(), 'data', 'media', 'stock-cache');
 
@@ -72,8 +73,10 @@ export async function fetchBestFreeVisual(
         const hits = data?.hits || [];
         if (!hits.length) continue;
 
-        // Exclude previously used photos across recent reels
+        // Exclude previously used photos across recent reels & banned lifestyle stock
         const validHits = hits.filter((h: any) => {
+          const tags = String(h?.tags || '').toLowerCase();
+          if (BANNED_STOCK_TAGS.test(tags)) return false;
           const imgUrl = h?.largeImageURL || h?.webformatURL || h?.imageURL;
           if (!imgUrl) return false;
           if (options.usedUrls?.has(imgUrl)) return false;
@@ -81,7 +84,8 @@ export async function fetchBestFreeVisual(
           return true;
         });
 
-        const pool = validHits.length > 0 ? validHits : hits;
+        if (!validHits.length) continue;
+        const pool = validHits;
         const chosen = pool[Math.floor(Math.random() * pool.length)];
         const imgUrl = chosen?.largeImageURL || chosen?.webformatURL || chosen?.imageURL;
         if (!imgUrl) continue;
@@ -128,6 +132,8 @@ export async function fetchBestFreeVisual(
         const photos = data?.photos || [];
         if (photos.length > 0) {
           const availablePhotos = photos.filter((p: any) => {
+            const photoSlug = String(p?.url || '').toLowerCase();
+            if (BANNED_STOCK_TAGS.test(photoSlug)) return false;
             const imgUrl = p?.src?.large2x || p?.src?.large || p?.src?.original;
             if (!imgUrl) return false;
             if (options.usedUrls?.has(imgUrl)) return false;
@@ -136,29 +142,31 @@ export async function fetchBestFreeVisual(
             return true;
           });
 
-          const pool = availablePhotos.length > 0 ? availablePhotos : photos;
-          const selected = pool[Math.floor(Math.random() * pool.length)];
-          const imgUrl = selected?.src?.large2x || selected?.src?.large || selected?.src?.original;
-          if (imgUrl) {
-            const imgResp = await fetch(imgUrl, { signal: AbortSignal.timeout(12000) });
-            if (imgResp.ok) {
-              const buf = await imgResp.arrayBuffer();
-              if (buf.byteLength > 15000) {
-                await fs.writeFile(outputPath, Buffer.from(buf));
-                if (options.usedUrls) {
-                  options.usedUrls.add(imgUrl);
-                  if (selected.id) options.usedUrls.add(String(selected.id));
-                  if (selected.url) options.usedUrls.add(selected.url);
+          if (availablePhotos.length > 0) {
+            const pool = availablePhotos;
+            const selected = pool[Math.floor(Math.random() * pool.length)];
+            const imgUrl = selected?.src?.large2x || selected?.src?.large || selected?.src?.original;
+            if (imgUrl) {
+              const imgResp = await fetch(imgUrl, { signal: AbortSignal.timeout(12000) });
+              if (imgResp.ok) {
+                const buf = await imgResp.arrayBuffer();
+                if (buf.byteLength > 15000) {
+                  await fs.writeFile(outputPath, Buffer.from(buf));
+                  if (options.usedUrls) {
+                    options.usedUrls.add(imgUrl);
+                    if (selected.id) options.usedUrls.add(String(selected.id));
+                    if (selected.url) options.usedUrls.add(selected.url);
+                  }
+                  recordVisualUsage({
+                    assetType: 'stock_photo',
+                    source: 'pexels',
+                    sourceUrl: imgUrl,
+                    identifier: selected.id ? String(selected.id) : query,
+                    query,
+                    reelId: options.reelId
+                  });
+                  return { source: 'pexels-stock', path: outputPath };
                 }
-                recordVisualUsage({
-                  assetType: 'stock_photo',
-                  source: 'pexels',
-                  sourceUrl: imgUrl,
-                  identifier: selected.id ? String(selected.id) : query,
-                  query,
-                  reelId: options.reelId
-                });
-                return { source: 'pexels-stock', path: outputPath };
               }
             }
           }
