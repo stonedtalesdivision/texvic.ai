@@ -2725,7 +2725,7 @@ Return ONLY valid JSON matching this schema:
     for (const model of modelsToTry) {
       try {
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Timeout after 7s on ${model}`)), 7000)
+          setTimeout(() => reject(new Error(`Timeout after 25s on ${model}`)), 25000)
         );
         const response = await Promise.race([
           ai.models.generateContent({
