@@ -6958,7 +6958,7 @@ async function runAutonomous24x7Cycle(): Promise<{ success: boolean; reel?: any;
       }
 
       // Stage 4: Deduplication sanity check before persisting
-      const existingReels = db.prepare('SELECT id, title FROM reels').all() as any[];
+      const existingReels = db.prepare("SELECT id, title FROM reels WHERE status != 'video_failed'").all() as any[];
       const duplicateReel = existingReels.find((r: any) => 
         isTopicDuplicate(r.title, candidateReel.title) || isTopicDuplicate(r.title, finalTopicInfo.topic)
       );
